@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((m) => ({
           id: m.id,
-          name: m.id,
+          name: m.name || m.id, // Use machine name, fallback to ID if name is missing
           speed: m.status === 'stopped' || m.status === 'error' ? 0 : parseFloat(m.line_speed || 0),
           status: m.status,
         }));
@@ -60,7 +60,7 @@ router.get('/', async (req, res) => {
         .slice(0, 3)
         .map((m) => ({
           id: m.id,
-          name: m.id,
+          name: m.name || m.id, // Use machine name, fallback to ID if name is missing
           speed: parseFloat(m.line_speed || 0),
           status: m.status,
         }));
@@ -145,7 +145,7 @@ router.get('/:areaId', async (req, res) => {
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((m) => ({
         id: m.id,
-        name: m.id,
+        name: m.name || m.id, // Use machine name, fallback to ID if name is missing
         speed: m.status === 'stopped' || m.status === 'error' ? 0 : parseFloat(m.line_speed || 0),
         status: m.status,
       }));
@@ -157,7 +157,7 @@ router.get('/:areaId', async (req, res) => {
       .slice(0, 3)
       .map((m) => ({
         id: m.id,
-        name: m.id,
+        name: m.name || m.id, // Use machine name, fallback to ID if name is missing
         speed: parseFloat(m.line_speed || 0),
         status: m.status,
       }));
