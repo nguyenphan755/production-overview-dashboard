@@ -185,13 +185,11 @@ router.get('/:machineId', async (req, res) => {
        LIMIT 20`,
       [machineId]
     );
-    machine.speedTrend = speedTrendResult.rows
-      .reverse()
-      .map((row) => ({
-        time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        speed: parseFloat(row.value || 0),
-        target: parseFloat(row.target_value || machine.targetSpeed),
-      }));
+    machine.speedTrend = speedTrendResult.rows.map((row) => ({
+      time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      speed: parseFloat(row.value || 0),
+      target: parseFloat(row.target_value || machine.targetSpeed),
+    }));
 
     // Get temperature trend (last 5 minutes, 30-second intervals = ~10 points)
     const tempTrendResult = await query(
@@ -203,12 +201,10 @@ router.get('/:machineId', async (req, res) => {
        LIMIT 20`,
       [machineId]
     );
-    machine.temperatureTrend = tempTrendResult.rows
-      .reverse()
-      .map((row) => ({
-        time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        temp: parseFloat(row.value || 0),
-      }));
+    machine.temperatureTrend = tempTrendResult.rows.map((row) => ({
+      time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      temp: parseFloat(row.value || 0),
+    }));
 
     // Get current trend (last 5 minutes, 30-second intervals = ~10 points)
     const currentTrendResult = await query(
@@ -220,12 +216,10 @@ router.get('/:machineId', async (req, res) => {
        LIMIT 20`,
       [machineId]
     );
-    machine.currentTrend = currentTrendResult.rows
-      .reverse()
-      .map((row) => ({
-        time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        current: parseFloat(row.value || 0),
-      }));
+    machine.currentTrend = currentTrendResult.rows.map((row) => ({
+      time: new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      current: parseFloat(row.value || 0),
+    }));
 
     // Get multi-zone temperature trend (last 5 minutes, 30-second intervals)
     const multiZoneTempResult = await query(
