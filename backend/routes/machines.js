@@ -175,13 +175,14 @@ router.get('/:machineId', async (req, res) => {
       }
     }
 
-    // Get speed trend (last 7 data points, 5 min intervals)
+    // Get speed trend (last 5 minutes, 30-second intervals = ~10 points)
     const speedTrendResult = await query(
       `SELECT value, target_value, timestamp 
        FROM machine_metrics 
        WHERE machine_id = $1 AND metric_type = 'speed'
-       ORDER BY timestamp DESC
-       LIMIT 7`,
+       AND timestamp >= NOW() - INTERVAL '5 minutes'
+       ORDER BY timestamp ASC
+       LIMIT 20`,
       [machineId]
     );
     machine.speedTrend = speedTrendResult.rows
@@ -192,13 +193,14 @@ router.get('/:machineId', async (req, res) => {
         target: parseFloat(row.target_value || machine.targetSpeed),
       }));
 
-    // Get temperature trend
+    // Get temperature trend (last 5 minutes, 30-second intervals = ~10 points)
     const tempTrendResult = await query(
       `SELECT value, timestamp 
        FROM machine_metrics 
        WHERE machine_id = $1 AND metric_type = 'temperature'
-       ORDER BY timestamp DESC
-       LIMIT 7`,
+       AND timestamp >= NOW() - INTERVAL '5 minutes'
+       ORDER BY timestamp ASC
+       LIMIT 20`,
       [machineId]
     );
     machine.temperatureTrend = tempTrendResult.rows
@@ -208,13 +210,14 @@ router.get('/:machineId', async (req, res) => {
         temp: parseFloat(row.value || 0),
       }));
 
-    // Get current trend
+    // Get current trend (last 5 minutes, 30-second intervals = ~10 points)
     const currentTrendResult = await query(
       `SELECT value, timestamp 
        FROM machine_metrics 
        WHERE machine_id = $1 AND metric_type = 'current'
-       ORDER BY timestamp DESC
-       LIMIT 7`,
+       AND timestamp >= NOW() - INTERVAL '5 minutes'
+       ORDER BY timestamp ASC
+       LIMIT 20`,
       [machineId]
     );
     machine.currentTrend = currentTrendResult.rows
@@ -224,20 +227,21 @@ router.get('/:machineId', async (req, res) => {
         current: parseFloat(row.value || 0),
       }));
 
-    // Get multi-zone temperature trend
+    // Get multi-zone temperature trend (last 5 minutes, 30-second intervals)
     const multiZoneTempResult = await query(
       `SELECT value, zone_number, timestamp 
        FROM machine_metrics 
        WHERE machine_id = $1 AND metric_type = 'multi_zone_temp'
-       AND timestamp >= NOW() - INTERVAL '35 minutes'
-       ORDER BY timestamp ASC`,
+       AND timestamp >= NOW() - INTERVAL '5 minutes'
+       ORDER BY timestamp ASC
+       LIMIT 80`,
       [machineId]
     );
     
     // Group by timestamp
     const tempByTime = {};
     multiZoneTempResult.rows.forEach((row) => {
-      const timeKey = new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const timeKey = new Date(row.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       if (!tempByTime[timeKey]) {
         tempByTime[timeKey] = {};
       }
@@ -246,7 +250,6 @@ router.get('/:machineId', async (req, res) => {
       }
     });
     machine.multiZoneTemperatureTrend = Object.entries(tempByTime)
-      .slice(-7)
       .map(([time, zones]) => ({ time, ...zones }));
 
     // Get power trend (last 2 hours, 15-min intervals)

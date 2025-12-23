@@ -430,12 +430,12 @@ async function seedSampleData() {
 
     // For each running machine, insert metrics
     for (const machine of machines.filter(m => m.status === 'running' && m.line_speed > 0)) {
-      // Speed trend (last 30 minutes, 5-min intervals = 7 points)
+      // Speed trend (last 5 minutes, 30-second intervals = 10 points for better visualization)
       const speedData = generateTimeSeriesData(
         machine.line_speed * 0.95,
         machine.line_speed,
-        7,
-        30
+        10,  // 10 points
+        5    // 5 minutes window
       );
       for (const point of speedData) {
         await query(
@@ -446,13 +446,13 @@ async function seedSampleData() {
         metricsCount++;
       }
 
-      // Temperature trend
+      // Temperature trend (last 5 minutes, 30-second intervals = 10 points)
       if (machine.temperature) {
         const tempData = generateTimeSeriesData(
           machine.temperature - 5,
           machine.temperature,
-          7,
-          30
+          10,  // 10 points
+          5    // 5 minutes window
         );
         for (const point of tempData) {
           await query(
@@ -464,13 +464,13 @@ async function seedSampleData() {
         }
       }
 
-      // Current trend
+      // Current trend (last 5 minutes, 30-second intervals = 10 points)
       if (machine.current) {
         const currentData = generateTimeSeriesData(
           machine.current - 3,
           machine.current,
-          7,
-          30
+          10,  // 10 points
+          5    // 5 minutes window
         );
         for (const point of currentData) {
           await query(
@@ -500,10 +500,10 @@ async function seedSampleData() {
         }
       }
 
-      // Multi-zone temperatures (for machines with multi-zone)
+      // Multi-zone temperatures (last 5 minutes, 30-second intervals = 10 points)
       if (machine.multi_zone_temperatures) {
         const zones = JSON.parse(machine.multi_zone_temperatures);
-        const zoneData = generateTimeSeriesData(140, 170, 7, 35);
+        const zoneData = generateTimeSeriesData(140, 170, 10, 5);
         for (let i = 0; i < zoneData.length; i++) {
           const point = zoneData[i];
           for (let zone = 1; zone <= 4; zone++) {
