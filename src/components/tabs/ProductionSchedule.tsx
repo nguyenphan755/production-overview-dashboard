@@ -1,6 +1,18 @@
 import { Calendar, Clock, Package, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useMachines } from '../../hooks/useProductionData';
 
 export function ProductionSchedule() {
+  const { machines } = useMachines();
+  
+  // Create a map of machine ID to machine name
+  const machineNameMap = new Map(
+    machines.map(m => [m.id, m.name])
+  );
+  
+  // Helper function to get machine name or fallback to ID
+  const getMachineName = (machineId: string) => {
+    return machineNameMap.get(machineId) || machineId;
+  };
   const activeOrders = [
     {
       id: 'PO-2024-156',
@@ -200,8 +212,8 @@ export function ProductionSchedule() {
               <div className="grid grid-cols-4 gap-4">
                 <div>
                   <div className="text-white/60 text-xs mb-1">MACHINE</div>
-                  <div className="text-white">{order.machine}</div>
-                  <div className="text-white/40 text-xs">{order.area}</div>
+                  <div className="text-white">{getMachineName(order.machine)}</div>
+                  <div className="text-white/40 text-xs">{order.machine} • {order.area}</div>
                 </div>
                 <div>
                   <div className="text-white/60 text-xs mb-1">START TIME</div>
@@ -265,7 +277,8 @@ export function ProductionSchedule() {
                   </div>
                   <div className="text-right">
                     <div className="text-white/60 text-xs">MACHINE</div>
-                    <div className="text-white">{order.machine}</div>
+                    <div className="text-white">{getMachineName(order.machine)}</div>
+                    <div className="text-white/40 text-xs">{order.machine}</div>
                   </div>
                 </div>
               </div>

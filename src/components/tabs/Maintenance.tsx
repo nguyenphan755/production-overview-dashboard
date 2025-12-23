@@ -1,6 +1,18 @@
 import { Wrench, Calendar, CheckCircle2, Clock, AlertTriangle, Package } from 'lucide-react';
+import { useMachines } from '../../hooks/useProductionData';
 
 export function Maintenance() {
+  const { machines } = useMachines();
+  
+  // Create a map of machine ID to machine name
+  const machineNameMap = new Map(
+    machines.map(m => [m.id, m.name])
+  );
+  
+  // Helper function to get machine name or fallback to ID
+  const getMachineName = (machineId: string) => {
+    return machineNameMap.get(machineId) || machineId;
+  };
   const upcomingMaintenance = [
     {
       machine: 'D-01',
@@ -165,8 +177,8 @@ export function Maintenance() {
                   <div className="flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${getPriorityColor(item.priority)} shadow-lg`} />
                     <div>
-                      <div className="text-white text-lg">{item.machine}</div>
-                      <div className="text-white/40 text-sm">{item.area} • {item.type}</div>
+                      <div className="text-white text-lg">{getMachineName(item.machine)}</div>
+                      <div className="text-white/40 text-sm">{item.machine} • {item.area} • {item.type}</div>
                     </div>
                   </div>
                   <div className="text-right">
@@ -215,8 +227,8 @@ export function Maintenance() {
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <div className="text-white/60 text-xs mb-1">{order.id}</div>
-                    <div className="text-white text-lg">{order.machine}</div>
-                    <div className="text-white/40 text-sm">{order.area}</div>
+                    <div className="text-white text-lg">{getMachineName(order.machine)}</div>
+                    <div className="text-white/40 text-sm">{order.machine} • {order.area}</div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-xs ${getStatusColor(order.status)} border ${
                     order.status === 'in-progress' ? 'border-[#FFB86C]/30 bg-[#FFB86C]/10' :
