@@ -462,5 +462,342 @@ Replace:
 
 ---
 
+## 🗑️ Guide: How to DELETE Machines from PostgreSQL
+
+This guide shows you how to safely delete machines from the `machines` table.
+
+---
+
+### ⚠️ IMPORTANT WARNINGS
+
+**Before deleting a machine, understand what will be deleted:**
+
+1. **Automatically Deleted (CASCADE):**
+   - ✅ All `alarms` for this machine
+   - ✅ All `machine_metrics` (time-series data) for this machine
+   - ✅ All `energy_consumption` records for this machine
+
+2. **Must Handle Manually:**
+   - ⚠️ `production_orders` that reference this machine (will block deletion if not handled)
+
+3. **Data Loss:**
+   - ⚠️ **All historical data** for this machine will be permanently deleted
+   - ⚠️ This action **CANNOT be undone** (unless you have a backup)
+
+---
+
+### 🔍 Step 1: Check What Will Be Deleted
+
+**Before deleting, check related records:**
+
+```sql
+-- Replace 'D-09' with the machine ID you want to delete
+
+-- Check if machine exists
+SELECT id, name, area, status FROM machines WHERE id = 'D-09';
+
+-- Count related records that will be deleted
+SELECT 
+    'alarms' as table_name, COUNT(*) as record_count
+FROM alarms WHERE machine_id = 'D-09'
+UNION ALL
+SELECT 
+    'machine_metrics', COUNT(*)
+FROM machine_metrics WHERE machine_id = 'D-09'
+UNION ALL
+SELECT 
+    'energy_consumption', COUNT(*)
+FROM energy_consumption WHERE machine_id = 'D-09';
+
+-- Check production orders (these must be handled separately)
+SELECT 
+    id, name, product_name, status, start_time
+FROM production_orders 
+WHERE machine_id = 'D-09';
+```
+
+**Example Output:**
+```
+table_name          | record_count
+--------------------|-------------
+alarms              | 5
+machine_metrics     | 1247
+energy_consumption  | 168
+```
+
+---
+
+### 🛡️ Step 2: Handle Production Orders (If Any)
+
+**Production orders do NOT cascade delete.** You must handle them first:
+
+#### Option A: Delete Production Orders First
+
+```sql
+-- Delete all production orders for this machine
+DELETE FROM production_orders WHERE machine_id = 'D-09';
+```
+
+#### Option B: Unassign Machine from Orders (Keep Orders)
+
+```sql
+-- Set machine_id to NULL (if your schema allows)
+UPDATE production_orders 
+SET machine_id = NULL 
+WHERE machine_id = 'D-09';
+```
+
+#### Option C: Reassign to Another Machine
+
+```sql
+-- Reassign orders to a different machine
+UPDATE production_orders 
+SET machine_id = 'D-01'  -- Replace with another machine ID
+WHERE machine_id = 'D-09';
+```
+
+---
+
+### 🗑️ Step 3: Delete the Machine
+
+#### Method 1: Using SQL (psql or pgAdmin Query Tool)
+
+```sql
+-- Basic DELETE (will cascade delete related records)
+DELETE FROM machines WHERE id = 'D-09';
+```
+
+**Verify deletion:**
+```sql
+-- Check if machine was deleted
+SELECT id, name FROM machines WHERE id = 'D-09';
+-- Should return 0 rows
+
+-- Verify related records were also deleted
+SELECT COUNT(*) FROM alarms WHERE machine_id = 'D-09';
+SELECT COUNT(*) FROM machine_metrics WHERE machine_id = 'D-09';
+SELECT COUNT(*) FROM energy_consumption WHERE machine_id = 'D-09';
+-- All should return 0
+```
+
+#### Method 2: Using pgAdmin Interface
+
+1. **Open pgAdmin** and connect to your PostgreSQL server
+
+2. **Navigate to the table:**
+   - Expand: `Databases` → `production_dashboard` → `Schemas` → `public` → `Tables`
+   - Right-click on `machines` table
+   - Select **"View/Edit Data"** → **"All Rows"**
+
+3. **Find the machine:**
+   - Use the search/filter to find the machine by ID or name
+   - Or scroll to find it
+
+4. **Delete the row:**
+   - Right-click on the row
+   - Select **"Delete Row"** or press **Delete** key
+   - Confirm the deletion in the dialog
+   - Click **"Save"** button (💾)
+
+5. **Verify deletion:**
+   - Refresh the view
+   - The machine should no longer appear
+
+---
+
+### 🔒 Safe Deletion with Transaction (Recommended)
+
+**Use a transaction to safely delete and verify:**
+
+```sql
+BEGIN;
+
+-- 1. Check what will be deleted
+SELECT 
+    'alarms' as table_name, COUNT(*) as count
+FROM alarms WHERE machine_id = 'D-09'
+UNION ALL
+SELECT 'machine_metrics', COUNT(*)
+FROM machine_metrics WHERE machine_id = 'D-09'
+UNION ALL
+SELECT 'energy_consumption', COUNT(*)
+FROM energy_consumption WHERE machine_id = 'D-09'
+UNION ALL
+SELECT 'production_orders', COUNT(*)
+FROM production_orders WHERE machine_id = 'D-09';
+
+-- 2. Handle production orders first (if any)
+DELETE FROM production_orders WHERE machine_id = 'D-09';
+
+-- 3. Delete the machine
+DELETE FROM machines WHERE id = 'D-09';
+
+-- 4. Verify deletion
+SELECT COUNT(*) FROM machines WHERE id = 'D-09';
+-- Should return 0
+
+-- 5. If everything looks good, commit
+COMMIT;
+
+-- OR if something is wrong, rollback
+-- ROLLBACK;
+```
+
+---
+
+### 🚨 Common Errors and Solutions
+
+#### Error: "update or delete on table violates foreign key constraint"
+
+**Cause:** Production orders still reference this machine.
+
+**Solution:**
+```sql
+-- Check which orders reference this machine
+SELECT id, name, status FROM production_orders WHERE machine_id = 'D-09';
+
+-- Delete or update those orders first
+DELETE FROM production_orders WHERE machine_id = 'D-09';
+-- Then try deleting the machine again
+```
+
+#### Error: "machine does not exist"
+
+**Cause:** Machine ID is incorrect or already deleted.
+
+**Solution:**
+```sql
+-- List all machines to find the correct ID
+SELECT id, name, area FROM machines ORDER BY area, id;
+```
+
+---
+
+### 📊 Delete Multiple Machines
+
+**Delete machines by area:**
+```sql
+-- Delete all machines in a specific area (USE WITH CAUTION!)
+DELETE FROM machines WHERE area = 'drawing';
+```
+
+**Delete machines by status:**
+```sql
+-- Delete all stopped machines (USE WITH CAUTION!)
+DELETE FROM machines WHERE status = 'stopped';
+```
+
+**Delete specific machines:**
+```sql
+-- Delete multiple specific machines
+DELETE FROM machines 
+WHERE id IN ('D-09', 'D-10', 'S-06');
+```
+
+---
+
+### ✅ Verify Deletion
+
+After deleting, verify everything was removed:
+
+```sql
+-- Check machine count
+SELECT COUNT(*) as total_machines FROM machines;
+
+-- Check machines by area
+SELECT area, COUNT(*) as machine_count 
+FROM machines 
+GROUP BY area 
+ORDER BY area;
+
+-- Verify no orphaned records (should return 0)
+SELECT COUNT(*) as orphaned_alarms
+FROM alarms a
+WHERE NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = a.machine_id);
+
+SELECT COUNT(*) as orphaned_metrics
+FROM machine_metrics mm
+WHERE NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = mm.machine_id);
+```
+
+---
+
+### 💡 Best Practices
+
+1. **Always backup before deleting:**
+   ```bash
+   pg_dump -U postgres production_dashboard > backup_before_delete.sql
+   ```
+
+2. **Check related records first:**
+   - Always run the "Check What Will Be Deleted" queries first
+   - Understand the impact before deleting
+
+3. **Use transactions:**
+   - Wrap deletions in `BEGIN`/`COMMIT` blocks
+   - Use `ROLLBACK` if something goes wrong
+
+4. **Handle production orders:**
+   - Check for active production orders
+   - Decide whether to delete, unassign, or reassign them
+
+5. **Verify after deletion:**
+   - Always verify the machine and related records were deleted
+   - Check for orphaned records
+
+6. **Document deletions:**
+   - Keep a log of deleted machines and why
+   - Note the date and who performed the deletion
+
+---
+
+### 🔄 Alternative: Soft Delete (Recommended for Production)
+
+**Instead of hard deleting, consider marking machines as inactive:**
+
+```sql
+-- Add a 'deleted' or 'active' flag (if not exists)
+ALTER TABLE machines ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+
+-- Soft delete: Mark as inactive
+UPDATE machines 
+SET is_active = FALSE, status = 'stopped'
+WHERE id = 'D-09';
+
+-- Filter out inactive machines in queries
+SELECT * FROM machines WHERE is_active = TRUE;
+```
+
+**Benefits:**
+- ✅ Preserves historical data
+- ✅ Can be restored later
+- ✅ Maintains referential integrity
+- ✅ Better for audit trails
+
+---
+
+### 📝 Quick Reference: Safe Deletion Template
+
+```sql
+-- 1. Check what will be deleted
+SELECT COUNT(*) FROM alarms WHERE machine_id = 'MACHINE-ID';
+SELECT COUNT(*) FROM machine_metrics WHERE machine_id = 'MACHINE-ID';
+SELECT COUNT(*) FROM production_orders WHERE machine_id = 'MACHINE-ID';
+
+-- 2. Handle production orders (if any)
+DELETE FROM production_orders WHERE machine_id = 'MACHINE-ID';
+
+-- 3. Delete the machine
+DELETE FROM machines WHERE id = 'MACHINE-ID';
+
+-- 4. Verify
+SELECT COUNT(*) FROM machines WHERE id = 'MACHINE-ID';
+-- Should return 0
+```
+
+Replace `'MACHINE-ID'` with the actual machine ID you want to delete.
+
+---
+
 **Status:** Ready for GitHub after database verification ✅
 
