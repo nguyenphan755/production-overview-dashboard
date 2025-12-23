@@ -150,8 +150,8 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                         {/* Machine Header */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
-                            <div className="text-2xl text-white tracking-tight mb-1">{machine.id}</div>
-                            <div className="text-white/60 text-sm">{machine.name}</div>
+                            <div className="text-2xl text-white tracking-tight mb-1">{machine.name}</div>
+                            <div className="text-white/60 text-sm">{machine.id}</div>
                           </div>
                           <div 
                             className="px-3 py-1.5 rounded-lg text-sm tracking-wider border"

@@ -81,7 +81,7 @@ export function MachineGrid() {
             className={`rounded-lg border-2 ${getStatusColor(machine.status)} backdrop-blur-sm p-2 transition-all duration-300 hover:scale-105 hover:shadow-lg`}
           >
             <div className="flex items-start justify-between mb-1.5">
-              <div className="text-white text-sm tracking-wide">{machine.id}</div>
+              <div className="text-white text-sm tracking-wide line-clamp-2">{machine.name}</div>
               <div className={`w-2 h-2 rounded-full ${getStatusDot(machine.status)}`}></div>
             </div>
             
@@ -91,7 +91,7 @@ export function MachineGrid() {
                 </div>
               </div>
 
-              <div className="text-white/40 text-sm">{areaNames[machine.area] || machine.area}</div>
+              <div className="text-white/40 text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
             </div>
           ))
         )}

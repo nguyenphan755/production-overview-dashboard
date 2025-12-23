@@ -142,7 +142,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             </button>
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl text-white tracking-tight">{machineInfo.id}</h1>
+                <h1 className="text-3xl text-white tracking-tight">{machineInfo.name}</h1>
                 <div 
                   className="px-3 py-1.5 rounded-lg tracking-wider border text-sm"
                   style={{
@@ -154,7 +154,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   RUNNING
                 </div>
               </div>
-              <div className="text-white/60 text-base">{machineInfo.name}</div>
+              <div className="text-white/60 text-base">{machineInfo.id}</div>
             </div>
           </div>
           <div className="text-right">
