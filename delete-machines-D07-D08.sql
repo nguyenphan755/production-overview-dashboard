@@ -70,14 +70,33 @@ FROM production_orders WHERE machine_id = 'D-08';
 SELECT '=== HANDLING PRODUCTION ORDERS ===' as step;
 
 -- Show production orders that will be affected
-SELECT id, name, product_name, status, machine_id
+SELECT id, name, product_name, status, machine_id, start_time
 FROM production_orders 
-WHERE machine_id IN ('D-07', 'D-08');
+WHERE machine_id IN ('D-07', 'D-08')
+ORDER BY machine_id, start_time DESC;
 
--- Delete production orders for these machines
+-- Count orders by status
+SELECT 
+    machine_id,
+    status,
+    COUNT(*) as order_count
+FROM production_orders 
+WHERE machine_id IN ('D-07', 'D-08')
+GROUP BY machine_id, status
+ORDER BY machine_id, status;
+
+-- IMPORTANT: Delete production orders FIRST (they don't cascade)
+-- This is required because production_orders has a foreign key without CASCADE
 DELETE FROM production_orders WHERE machine_id IN ('D-07', 'D-08');
 
-SELECT 'Production orders deleted' as result;
+-- Verify orders were deleted
+SELECT 
+    CASE 
+        WHEN COUNT(*) = 0 THEN '✅ All production orders deleted'
+        ELSE '❌ ' || COUNT(*) || ' orders still exist'
+    END as result
+FROM production_orders 
+WHERE machine_id IN ('D-07', 'D-08');
 
 -- ============================================================================
 -- STEP 3: Delete the machines
