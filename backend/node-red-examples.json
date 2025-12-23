@@ -1,0 +1,131 @@
+[
+  {
+    "id": "flow-machine-updates",
+    "type": "tab",
+    "label": "Machine Data Updates",
+    "disabled": false,
+    "info": "Updates machine data every 5 seconds from simulated PLC data"
+  },
+  {
+    "id": "inject-1",
+    "type": "inject",
+    "z": "flow-machine-updates",
+    "name": "Every 5s",
+    "props": [{"p": "payload"}],
+    "repeat": "5",
+    "crontab": "",
+    "once": false,
+    "x": 120,
+    "y": 100
+  },
+  {
+    "id": "function-1",
+    "type": "function",
+    "z": "flow-machine-updates",
+    "name": "Generate Machine Data",
+    "func": "// Simulate real-time machine data\nconst machines = ['D-01', 'D-02', 'D-03', 'S-01', 'S-02', 'SH-01', 'SH-02'];\nconst machineId = machines[Math.floor(Math.random() * machines.length)];\n\n// Base values for each machine\nconst baseValues = {\n  'D-01': { speed: 920, current: 45.2, power: 68.5, temp: 68 },\n  'D-02': { speed: 875, current: 43.8, power: 65.2, temp: 72 },\n  'D-03': { speed: 885, current: 44.1, power: 66.8, temp: 70 },\n  'S-01': { speed: 650, current: 38.5, power: 52.3, temp: 65 },\n  'S-02': { speed: 680, current: 40.2, power: 54.8, temp: 68 },\n  'SH-01': { speed: 450, current: 52.3, power: 78.5, temp: 70 },\n  'SH-02': { speed: 425, current: 50.8, power: 76.2, temp: 68 },\n};\n\nconst base = baseValues[machineId] || { speed: 800, current: 40, power: 60, temp: 65 };\n\n// Generate realistic variations (±5%)\nmsg.payload = {\n  machineId: machineId,\n  lineSpeed: Math.max(0, Math.round(base.speed + (Math.random() - 0.5) * base.speed * 0.05)),\n  current: parseFloat((base.current + (Math.random() - 0.5) * 2).toFixed(1)),\n  power: parseFloat((base.power + (Math.random() - 0.5) * 3).toFixed(1)),\n  temperature: Math.round(base.temp + (Math.random() - 0.5) * 3),\n  producedLength: Math.floor(Math.random() * 50) + 3800, // Increment\n};\n\nreturn msg;",
+    "x": 320,
+    "y": 100
+  },
+  {
+    "id": "postgres-1",
+    "type": "postgres",
+    "z": "flow-machine-updates",
+    "postgresdb": "postgres-connection",
+    "name": "Update Machine",
+    "query": "UPDATE machines SET\n  line_speed = $1,\n  current = $2,\n  power = $3,\n  temperature = $4,\n  produced_length = $5,\n  last_updated = CURRENT_TIMESTAMP\nWHERE id = $6",
+    "params": "[\"payload.lineSpeed\", \"payload.current\", \"payload.power\", \"payload.temperature\", \"payload.producedLength\", \"payload.machineId\"]",
+    "x": 540,
+    "y": 100
+  },
+  {
+    "id": "flow-metrics",
+    "type": "tab",
+    "label": "Insert Metrics",
+    "disabled": false,
+    "info": "Inserts time-series metrics every 5 minutes"
+  },
+  {
+    "id": "inject-2",
+    "type": "inject",
+    "z": "flow-metrics",
+    "name": "Every 5 Min",
+    "props": [{"p": "payload"}],
+    "repeat": "300",
+    "crontab": "",
+    "once": false,
+    "x": 120,
+    "y": 100
+  },
+  {
+    "id": "function-2",
+    "type": "function",
+    "z": "flow-metrics",
+    "name": "Generate Metrics",
+    "func": "const machines = ['D-01', 'D-02', 'S-01', 'SH-01'];\nconst machineId = machines[Math.floor(Math.random() * machines.length)];\n\nconst baseSpeed = {\n  'D-01': 920, 'D-02': 875,\n  'S-01': 650, 'SH-01': 450\n};\n\nconst speed = baseSpeed[machineId] + (Math.random() - 0.5) * 30;\n\nmsg.payload = {\n  machineId: machineId,\n  metricType: 'speed',\n  value: Math.max(0, Math.round(speed)),\n  targetValue: machineId.startsWith('D') ? 1000 : machineId.startsWith('S') ? 720 : 500\n};\n\nreturn msg;",
+    "x": 320,
+    "y": 100
+  },
+  {
+    "id": "postgres-2",
+    "type": "postgres",
+    "z": "flow-metrics",
+    "postgresdb": "postgres-connection",
+    "name": "Insert Metric",
+    "query": "INSERT INTO machine_metrics (machine_id, metric_type, value, target_value, timestamp)\nVALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)",
+    "params": "[\"payload.machineId\", \"payload.metricType\", \"payload.value\", \"payload.targetValue\"]",
+    "x": 540,
+    "y": 100
+  },
+  {
+    "id": "flow-alarms",
+    "type": "tab",
+    "label": "Generate Alarms",
+    "disabled": false,
+    "info": "Monitors conditions and generates alarms"
+  },
+  {
+    "id": "inject-3",
+    "type": "inject",
+    "z": "flow-alarms",
+    "name": "Check Every 10s",
+    "props": [{"p": "payload"}],
+    "repeat": "10",
+    "crontab": "",
+    "once": false,
+    "x": 120,
+    "y": 100
+  },
+  {
+    "id": "postgres-3",
+    "type": "postgres",
+    "z": "flow-alarms",
+    "postgresdb": "postgres-connection",
+    "name": "Get Machines",
+    "query": "SELECT id, temperature, current, power FROM machines WHERE status = 'running'",
+    "params": "",
+    "x": 320,
+    "y": 100
+  },
+  {
+    "id": "function-3",
+    "type": "function",
+    "z": "flow-alarms",
+    "name": "Check Conditions",
+    "func": "const machines = msg.payload;\nconst alarms = [];\n\nfor (const machine of machines) {\n  // Check temperature\n  if (machine.temperature > 80) {\n    alarms.push({\n      machineId: machine.id,\n      severity: 'error',\n      message: `High temperature: ${machine.temperature}°C`\n    });\n  }\n  \n  // Check current\n  if (machine.current > 50) {\n    alarms.push({\n      machineId: machine.id,\n      severity: 'warning',\n      message: `High current: ${machine.current}A`\n    });\n  }\n}\n\nif (alarms.length > 0) {\n  return alarms.map(alarm => ({ payload: alarm }));\n}\n\nreturn null;",
+    "x": 520,
+    "y": 100
+  },
+  {
+    "id": "postgres-4",
+    "type": "postgres",
+    "z": "flow-alarms",
+    "postgresdb": "postgres-connection",
+    "name": "Insert Alarm",
+    "query": "INSERT INTO alarms (id, machine_id, severity, message, timestamp, acknowledged)\nVALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, FALSE)\nON CONFLICT DO NOTHING",
+    "params": "[\"ALM-\" + Date.now(), \"payload.machineId\", \"payload.severity\", \"payload.message\"]",
+    "x": 720,
+    "y": 100
+  }
+]
+
