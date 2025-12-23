@@ -224,7 +224,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-3">
             <div>
               <div className="text-white/60 text-xs mb-1">RUNTIME</div>
-              <div className="text-xl text-white">{productionData.runtime}h</div>
+              <div className="text-xl text-white">{productionData.runtime.toFixed(2)}h</div>
             </div>
             <div>
               <div className="text-white/60 text-xs mb-1">REMAINING</div>
