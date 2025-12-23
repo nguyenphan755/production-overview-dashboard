@@ -15,6 +15,7 @@ export interface Machine {
   targetLength?: number; // meters
   productionOrderId?: string;
   productionOrderName?: string;
+  productionOrderProductName?: string; // Product name from production order
   operatorName?: string;
   oee?: number; // Overall Equipment Effectiveness (0-100)
   availability?: number; // A in OEE (0-100)

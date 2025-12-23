@@ -32,6 +32,7 @@ const formatMachine = (row) => {
     targetLength: row.target_length ? parseFloat(row.target_length) : undefined,
     productionOrderId: row.production_order_id,
     productionOrderName: row.production_order_name,
+    productionOrderProductName: row.order_product_name, // Product name from joined production_orders table
     operatorName: row.operator_name,
     oee: row.oee ? parseFloat(row.oee) : undefined,
     availability: row.availability ? parseFloat(row.availability) : undefined,
@@ -58,11 +59,24 @@ router.get('/', async (req, res) => {
     let machinesResult;
     if (area) {
       machinesResult = await query(
-        `SELECT * FROM machines WHERE area = $1 ORDER BY id`,
+        `SELECT 
+          m.*,
+          po.product_name as order_product_name
+        FROM machines m
+        LEFT JOIN production_orders po ON m.production_order_id = po.id
+        WHERE m.area = $1 
+        ORDER BY m.id`,
         [area]
       );
     } else {
-      machinesResult = await query(`SELECT * FROM machines ORDER BY area, id`);
+      machinesResult = await query(
+        `SELECT 
+          m.*,
+          po.product_name as order_product_name
+        FROM machines m
+        LEFT JOIN production_orders po ON m.production_order_id = po.id
+        ORDER BY m.area, m.id`
+      );
     }
 
     const machines = machinesResult.rows.map(formatMachine);

@@ -154,7 +154,11 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   RUNNING
                 </div>
               </div>
-              <div className="text-white/60 text-base">{machineInfo.id}</div>
+              <div className="text-white/60 text-base">
+                {machine.productionOrderId && machine.productionOrderProductName
+                  ? `${machine.productionOrderId} • ${machine.productionOrderProductName}`
+                  : machine.productionOrderId || 'No active order'}
+              </div>
             </div>
           </div>
           <div className="text-right">
