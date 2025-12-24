@@ -110,6 +110,8 @@ You should see:
 **For quick testing, use this simplified version:**
 
 ```powershell
+
+# Pass to powershell
 # Login
 $login = Invoke-RestMethod -Uri "http://localhost:3001/api/auth/login" `
     -Method POST -Body '{"username":"nodered","password":"nodered123"}' `

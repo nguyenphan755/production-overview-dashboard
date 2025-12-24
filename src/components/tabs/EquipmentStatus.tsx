@@ -152,9 +152,14 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                           <div>
                             <div className="text-2xl text-white tracking-tight mb-1">{machine.name}</div>
                             <div className="text-white/60 text-sm">
-                              {machine.productionOrderId && machine.productionOrderProductName
-                                ? `${machine.productionOrderId} • ${machine.productionOrderProductName}`
-                                : machine.productionOrderId || 'No active order'}
+                              {machine.productionOrderId && machine.productionOrderProductName ? (
+                                <>
+                                  <span>{machine.productionOrderId} • </span>
+                                  <span className="text-[#34E7F8] font-bold text-lg">{machine.productionOrderProductName}</span>
+                                </>
+                              ) : (
+                                machine.productionOrderId || 'No active order'
+                              )}
                             </div>
                           </div>
                           <div 

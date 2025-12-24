@@ -629,28 +629,18 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
         {/* Real-time Power Consumption */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Zap className="w-5 h-5 text-[#FFB86C]" strokeWidth={2.5} />
-            <h3 className="text-lg text-white">Real-time Power Consumption</h3>
+            <Zap className="w-4 h-4 text-[#FFB86C]" strokeWidth={2.5} />
+            <h3 className="text-base text-white">Power Trend</h3>
           </div>
-          
-          <div className="mb-4">
-            <div className="flex items-baseline gap-2 mb-1.5">
-              <span className="text-4xl text-[#FFB86C] tracking-tight">
-                {machine.power ? machine.power.toFixed(1) : 'N/A'}
-              </span>
-              <span className="text-xl text-white/60">kW</span>
+          <div className="mb-3">
+            <div className="text-3xl text-[#FFB86C] tracking-tight">
+              {machine.power ? `${machine.power.toFixed(1)} kW` : 'N/A'}
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-1 rounded-full bg-[#22C55E]" />
-                <span className="text-white/60">Normal Range: 60-75 kW</span>
-              </div>
-            </div>
+            <div className="text-white/60 text-xs">Current</div>
           </div>
-
-          <div className="h-52">
+          <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={powerData}>
+              <AreaChart data={powerData}>
                 <defs>
                   <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#FFB86C" stopOpacity={0.4}/>
@@ -665,90 +655,77 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
-                  domain={[55, 80]}
+                  domain={['auto', 'auto']}
                 />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: '#0E2F4F', 
                     border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '8px'
+                    borderRadius: '8px',
+                    fontSize: '12px'
                   }}
                 />
-                {/* Normal range area */}
                 <Area 
-                  type="monotone" 
-                  dataKey="maxRange"
-                  stroke="none"
-                  fill="rgba(34, 197, 94, 0.1)"
-                  stackId="range"
-                />
-                {/* Reference lines */}
-                <ReferenceLine 
-                  y={68} 
-                  stroke="#ffffff40" 
-                  strokeDasharray="5 5"
-                  label={{ value: 'Avg', fill: '#ffffff60', fontSize: 11 }}
-                />
-                {/* Actual power line */}
-                <Line 
                   type="monotone" 
                   dataKey="power" 
                   stroke="#FFB86C" 
                   strokeWidth={3}
-                  dot={{ fill: '#FFB86C', r: 4 }}
+                  fill="url(#powerGradient)"
                 />
-              </ComposedChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Energy Consumption (24h) */}
+        {/* Energy Consumption per Interval */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Battery className="w-5 h-5 text-[#4FFFBC]" strokeWidth={2.5} />
-            <h3 className="text-lg text-white">Energy Consumption (24h)</h3>
+            <Battery className="w-4 h-4 text-[#4FFFBC]" strokeWidth={2.5} />
+            <h3 className="text-base text-white">Energy Consumption per Interval</h3>
           </div>
           
-          <div className="mb-4">
-            <div className="flex items-baseline gap-2 mb-1.5">
-              <span className="text-4xl text-[#4FFFBC] tracking-tight">
-                {energyData.reduce((sum, d) => sum + d.energy, 0).toFixed(0)}
-              </span>
-              <span className="text-xl text-white/60">kWh</span>
+          <div className="mb-3">
+            <div className="text-3xl text-[#4FFFBC] tracking-tight">
+              {energyData.reduce((sum: number, d: any) => sum + (typeof d === 'object' ? (d.energy || 0) : d), 0).toFixed(0)} kWh
             </div>
             <div className="text-white/60 text-xs">Last 24 hours total</div>
           </div>
 
-          <div className="h-52">
+          <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={energyData}>
+              <BarChart data={energyData} margin={{ top: 5, right: 5, left: 5, bottom: 20 }}>
                 <defs>
                   <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4FFFBC" stopOpacity={1}/>
-                    <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.3}/>
+                    <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.5}/>
                   </linearGradient>
                 </defs>
                 <XAxis 
                   dataKey="hour" 
                   stroke="#ffffff40" 
-                  tick={{ fill: '#ffffff60', fontSize: 11 }}
+                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={60}
                 />
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
-                  label={{ value: 'kWh', angle: -90, position: 'insideLeft', fill: '#ffffff60' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: '#0E2F4F', 
                     border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '8px'
+                    borderRadius: '8px',
+                    fontSize: '12px'
                   }}
+                  formatter={(value: any) => [`${value.toFixed(1)} kWh`, 'Energy']}
+                  labelFormatter={(label) => `Hour: ${label}`}
                 />
                 <Bar 
                   dataKey="energy" 
                   fill="url(#energyGradient)"
-                  radius={[6, 6, 0, 0]}
+                  radius={[4, 4, 0, 0]}
                 />
               </BarChart>
             </ResponsiveContainer>

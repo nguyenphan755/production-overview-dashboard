@@ -9,7 +9,9 @@
     "dev": "node --watch server.js",
     "setup-db": "node scripts/setup-database.js",
     "seed": "node scripts/seed-sample-data.js",
-    "rename-entities": "node scripts/rename-entities.js"
+    "rename-entities": "node scripts/rename-entities.js",
+    "export-machines": "node scripts/export-machines-data.js",
+    "sync-machines": "node scripts/sync-machines-from-db.js"
   },
   "dependencies": {
     "express": "^4.18.2",
