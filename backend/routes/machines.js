@@ -602,67 +602,6 @@ router.post('/:machineId/metrics', async (req, res) => {
   }
 });
 
-// POST /api/machines/name/:machineName/metrics - Insert metric data point by machine NAME (for Node-RED)
-router.post('/name/:machineName/metrics', authenticateToken, async (req, res) => {
-  try {
-    const { machineName } = req.params;
-    const { metricType, value, targetValue, zoneNumber } = req.body;
-
-    if (!metricType || value === undefined) {
-      return res.status(400).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: 'metricType and value are required',
-      });
-    }
-
-    // Resolve machine ID from name (same logic as PUT /name/:machineName)
-    const machineResult = await query(
-      `SELECT id FROM machines WHERE name = $1`,
-      [machineName]
-    );
-
-    if (machineResult.rows.length === 0) {
-      return res.status(404).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: `Machine with name "${machineName}" not found`,
-      });
-    }
-
-    const machineId = machineResult.rows[0].id;
-
-    const result = await query(
-      `INSERT INTO machine_metrics (machine_id, metric_type, value, target_value, zone_number, timestamp)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [machineId, metricType, value, targetValue || null, zoneNumber || null]
-    );
-
-    res.json({
-      data: {
-        id: result.rows[0].id,
-        machineId: result.rows[0].machine_id,
-        metricType: result.rows[0].metric_type,
-        value: parseFloat(result.rows[0].value),
-        timestamp: new Date(result.rows[0].timestamp).toISOString(),
-      },
-      timestamp: new Date().toISOString(),
-      success: true,
-    });
-  } catch (error) {
-    console.error('Error inserting metric by machine name:', error);
-    res.status(500).json({
-      data: null,
-      timestamp: new Date().toISOString(),
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
 // POST /api/machines/:machineId/alarms - Create alarm
 router.post('/:machineId/alarms', async (req, res) => {
   try {
