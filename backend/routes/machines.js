@@ -2,8 +2,21 @@ import express from 'express';
 import { query } from '../database/connection.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { broadcast } from '../websocket/broadcast.js';
+import { calculateOEE } from '../services/oeeCalculator.js';
+import { ensureAvailabilityCalculated } from '../services/availabilityAggregator.js';
+import { 
+  hasStatusChanged, 
+  updateCachedStatus, 
+  getCachedStatus,
+  initializeCache 
+} from '../services/machineStatusCache.js';
 
 const router = express.Router();
+
+// Initialize status cache on module load
+initializeCache(query).catch(err => {
+  console.error('Failed to initialize status cache:', err);
+});
 
 // Helper function to format machine data
 const formatMachine = (row) => {
@@ -29,6 +42,8 @@ const formatMachine = (row) => {
     lineSpeed: parseFloat(row.line_speed || 0),
     targetSpeed: parseFloat(row.target_speed || 0),
     producedLength: parseFloat(row.produced_length || 0),
+    producedLengthOk: row.produced_length_ok !== undefined && row.produced_length_ok !== null ? parseFloat(row.produced_length_ok) : undefined,
+    producedLengthNg: row.produced_length_ng !== undefined && row.produced_length_ng !== null ? parseFloat(row.produced_length_ng) : undefined,
     targetLength: row.target_length ? parseFloat(row.target_length) : undefined,
     productionOrderId: row.production_order_id,
     productionOrderName: row.production_order_name,
@@ -173,6 +188,39 @@ router.get('/:machineId', async (req, res) => {
           duration: order.duration,
         };
       }
+    }
+
+    // Calculate real-time OEE
+    try {
+      const oeeResult = await calculateOEE(
+        machineId,
+        {
+          lineSpeed: machine.lineSpeed,
+          targetSpeed: machine.targetSpeed,
+          producedLength: machine.producedLength,
+          producedLengthOk: row.produced_length_ok !== undefined && row.produced_length_ok !== null ? parseFloat(row.produced_length_ok) : undefined,
+          producedLengthNg: row.produced_length_ng !== undefined && row.produced_length_ng !== null ? parseFloat(row.produced_length_ng) : undefined,
+          status: machine.status
+        },
+        machine.productionOrderId || null
+      );
+
+      // Update machine OEE values
+      machine.oee = oeeResult.oee;
+      machine.availability = oeeResult.availability;
+      machine.performance = oeeResult.performance;
+      machine.quality = oeeResult.quality;
+
+      // Update OEE in database
+      await query(
+        `UPDATE machines 
+         SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+      );
+    } catch (error) {
+      console.error(`Error calculating OEE for ${machineId}:`, error);
+      // Continue with existing OEE values if calculation fails
     }
 
     // Get speed trend (last 5 minutes, 30-second intervals = ~10 points)
@@ -342,6 +390,22 @@ router.patch('/:machineId', async (req, res) => {
     const { machineId } = req.params;
     const updates = req.body;
 
+    // EVENT-BASED STATUS UPDATE: Only update status if it has changed
+    let statusChanged = false;
+    if (updates.status !== undefined) {
+      const newStatus = updates.status;
+      statusChanged = hasStatusChanged(machineId, newStatus);
+      
+      if (!statusChanged) {
+        // Status hasn't changed, remove it from updates to prevent unnecessary database write
+        console.log(`⏭️  Machine ${machineId}: Status unchanged (${newStatus}), skipping status update`);
+        delete updates.status;
+      } else {
+        // Status has changed, will update database and trigger status history
+        console.log(`🔄 Machine ${machineId}: Status changed to ${newStatus}`);
+      }
+    }
+
     // Build dynamic UPDATE query
     const fields = [];
     const values = [];
@@ -352,6 +416,8 @@ router.patch('/:machineId', async (req, res) => {
       lineSpeed: 'line_speed',
       targetSpeed: 'target_speed',
       producedLength: 'produced_length',
+      producedLengthOk: 'produced_length_ok', // OK length for quality calculation
+      producedLengthNg: 'produced_length_ng', // NG length for quality calculation
       targetLength: 'target_length',
       productionOrderId: 'production_order_id',
       productionOrderName: 'production_order_name',
@@ -392,6 +458,12 @@ router.patch('/:machineId', async (req, res) => {
 
     // Always update last_updated
     fields.push(`last_updated = CURRENT_TIMESTAMP`);
+    
+    // Only update last_status_update if status actually changed
+    if (statusChanged) {
+      fields.push(`last_status_update = CURRENT_TIMESTAMP`);
+    }
+    
     values.push(machineId);
 
     const updateQuery = `
@@ -414,7 +486,64 @@ router.patch('/:machineId', async (req, res) => {
 
     const updatedMachine = formatMachine(result.rows[0]);
 
-    // Broadcast WebSocket update
+    // Update status cache if status changed
+    if (statusChanged) {
+      updateCachedStatus(machineId, updatedMachine.status);
+      
+      // Ensure availability aggregation is calculated when status changes
+      try {
+        await ensureAvailabilityCalculated(machineId, 10); // 10-minute window
+      } catch (error) {
+        console.error(`Error ensuring availability calculated for ${machineId}:`, error);
+        // Continue without blocking
+      }
+    }
+
+    // Calculate real-time OEE if relevant fields were updated
+    // Note: statusChanged indicates if status was in the original updates and changed
+    const oeeRelevantFields = ['lineSpeed', 'targetSpeed', 'producedLength', 'status', 'productionOrderId'];
+    const shouldRecalculateOEE = oeeRelevantFields.some(field => 
+      (field === 'status' && statusChanged) || (field !== 'status' && updates[field] !== undefined)
+    );
+    
+    if (shouldRecalculateOEE) {
+      try {
+        // Get current machine data for OEE calculation
+        const currentMachineData = {
+          lineSpeed: updatedMachine.lineSpeed || 0,
+          targetSpeed: updatedMachine.targetSpeed || 0,
+          producedLength: updatedMachine.producedLength || 0,
+          producedLengthOk: updates.producedLengthOk !== undefined ? updates.producedLengthOk : undefined,
+          producedLengthNg: updates.producedLengthNg !== undefined ? updates.producedLengthNg : undefined,
+          status: updatedMachine.status
+        };
+
+        const oeeResult = await calculateOEE(
+          machineId,
+          currentMachineData,
+          updatedMachine.productionOrderId || null
+        );
+
+        // Update OEE values in database
+        await query(
+          `UPDATE machines 
+           SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
+           WHERE id = $5`,
+          [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+        );
+
+        // Update machine object with OEE values
+        updatedMachine.oee = oeeResult.oee;
+        updatedMachine.availability = oeeResult.availability;
+        updatedMachine.performance = oeeResult.performance;
+        updatedMachine.quality = oeeResult.quality;
+      } catch (error) {
+        console.error(`Error calculating OEE for ${machineId}:`, error);
+        // Continue without OEE update if calculation fails
+      }
+    }
+
+    // Broadcast WebSocket update (includes OEE if calculated)
     broadcast('machine:update', updatedMachine);
 
     res.json({
@@ -456,6 +585,23 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
 
     const machineId = machineResult.rows[0].id;
 
+    // EVENT-BASED STATUS UPDATE: Only update status if it has changed
+    // This prevents excessive database writes and reduces load on machine_status_history table
+    let statusChanged = false;
+    if (updates.status !== undefined) {
+      const newStatus = updates.status;
+      statusChanged = hasStatusChanged(machineId, newStatus);
+      
+      if (!statusChanged) {
+        // Status hasn't changed, remove it from updates to prevent unnecessary database write
+        console.log(`⏭️  Machine ${machineName} (${machineId}): Status unchanged (${newStatus}), skipping status update`);
+        delete updates.status;
+      } else {
+        // Status has changed, will update database and trigger status history
+        console.log(`🔄 Machine ${machineName} (${machineId}): Status changed to ${newStatus}`);
+      }
+    }
+
     // Build dynamic UPDATE query
     const fields = [];
     const values = [];
@@ -471,6 +617,8 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       productionOrderId: 'production_order_id',
       productionOrderName: 'production_order_name',
       operatorName: 'operator_name',
+      producedLengthOk: 'produced_length_ok', // OK length for quality calculation
+      producedLengthNg: 'produced_length_ng', // NG length for quality calculation
       oee: 'oee',
       availability: 'availability',
       performance: 'performance',
@@ -510,11 +658,14 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       });
     }
 
-    // Always update last_updated and last_status_update
+    // Always update last_updated
     fields.push(`last_updated = CURRENT_TIMESTAMP`);
-    if (updates.status) {
+    
+    // Only update last_status_update if status actually changed
+    if (statusChanged) {
       fields.push(`last_status_update = CURRENT_TIMESTAMP`);
     }
+    
     values.push(machineId);
 
     const updateQuery = `
@@ -537,7 +688,58 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
 
     const updatedMachine = formatMachine(result.rows[0]);
 
-    // Broadcast WebSocket update
+    // Ensure availability aggregation is calculated when status changes
+    if (updates.status !== undefined) {
+      try {
+        await ensureAvailabilityCalculated(machineId, 10); // 10-minute window
+      } catch (error) {
+        console.error(`Error ensuring availability calculated for ${machineId}:`, error);
+        // Continue without blocking
+      }
+    }
+
+    // Calculate real-time OEE if relevant fields were updated
+    const oeeRelevantFields = ['lineSpeed', 'targetSpeed', 'producedLength', 'producedLengthOk', 'producedLengthNg', 'status', 'productionOrderId'];
+    const shouldRecalculateOEE = oeeRelevantFields.some(field => updates[field] !== undefined);
+    
+    if (shouldRecalculateOEE) {
+      try {
+        // Get current machine data for OEE calculation
+        const currentMachineData = {
+          lineSpeed: updatedMachine.lineSpeed || 0,
+          targetSpeed: updatedMachine.targetSpeed || 0,
+          producedLength: updatedMachine.producedLength || 0,
+          producedLengthOk: updates.producedLengthOk !== undefined ? updates.producedLengthOk : undefined,
+          producedLengthNg: updates.producedLengthNg !== undefined ? updates.producedLengthNg : undefined,
+          status: updatedMachine.status
+        };
+
+        const oeeResult = await calculateOEE(
+          machineId,
+          currentMachineData,
+          updatedMachine.productionOrderId || null
+        );
+
+        // Update OEE values in database
+        await query(
+          `UPDATE machines 
+           SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
+           WHERE id = $5`,
+          [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+        );
+
+        // Update machine object with OEE values
+        updatedMachine.oee = oeeResult.oee;
+        updatedMachine.availability = oeeResult.availability;
+        updatedMachine.performance = oeeResult.performance;
+        updatedMachine.quality = oeeResult.quality;
+      } catch (error) {
+        console.error(`Error calculating OEE for ${machineId}:`, error);
+        // Continue without OEE update if calculation fails
+      }
+    }
+
+    // Broadcast WebSocket update (includes OEE if calculated)
     broadcast('machine:update', updatedMachine);
 
     console.log(`✅ Machine ${machineName} updated via API by ${req.user?.username || 'unknown'}`);

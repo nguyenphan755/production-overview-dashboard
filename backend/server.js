@@ -9,6 +9,10 @@ import machinesRouter from './routes/machines.js';
 import ordersRouter from './routes/orders.js';
 import alarmsRouter from './routes/alarms.js';
 import authRouter from './routes/auth.js';
+import availabilityRouter from './routes/availability.js';
+import { startContinuousSync } from './services/availabilitySync.js';
+import { initializeCache } from './services/machineStatusCache.js';
+import { query } from './database/connection.js';
 
 dotenv.config();
 
@@ -62,6 +66,7 @@ app.use('/api/areas', areasRouter);
 app.use('/api/machines', machinesRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/alarms', alarmsRouter);
+app.use('/api/availability', availabilityRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -85,10 +90,22 @@ app.use((req, res) => {
 });
 
 // Start server
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
   console.log(`💚 Health check: http://localhost:${PORT}/health`);
   console.log(`🔌 WebSocket server available at ws://localhost:${PORT}/ws`);
+  
+  // Initialize machine status cache (event-based status updates)
+  await initializeCache(query);
+  console.log(`💾 Machine status cache initialized - status updates are event-based (only on change)`);
+  
+  // Start continuous availability synchronization
+  // Syncs all machines every 30 seconds with 10-minute rolling window
+  const SYNC_INTERVAL_SECONDS = parseInt(process.env.AVAILABILITY_SYNC_INTERVAL || '30', 10);
+  const WINDOW_MINUTES = parseInt(process.env.AVAILABILITY_WINDOW_MINUTES || '3', 10);
+  
+  startContinuousSync(SYNC_INTERVAL_SECONDS, WINDOW_MINUTES);
+  console.log(`🔄 Continuous availability synchronization started (interval: ${SYNC_INTERVAL_SECONDS}s, window: ${WINDOW_MINUTES}min)`);
 });
 
