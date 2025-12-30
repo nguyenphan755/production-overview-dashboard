@@ -107,7 +107,10 @@ export function AreaCard({ area }: AreaCardProps) {
                     machine.status === 'error' || machine.status === 'stopped' ? 'text-[#EF4444]' :
                     'text-[#34E7F8]'
                   }`}>
-                    {displaySpeed > 0 ? `${displaySpeed}` : '0'} <span className="text-sm text-white/60">m/min</span>
+                    {displaySpeed > 0 
+                      ? (area.id === 'drawing' ? `${displaySpeed.toFixed(2)}` : `${displaySpeed}`)
+                      : '0'
+                    } <span className="text-sm text-white/60">{area.id === 'drawing' ? 'm/s' : 'm/min'}</span>
                   </div>
                 </div>
               );

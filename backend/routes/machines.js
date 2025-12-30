@@ -34,13 +34,19 @@ const formatMachine = (row) => {
     }
   }
 
+  // For Drawing machines, convert speed from m/min to m/s
+  // Database stores all speeds in m/min, but Drawing machines should display in m/s
+  const lineSpeedRaw = parseFloat(row.line_speed || 0);
+  const targetSpeedRaw = parseFloat(row.target_speed || 0);
+  const isDrawingMachine = row.area === 'drawing';
+  
   return {
     id: row.id,
     name: row.name,
     area: row.area,
     status: row.status,
-    lineSpeed: parseFloat(row.line_speed || 0),
-    targetSpeed: parseFloat(row.target_speed || 0),
+    lineSpeed: isDrawingMachine ? lineSpeedRaw / 60 : lineSpeedRaw, // Convert to m/s for drawing
+    targetSpeed: isDrawingMachine ? targetSpeedRaw / 60 : targetSpeedRaw, // Convert to m/s for drawing
     producedLength: parseFloat(row.produced_length || 0),
     producedLengthOk: row.produced_length_ok !== undefined && row.produced_length_ok !== null ? parseFloat(row.produced_length_ok) : undefined,
     producedLengthNg: row.produced_length_ng !== undefined && row.produced_length_ng !== null ? parseFloat(row.produced_length_ng) : undefined,
@@ -435,11 +441,21 @@ router.patch('/:machineId', async (req, res) => {
       runtimeHours: 'runtime_hours',
     };
 
+    // Get machine area to check if it's a drawing machine
+    const machineAreaResult = await query(
+      `SELECT area FROM machines WHERE id = $1`,
+      [machineId]
+    );
+    const isDrawingMachine = machineAreaResult.rows.length > 0 && machineAreaResult.rows[0].area === 'drawing';
+
     for (const [key, value] of Object.entries(updates)) {
       if (fieldMapping[key] && value !== undefined) {
         fields.push(`${fieldMapping[key]} = $${paramIndex}`);
         if (key === 'multiZoneTemperatures' && typeof value === 'object') {
           values.push(JSON.stringify(value));
+        } else if ((key === 'lineSpeed' || key === 'targetSpeed') && isDrawingMachine) {
+          // Convert m/s to m/min for drawing machines before storing
+          values.push(value * 60);
         } else {
           values.push(value);
         }
@@ -636,12 +652,22 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       runtime_hours: 'runtime_hours', // Support both formats
     };
 
+    // Get machine area to check if it's a drawing machine
+    const machineAreaResult = await query(
+      `SELECT area FROM machines WHERE id = $1`,
+      [machineId]
+    );
+    const isDrawingMachine = machineAreaResult.rows.length > 0 && machineAreaResult.rows[0].area === 'drawing';
+
     for (const [key, value] of Object.entries(updates)) {
       const dbField = fieldMapping[key];
       if (dbField && value !== undefined) {
         fields.push(`${dbField} = $${paramIndex}`);
         if (key === 'multiZoneTemperatures' && typeof value === 'object') {
           values.push(JSON.stringify(value));
+        } else if ((key === 'lineSpeed' || key === 'targetSpeed') && isDrawingMachine) {
+          // Convert m/s to m/min for drawing machines before storing
+          values.push(value * 60);
         } else {
           values.push(value);
         }

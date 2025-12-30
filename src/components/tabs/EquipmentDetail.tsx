@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
@@ -12,6 +13,131 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
   const realTimeTrends = useMachineDetailTrends(machine);
 
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
+  // Memoize chart data to prevent unnecessary re-renders
+  // Only update when the actual data changes, not on every render
+  const tempData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.temperature.length > 0 
+      ? realTimeTrends.temperature 
+      : (machine.temperatureTrend || []);
+  }, [realTimeTrends.temperature, machine?.temperatureTrend]);
+
+  const speedData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.speed.length > 0 
+      ? realTimeTrends.speed 
+      : (machine.speedTrend || []);
+  }, [realTimeTrends.speed, machine?.speedTrend]);
+
+  const currentData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.current.length > 0 
+      ? realTimeTrends.current 
+      : (machine.currentTrend || []);
+  }, [realTimeTrends.current, machine?.currentTrend]);
+
+  const multiZoneTempData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.multiZoneTemp.length > 0 
+      ? realTimeTrends.multiZoneTemp 
+      : (machine.multiZoneTemperatureTrend || []);
+  }, [realTimeTrends.multiZoneTemp, machine?.multiZoneTemperatureTrend]);
+
+  const powerData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.power.length > 0 
+      ? realTimeTrends.power 
+      : (machine.powerTrend || []);
+  }, [realTimeTrends.power, machine?.powerTrend]);
+
+  const energyData = useMemo(() => {
+    if (!machine) return [];
+    return realTimeTrends.energy.length > 0 
+      ? realTimeTrends.energy 
+      : (machine.energyConsumption || []);
+  }, [realTimeTrends.energy, machine?.energyConsumption]);
+
+  // Helper function to calculate dynamic Y-axis domain with ±30% margin
+  const calculateDomain = (currentValue: number, minValue?: number, maxValue?: number): [number, number] => {
+    if (!currentValue || currentValue <= 0) {
+      // Fallback to default ranges if no current value
+      return minValue !== undefined && maxValue !== undefined 
+        ? [minValue, maxValue]
+        : [0, 100];
+    }
+    
+    // Calculate ±30% margin
+    const margin = currentValue * 0.3;
+    const min = Math.max(0, currentValue - margin);
+    const max = currentValue + margin;
+    
+    // Apply optional min/max constraints
+    const finalMin = minValue !== undefined ? Math.max(min, minValue) : min;
+    const finalMax = maxValue !== undefined ? Math.min(max, maxValue) : max;
+    
+    return [finalMin, finalMax];
+  };
+
+  // Calculate dynamic domains for each chart (must be before early return)
+  const temperatureDomain = useMemo(() => {
+    if (!machine) return [0, 100];
+    const currentTemp = machine.temperature || 0;
+    return calculateDomain(currentTemp, 0, 200); // Max 200°C for safety
+  }, [machine?.temperature]);
+
+  const speedDomain = useMemo(() => {
+    if (!machine) return [0, 100];
+    const isDrawing = machine.area === 'drawing';
+    const currentSpeed = machine.lineSpeed || 0;
+    // For drawing machines (m/s), use different base range
+    if (isDrawing) {
+      return calculateDomain(currentSpeed, 0, 50); // Max 50 m/s for drawing
+    } else {
+      return calculateDomain(currentSpeed, 0, 2000); // Max 2000 m/min for others
+    }
+  }, [machine?.lineSpeed, machine?.area]);
+
+  const currentDomain = useMemo(() => {
+    if (!machine) return [0, 100];
+    const currentCurrent = machine.current || 0;
+    return calculateDomain(currentCurrent, 0, 100); // Max 100A for safety
+  }, [machine?.current]);
+
+  const multiZoneTempDomain = useMemo(() => {
+    if (!machine) return [0, 300];
+    // Use the highest zone temperature for domain calculation
+    const zones = machine.multiZoneTemperatures;
+    const isExtrusionMachine = machine.area === 'sheathing';
+    
+    let maxZoneTemp = 0;
+    if (zones) {
+      const zoneValues = [
+        zones.zone1 || 0,
+        zones.zone2 || 0,
+        zones.zone3 || 0,
+        zones.zone4 || 0,
+      ];
+      
+      // Add zones 5-10 for extrusion machines
+      if (isExtrusionMachine) {
+        zoneValues.push(
+          zones.zone5 || 0,
+          zones.zone6 || 0,
+          zones.zone7 || 0,
+          zones.zone8 || 0,
+          zones.zone9 || 0,
+          zones.zone10 || 0
+        );
+      }
+      
+      maxZoneTemp = Math.max(...zoneValues);
+    }
+    
+    return calculateDomain(maxZoneTemp || 150, 0, 300); // Max 300°C for safety
+  }, [machine?.multiZoneTemperatures, machine?.area]);
+
+  // Early return AFTER all hooks
   if (loading || !machine) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -31,18 +157,88 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     customer: machine.productionOrder?.customer || 'N/A'
   };
 
+  // Check if this is a Drawing machine (uses m/s instead of m/min)
+  const isDrawingMachine = machine.area === 'drawing';
+  
   // Production metrics
+  const currentLength = machine.producedLength || 0;
+  const targetLength = machine.targetLength || 0;
+  
+  // Backend sends m/s for Drawing machines, m/min for others
+  const currentSpeedRaw = machine.lineSpeed || 0;
+  const targetSpeedRaw = machine.targetSpeed || 0;
+  
+  // Convert to consistent units (m/s) for calculations
+  // For drawing: speed is already in m/s from backend
+  // For others: speed is in m/min, convert to m/s for calculations
+  const currentSpeedMps = isDrawingMachine 
+    ? currentSpeedRaw  // Already in m/s from backend
+    : currentSpeedRaw / 60;  // Convert m/min to m/s
+  
+  const targetSpeedMps = isDrawingMachine
+    ? targetSpeedRaw  // Already in m/s from backend
+    : targetSpeedRaw / 60;  // Convert m/min to m/s
+  
+  // For display: show in original units (backend already converted drawing to m/s)
+  const currentSpeedDisplay = currentSpeedRaw;
+  const targetSpeedDisplay = targetSpeedRaw;
+  const speedUnit = isDrawingMachine ? 'm/s' : 'm/min';
+  
+  // Calculate runtime (hours since order started)
+  const runtime = machine.productionOrder?.startTime 
+    ? (Date.now() - new Date(machine.productionOrder.startTime).getTime()) / 3600000 
+    : 0;
+  
+  // Calculate average speed based on actual production
+  // Average speed = total length produced / runtime
+  // For drawing: result in m/s (runtime in hours, so divide by 3600)
+  // For others: result in m/min (runtime in hours, so divide by 60)
+  const avgSpeed = runtime > 0 && currentLength > 0
+    ? isDrawingMachine
+      ? (currentLength / (runtime * 3600))  // m/s: divide by seconds
+      : (currentLength / (runtime * 60))    // m/min: divide by minutes
+    : currentSpeedDisplay; // Fallback to current speed if no runtime data
+  
+  // Calculate remaining length
+  const remainingLength = Math.max(0, targetLength - currentLength);
+  
+  // Calculate remaining production time based on current speed
+  // Remaining time = remaining length / current speed
+  // Speed is in m/s, so result is in seconds
+  const remainingTimeSeconds = currentSpeedMps > 0 && remainingLength > 0
+    ? remainingLength / currentSpeedMps
+    : 0;
+  
+  // Convert remaining time to hours and minutes
+  const remainingTimeMinutes = remainingTimeSeconds / 60;
+  const remainingTimeHours = Math.floor(remainingTimeMinutes / 60);
+  const remainingTimeMins = Math.floor(remainingTimeMinutes % 60);
+  const remainingTimeFormatted = remainingTimeHours > 0
+    ? `${remainingTimeHours}h ${remainingTimeMins}m`
+    : remainingTimeMins > 0
+    ? `${remainingTimeMins}m`
+    : '0m';
+  
+  // Calculate estimated completion time
+  const estimatedCompletionTime = remainingTimeSeconds > 0
+    ? new Date(Date.now() + remainingTimeSeconds * 1000)
+    : null;
+  const estimatedCompletionFormatted = estimatedCompletionTime
+    ? estimatedCompletionTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : 'N/A';
+
   const productionData = {
-    currentLength: machine.producedLength,
-    targetLength: machine.targetLength || 0,
-    speed: machine.lineSpeed,
-    targetSpeed: machine.targetSpeed || 0,
-    runtime: machine.productionOrder?.startTime 
-      ? (Date.now() - new Date(machine.productionOrder.startTime).getTime()) / 3600000 
-      : 0,
-    estimatedCompletion: machine.productionOrder?.endTime 
-      ? new Date(machine.productionOrder.endTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-      : 'N/A'
+    currentLength,
+    targetLength,
+    speed: currentSpeedDisplay,
+    targetSpeed: targetSpeedDisplay,
+    speedUnit,
+    runtime,
+    avgSpeed,
+    remainingLength,
+    remainingTime: remainingTimeFormatted,
+    remainingTimeMinutes,
+    estimatedCompletion: estimatedCompletionFormatted
   };
 
   // OEE metrics
@@ -52,19 +248,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     quality: machine.quality || 0,
     oee: machine.oee || 0
   };
-
-  // Use real-time trends (merged with backend data)
-  const tempData = realTimeTrends.temperature.length > 0 
-    ? realTimeTrends.temperature 
-    : (machine.temperatureTrend || []);
-
-  const speedData = realTimeTrends.speed.length > 0 
-    ? realTimeTrends.speed 
-    : (machine.speedTrend || []);
-
-  const currentData = realTimeTrends.current.length > 0 
-    ? realTimeTrends.current 
-    : (machine.currentTrend || []);
 
   const getOEEColor = (value: number) => {
     if (value >= 85) return '#22C55E';
@@ -91,21 +274,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const speedPercentage = productionData.targetSpeed > 0 
     ? (productionData.speed / productionData.targetSpeed) * 100 
     : 0;
-
-  // Multi-zone temperature data (use real-time trends)
-  const multiZoneTempData = realTimeTrends.multiZoneTemp.length > 0 
-    ? realTimeTrends.multiZoneTemp 
-    : (machine.multiZoneTemperatureTrend || []);
-
-  // Power consumption data (use real-time trends)
-  const powerData = realTimeTrends.power.length > 0 
-    ? realTimeTrends.power 
-    : (machine.powerTrend || []);
-
-  // Energy consumption data (use real-time trends or backend data)
-  const energyData = realTimeTrends.energy.length > 0 
-    ? realTimeTrends.energy 
-    : (machine.energyConsumption || []);
 
   // Production order history
   const orderHistory = machine.orderHistory || [];
@@ -227,8 +395,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <div className="text-xl text-white">{productionData.runtime.toFixed(2)}h</div>
             </div>
             <div>
-              <div className="text-white/60 text-xs mb-1">REMAINING</div>
-              <div className="text-xl text-[#FFB86C]">{(productionData.targetLength - productionData.currentLength).toLocaleString()}m</div>
+              <div className="text-white/60 text-xs mb-1">REMAINING TIME</div>
+              <div className="text-xl text-[#FFB86C]">{productionData.remainingTime}</div>
             </div>
           </div>
         </div>
@@ -240,9 +408,9 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             <h3 className="text-lg text-white">Machine Speed</h3>
           </div>
           <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-4xl text-[#4FFFBC] tracking-tight">{productionData.speed}</span>
-            <span className="text-xl text-white/40">/ {productionData.targetSpeed}</span>
-            <span className="text-base text-white/60">m/min</span>
+            <span className="text-4xl text-[#4FFFBC] tracking-tight">{productionData.speed.toFixed(2)}</span>
+            <span className="text-xl text-white/40">/ {productionData.targetSpeed.toFixed(2)}</span>
+            <span className="text-base text-white/60">{productionData.speedUnit}</span>
           </div>
           <div className="mb-3">
             <div className="flex justify-between items-center mb-1.5">
@@ -262,11 +430,11 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-3">
             <div>
               <div className="text-white/60 text-xs mb-1">AVG SPEED</div>
-              <div className="text-xl text-white">915 m/min</div>
+              <div className="text-xl text-white">{productionData.avgSpeed.toFixed(2)} {productionData.speedUnit}</div>
             </div>
             <div>
               <div className="text-white/60 text-xs mb-1">EFFICIENCY</div>
-              <div className="text-xl text-[#4FFFBC]">91.5%</div>
+              <div className="text-xl text-[#4FFFBC]">{speedPercentage.toFixed(1)}%</div>
             </div>
           </div>
         </div>
@@ -353,7 +521,11 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={tempData}>
+              <AreaChart 
+                data={tempData}
+                isAnimationActive={false}
+                syncId="machine-charts"
+              >
                 <defs>
                   <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#FF6B6B" stopOpacity={0.4}/>
@@ -368,7 +540,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
-                  domain={[60, 75]}
+                  domain={temperatureDomain}
+                  tickFormatter={(value) => value.toFixed(2)}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -384,6 +557,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   stroke="#FF6B6B" 
                   strokeWidth={3}
                   fill="url(#tempGradient)"
+                  isAnimationActive={false}
+                  dot={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -397,12 +572,16 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             <h3 className="text-base text-white">Speed Trend</h3>
           </div>
           <div className="mb-3">
-            <div className="text-3xl text-[#4FFFBC] tracking-tight">{machine.lineSpeed}</div>
-            <div className="text-white/60 text-xs">m/min</div>
+            <div className="text-3xl text-[#4FFFBC] tracking-tight">{productionData.speed.toFixed(2)}</div>
+            <div className="text-white/60 text-xs">{productionData.speedUnit}</div>
           </div>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={speedData}>
+              <LineChart 
+                data={speedData}
+                isAnimationActive={false}
+                syncId="machine-charts"
+              >
                 <XAxis 
                   dataKey="time" 
                   stroke="#ffffff40" 
@@ -411,7 +590,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
-                  domain={[850, 1000]}
+                  domain={speedDomain}
+                  tickFormatter={(value) => value.toFixed(2)}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -428,13 +608,15 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
+                  isAnimationActive={false}
                 />
                 <Line 
                   type="monotone" 
                   dataKey="speed" 
                   stroke="#4FFFBC" 
                   strokeWidth={3}
-                  dot={{ fill: '#4FFFBC', r: 4 }}
+                  dot={false}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -455,7 +637,11 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={currentData}>
+              <AreaChart 
+                data={currentData}
+                isAnimationActive={false}
+                syncId="machine-charts"
+              >
                 <defs>
                   <linearGradient id="currentGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#FFB86C" stopOpacity={0.4}/>
@@ -470,7 +656,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
-                  domain={[40, 50]}
+                  domain={currentDomain}
+                  tickFormatter={(value) => value.toFixed(2)}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -486,6 +673,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   stroke="#FFB86C" 
                   strokeWidth={3}
                   fill="url(#currentGradient)"
+                  isAnimationActive={false}
+                  dot={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -503,67 +692,81 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
         </div>
         
         {/* Current Zone Temperatures */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
-          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#FF6B6B]" />
-              <div className="text-white/60 text-xs">ZONE 1</div>
+        {machine.area === 'sheathing' ? (
+          // Extrusion machines: 10 zones in 5x2 grid
+          <div className="grid grid-cols-5 gap-3 mb-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((zoneNum) => {
+              const zoneKey = `zone${zoneNum}` as keyof typeof machine.multiZoneTemperatures;
+              const zoneColors = [
+                '#FF6B6B', '#FFB86C', '#F59E0B', '#34E7F8', '#4FFFBC',
+                '#9580FF', '#FF4C4C', '#22C55E', '#FBBF24', '#A78BFA'
+              ];
+              const zoneColor = zoneColors[zoneNum - 1];
+              const zoneValue = machine.multiZoneTemperatures?.[zoneKey];
+              
+              return (
+                <div key={zoneNum} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: zoneColor }} />
+                    <div className="text-white/60 text-xs">ZONE {zoneNum}</div>
+                  </div>
+                  <div className="text-2xl tracking-tight" style={{ color: zoneColor }}>
+                    {zoneValue ? `${Math.round(zoneValue as number)}°C` : 'N/A'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          // Other machines: 4 zones in 4-column grid
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#FF6B6B]" />
+                <div className="text-white/60 text-xs">ZONE 1</div>
+              </div>
+              <div className="text-2xl text-[#FF6B6B] tracking-tight">
+                {machine.multiZoneTemperatures?.zone1 ? `${Math.round(machine.multiZoneTemperatures.zone1)}°C` : 'N/A'}
+              </div>
             </div>
-            <div className="text-2xl text-[#FF6B6B] tracking-tight">
-              {machine.multiZoneTemperatures?.zone1 ? `${Math.round(machine.multiZoneTemperatures.zone1)}°C` : 'N/A'}
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#FFB86C]" />
+                <div className="text-white/60 text-xs">ZONE 2</div>
+              </div>
+              <div className="text-2xl text-[#FFB86C] tracking-tight">
+                {machine.multiZoneTemperatures?.zone2 ? `${Math.round(machine.multiZoneTemperatures.zone2)}°C` : 'N/A'}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
+                <div className="text-white/60 text-xs">ZONE 3</div>
+              </div>
+              <div className="text-2xl text-[#F59E0B] tracking-tight">
+                {machine.multiZoneTemperatures?.zone3 ? `${Math.round(machine.multiZoneTemperatures.zone3)}°C` : 'N/A'}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#34E7F8]" />
+                <div className="text-white/60 text-xs">ZONE 4</div>
+              </div>
+              <div className="text-2xl text-[#34E7F8] tracking-tight">
+                {machine.multiZoneTemperatures?.zone4 ? `${Math.round(machine.multiZoneTemperatures.zone4)}°C` : 'N/A'}
+              </div>
             </div>
           </div>
-          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#FFB86C]" />
-              <div className="text-white/60 text-xs">ZONE 2</div>
-            </div>
-            <div className="text-2xl text-[#FFB86C] tracking-tight">
-              {machine.multiZoneTemperatures?.zone2 ? `${Math.round(machine.multiZoneTemperatures.zone2)}°C` : 'N/A'}
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-              <div className="text-white/60 text-xs">ZONE 3</div>
-            </div>
-            <div className="text-2xl text-[#F59E0B] tracking-tight">
-              {machine.multiZoneTemperatures?.zone3 ? `${Math.round(machine.multiZoneTemperatures.zone3)}°C` : 'N/A'}
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#34E7F8]" />
-              <div className="text-white/60 text-xs">ZONE 4</div>
-            </div>
-            <div className="text-2xl text-[#34E7F8] tracking-tight">
-              {machine.multiZoneTemperatures?.zone4 ? `${Math.round(machine.multiZoneTemperatures.zone4)}°C` : 'N/A'}
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Multi-zone Chart */}
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={multiZoneTempData}>
-              <defs>
-                <linearGradient id="zone1Gradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FF6B6B" stopOpacity={0.3}/>
-                  <stop offset="100%" stopColor="#FF6B6B" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="zone2Gradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FFB86C" stopOpacity={0.3}/>
-                  <stop offset="100%" stopColor="#FFB86C" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="zone3Gradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#F59E0B" stopOpacity={0.3}/>
-                  <stop offset="100%" stopColor="#F59E0B" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="zone4Gradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#34E7F8" stopOpacity={0.3}/>
-                  <stop offset="100%" stopColor="#34E7F8" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
+            <LineChart 
+              data={multiZoneTempData}
+              isAnimationActive={false}
+              syncId="machine-charts"
+            >
               <XAxis 
                 dataKey="time" 
                 stroke="#ffffff40" 
@@ -572,8 +775,9 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <YAxis 
                 stroke="#ffffff40" 
                 tick={{ fill: '#ffffff80', fontSize: 12 }}
-                domain={[140, 175]}
+                domain={multiZoneTempDomain}
                 label={{ value: 'Temperature (°C)', angle: -90, position: 'insideLeft', fill: '#ffffff60' }}
+                tickFormatter={(value) => value.toFixed(2)}
               />
               <Tooltip 
                 contentStyle={{ 
@@ -587,13 +791,15 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 wrapperStyle={{ paddingTop: '20px' }}
                 iconType="line"
               />
+              {/* Zones 1-4 (all machines) */}
               <Line 
                 type="monotone" 
                 dataKey="zone1" 
                 stroke="#FF6B6B" 
                 strokeWidth={3}
                 name="Zone 1"
-                dot={{ fill: '#FF6B6B', r: 4 }}
+                dot={false}
+                isAnimationActive={false}
               />
               <Line 
                 type="monotone" 
@@ -601,7 +807,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 stroke="#FFB86C" 
                 strokeWidth={3}
                 name="Zone 2"
-                dot={{ fill: '#FFB86C', r: 4 }}
+                dot={false}
+                isAnimationActive={false}
               />
               <Line 
                 type="monotone" 
@@ -609,7 +816,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 stroke="#F59E0B" 
                 strokeWidth={3}
                 name="Zone 3"
-                dot={{ fill: '#F59E0B', r: 4 }}
+                dot={false}
+                isAnimationActive={false}
               />
               <Line 
                 type="monotone" 
@@ -617,8 +825,68 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 stroke="#34E7F8" 
                 strokeWidth={3}
                 name="Zone 4"
-                dot={{ fill: '#34E7F8', r: 4 }}
+                dot={false}
+                isAnimationActive={false}
               />
+              {/* Zones 5-10 (extrusion machines only) */}
+              {machine.area === 'sheathing' && (
+                <>
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone5" 
+                    stroke="#4FFFBC" 
+                    strokeWidth={3}
+                    name="Zone 5"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone6" 
+                    stroke="#9580FF" 
+                    strokeWidth={3}
+                    name="Zone 6"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone7" 
+                    stroke="#FF4C4C" 
+                    strokeWidth={3}
+                    name="Zone 7"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone8" 
+                    stroke="#22C55E" 
+                    strokeWidth={3}
+                    name="Zone 8"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone9" 
+                    stroke="#FBBF24" 
+                    strokeWidth={3}
+                    name="Zone 9"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="zone10" 
+                    stroke="#A78BFA" 
+                    strokeWidth={3}
+                    name="Zone 10"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -640,7 +908,11 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={powerData}>
+              <AreaChart 
+                data={powerData}
+                isAnimationActive={false}
+                syncId="machine-charts"
+              >
                 <defs>
                   <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#FFB86C" stopOpacity={0.4}/>
@@ -656,6 +928,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 11 }}
                   domain={['auto', 'auto']}
+                  tickFormatter={(value) => value.toFixed(2)}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -671,6 +944,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   stroke="#FFB86C" 
                   strokeWidth={3}
                   fill="url(#powerGradient)"
+                  isAnimationActive={false}
+                  dot={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -692,43 +967,66 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
 
           <div className="h-40">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={energyData} margin={{ top: 5, right: 5, left: 5, bottom: 20 }}>
-                <defs>
-                  <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#4FFFBC" stopOpacity={1}/>
-                    <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.5}/>
-                  </linearGradient>
-                </defs>
-                <XAxis 
-                  dataKey="hour" 
-                  stroke="#ffffff40" 
-                  tick={{ fill: '#ffffff60', fontSize: 10 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={60}
-                />
-                <YAxis 
-                  stroke="#ffffff40" 
-                  tick={{ fill: '#ffffff60', fontSize: 11 }}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#0E2F4F', 
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '8px',
-                    fontSize: '12px'
-                  }}
-                  formatter={(value: any) => [`${value.toFixed(1)} kWh`, 'Energy']}
-                  labelFormatter={(label) => `Hour: ${label}`}
-                />
-                <Bar 
-                  dataKey="energy" 
-                  fill="url(#energyGradient)"
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            {energyData && energyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart 
+                  data={energyData} 
+                  margin={{ top: 10, right: 10, left: 40, bottom: 50 }}
+                  isAnimationActive={false}
+                  barCategoryGap="20%"
+                >
+                  <defs>
+                    <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#4FFFBC" stopOpacity={1}/>
+                      <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.7}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis 
+                    dataKey="hour" 
+                    stroke="#ffffff40" 
+                    tick={{ fill: '#ffffff60', fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    label={{ value: 'Time', position: 'insideBottom', offset: -5, fill: '#ffffff60', fontSize: 11 }}
+                  />
+                  <YAxis 
+                    stroke="#ffffff40" 
+                    tick={{ fill: '#ffffff60', fontSize: 11 }}
+                    label={{ value: 'Energy (kWh)', angle: -90, position: 'insideLeft', fill: '#ffffff60', fontSize: 11, style: { textAnchor: 'middle' } }}
+                    domain={[0, 'auto']}
+                    width={60}
+                    tickFormatter={(value) => value.toFixed(2)}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#0E2F4F', 
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      color: '#ffffff'
+                    }}
+                    formatter={(value: any) => {
+                      const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                      return [`${numValue.toFixed(2)} kWh`, 'Energy Consumption'];
+                    }}
+                    labelFormatter={(label) => `Time: ${label}`}
+                  />
+                  <Bar 
+                    dataKey="energy" 
+                    fill="url(#energyGradient)"
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
+                    stroke="#4FFFBC"
+                    strokeWidth={1}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-white/40 text-sm">
+                No energy consumption data available
+              </div>
+            )}
           </div>
         </div>
       </div>

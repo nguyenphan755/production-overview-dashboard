@@ -29,6 +29,12 @@ export interface Machine {
     zone2?: number;
     zone3?: number;
     zone4?: number;
+    zone5?: number;
+    zone6?: number;
+    zone7?: number;
+    zone8?: number;
+    zone9?: number;
+    zone10?: number;
   };
   alarms?: Alarm[];
   lastUpdated: string; // ISO timestamp
@@ -111,6 +117,12 @@ export interface MachineDetail extends Machine {
     zone2?: number;
     zone3?: number;
     zone4?: number;
+    zone5?: number;
+    zone6?: number;
+    zone7?: number;
+    zone8?: number;
+    zone9?: number;
+    zone10?: number;
   }>;
   powerTrend?: Array<{
     time: string;

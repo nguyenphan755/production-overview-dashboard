@@ -61,6 +61,7 @@ export function useMachineDetailTrends(machine: MachineDetail | null) {
     }
 
     // Check if machine data has changed
+    const isExtrusionMachine = machine.area === 'sheathing';
     const hasChanged =
       Math.abs((prevMachine.temperature || 0) - (machine.temperature || 0)) > 0.1 ||
       Math.abs((prevMachine.lineSpeed || 0) - (machine.lineSpeed || 0)) > 0.1 ||
@@ -69,7 +70,15 @@ export function useMachineDetailTrends(machine: MachineDetail | null) {
       Math.abs((prevMachine.multiZoneTemperatures?.zone1 || 0) - (machine.multiZoneTemperatures?.zone1 || 0)) > 0.1 ||
       Math.abs((prevMachine.multiZoneTemperatures?.zone2 || 0) - (machine.multiZoneTemperatures?.zone2 || 0)) > 0.1 ||
       Math.abs((prevMachine.multiZoneTemperatures?.zone3 || 0) - (machine.multiZoneTemperatures?.zone3 || 0)) > 0.1 ||
-      Math.abs((prevMachine.multiZoneTemperatures?.zone4 || 0) - (machine.multiZoneTemperatures?.zone4 || 0)) > 0.1;
+      Math.abs((prevMachine.multiZoneTemperatures?.zone4 || 0) - (machine.multiZoneTemperatures?.zone4 || 0)) > 0.1 ||
+      (isExtrusionMachine && (
+        Math.abs((prevMachine.multiZoneTemperatures?.zone5 || 0) - (machine.multiZoneTemperatures?.zone5 || 0)) > 0.1 ||
+        Math.abs((prevMachine.multiZoneTemperatures?.zone6 || 0) - (machine.multiZoneTemperatures?.zone6 || 0)) > 0.1 ||
+        Math.abs((prevMachine.multiZoneTemperatures?.zone7 || 0) - (machine.multiZoneTemperatures?.zone7 || 0)) > 0.1 ||
+        Math.abs((prevMachine.multiZoneTemperatures?.zone8 || 0) - (machine.multiZoneTemperatures?.zone8 || 0)) > 0.1 ||
+        Math.abs((prevMachine.multiZoneTemperatures?.zone9 || 0) - (machine.multiZoneTemperatures?.zone9 || 0)) > 0.1 ||
+        Math.abs((prevMachine.multiZoneTemperatures?.zone10 || 0) - (machine.multiZoneTemperatures?.zone10 || 0)) > 0.1
+      ));
 
     if (hasChanged) {
       const now = new Date();
@@ -135,12 +144,22 @@ export function useMachineDetailTrends(machine: MachineDetail | null) {
 
         // Update multi-zone temperature trend
         let multiZoneTrend = prev.multiZoneTemp;
-        if (
+        const isExtrusionMachine = machine.area === 'sheathing';
+        const hasAnyZoneData = 
           machine.multiZoneTemperatures?.zone1 !== undefined ||
           machine.multiZoneTemperatures?.zone2 !== undefined ||
           machine.multiZoneTemperatures?.zone3 !== undefined ||
-          machine.multiZoneTemperatures?.zone4 !== undefined
-        ) {
+          machine.multiZoneTemperatures?.zone4 !== undefined ||
+          (isExtrusionMachine && (
+            machine.multiZoneTemperatures?.zone5 !== undefined ||
+            machine.multiZoneTemperatures?.zone6 !== undefined ||
+            machine.multiZoneTemperatures?.zone7 !== undefined ||
+            machine.multiZoneTemperatures?.zone8 !== undefined ||
+            machine.multiZoneTemperatures?.zone9 !== undefined ||
+            machine.multiZoneTemperatures?.zone10 !== undefined
+          ));
+        
+        if (hasAnyZoneData) {
           const newMultiZonePoint: TrendPoint = {
             time: timeStr,
             zone1: machine.multiZoneTemperatures?.zone1 || 0,
@@ -148,6 +167,17 @@ export function useMachineDetailTrends(machine: MachineDetail | null) {
             zone3: machine.multiZoneTemperatures?.zone3 || 0,
             zone4: machine.multiZoneTemperatures?.zone4 || 0,
           };
+          
+          // Add zones 5-10 for extrusion machines
+          if (isExtrusionMachine) {
+            newMultiZonePoint.zone5 = machine.multiZoneTemperatures?.zone5 || 0;
+            newMultiZonePoint.zone6 = machine.multiZoneTemperatures?.zone6 || 0;
+            newMultiZonePoint.zone7 = machine.multiZoneTemperatures?.zone7 || 0;
+            newMultiZonePoint.zone8 = machine.multiZoneTemperatures?.zone8 || 0;
+            newMultiZonePoint.zone9 = machine.multiZoneTemperatures?.zone9 || 0;
+            newMultiZonePoint.zone10 = machine.multiZoneTemperatures?.zone10 || 0;
+          }
+          
           multiZoneTrend = [...prev.multiZoneTemp, newMultiZonePoint].slice(-MAX_TREND_POINTS);
         }
 
