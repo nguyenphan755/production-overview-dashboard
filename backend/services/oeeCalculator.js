@@ -18,25 +18,31 @@ import { query } from '../database/connection.js';
  * Uses aggregated availability data from availability_aggregations table for fast queries
  * Falls back to direct calculation from machine_status_history if aggregation not available
  * 
- * DEMO PHASE: Uses 10-minute rolling window for real-time monitoring
+ * Uses shift-based intervals for availability calculation
  * 
  * @param {string} machineId - Machine ID
- * @param {string} productionOrderId - Current production order ID (optional, for future shift-based)
- * @param {Date} periodStart - Start of calculation period (10 minutes ago in demo phase)
- * @param {Date} periodEnd - End of calculation period (usually NOW)
+ * @param {string} productionOrderId - Current production order ID (optional)
+ * @param {Date} periodStart - Start of calculation period (shift start)
+ * @param {Date} periodEnd - End of calculation period (shift end)
  * @returns {Promise<number>} Availability percentage (0-100)
  */
 export async function calculateAvailability(machineId, productionOrderId, periodStart, periodEnd) {
   try {
     // First, try to get availability from aggregated table (fast query)
+    // Prefer shift-based calculation, fallback to rolling_window for legacy data
     const aggregationResult = await query(
       `SELECT availability_percentage, running_time_seconds, downtime_seconds
        FROM availability_aggregations
        WHERE machine_id = $1
-         AND calculation_type = 'rolling_window'
+         AND calculation_type IN ('shift', 'rolling_window')
          AND window_end >= $2
          AND window_start <= $3
-       ORDER BY window_end DESC
+       ORDER BY 
+         CASE calculation_type 
+           WHEN 'shift' THEN 1 
+           ELSE 2 
+         END,
+         window_end DESC
        LIMIT 1`,
       [machineId, periodStart, periodEnd]
     );
@@ -227,22 +233,25 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
   try {
     const now = periodEnd || new Date();
     
-    // DEMO PHASE: Use 10-minute rolling window for Availability calculation
-    // This provides immediate, actionable insights for real-time monitoring
-    // Future: Can be switched to shift-based or production order-based by changing this logic
+    // Use shift-based window for Availability calculation
+    // Shift-based calculation provides better production insights aligned with factory operations
     let calcPeriodStart = periodStart;
+    let calcPeriodEnd = now;
+    
     if (!calcPeriodStart) {
-      // 10-minute rolling window (600 seconds)
-      // Note: Availability is calculated from aggregated table for performance
-      calcPeriodStart = new Date(now.getTime() - 10 * 60 * 1000);
+      // Get current shift window
+      const { getCurrentShiftWindow } = await import('../utils/shiftCalculator.js');
+      const shiftWindow = getCurrentShiftWindow(now);
+      calcPeriodStart = shiftWindow.start;
+      calcPeriodEnd = shiftWindow.end; // Use shift end time for proper calculation
     }
 
-    // Calculate Availability: Running time vs Planned time
+    // Calculate Availability: Running time vs Planned time (shift-based)
     const availability = await calculateAvailability(
       machineId,
       productionOrderId,
       calcPeriodStart,
-      now
+      calcPeriodEnd
     );
 
     // Calculate Performance: Current speed / Target speed (real-time)
@@ -259,7 +268,7 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       machineData.producedLengthNg,
       machineData.producedLength,
       calcPeriodStart,
-      now
+      calcPeriodEnd
     );
 
     // Calculate OEE: (Availability × Performance × Quality) / 10000
@@ -272,7 +281,7 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       quality,
       oee,
       periodStart: calcPeriodStart,
-      periodEnd: now,
+      periodEnd: calcPeriodEnd,
       machineData
     }).catch(err => {
       console.error(`Error storing OEE calculation (non-blocking):`, err);

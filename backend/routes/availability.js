@@ -120,7 +120,7 @@ router.get('/machine/:machineId', async (req, res) => {
     
     const { query } = await import('../database/connection.js');
     const result = await query(
-      `SELECT * FROM get_latest_availability($1, 'rolling_window')`,
+      `SELECT * FROM get_latest_availability($1, 'shift')`,
       [machineId]
     );
     

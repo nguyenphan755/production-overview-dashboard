@@ -3,23 +3,40 @@
  * 
  * Continuously synchronizes all production line data into availability_aggregations table.
  * Ensures real-time Availability calculations for all machines across all production lines.
+ * Uses shift-based intervals instead of rolling windows.
  */
 
 import { query } from '../database/connection.js';
+import { getCurrentShiftWindow, getShiftId } from '../utils/shiftCalculator.js';
 
 /**
  * Synchronize availability aggregation for a single machine
- * Calculates and stores aggregation for the current 10-minute rolling window
+ * Calculates and stores aggregation for the current shift window
  * Includes production order context if available
  * 
  * @param {string} machineId - Machine ID
- * @param {number} windowMinutes - Window size in minutes (default: 10)
+ * @param {boolean} useShiftBased - Whether to use shift-based calculation (default: true)
  * @returns {Promise<Object>} Aggregation result
  */
-async function syncMachineAvailability(machineId, windowMinutes = 10) {
+async function syncMachineAvailability(machineId, useShiftBased = true) {
   try {
-    const windowEnd = new Date();
-    const windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+    let windowStart, windowEnd, calculationType, shiftId;
+    
+    if (useShiftBased) {
+      // Use shift-based calculation
+      const shiftWindow = getCurrentShiftWindow();
+      windowStart = shiftWindow.start;
+      windowEnd = shiftWindow.end;
+      calculationType = 'shift';
+      shiftId = getShiftId(shiftWindow.shift, new Date());
+    } else {
+      // Fallback to rolling window (legacy support)
+      const windowMinutes = 10;
+      windowEnd = new Date();
+      windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+      calculationType = 'rolling_window';
+      shiftId = null;
+    }
 
     // Get current production order for this machine (if any)
     const orderResult = await query(
@@ -38,9 +55,9 @@ async function syncMachineAvailability(machineId, windowMinutes = 10) {
     // Calculate and store aggregation with production order context
     const result = await query(
       `SELECT * FROM calculate_availability_aggregation(
-        $1, $2, $3, 'rolling_window', $4, NULL
+        $1, $2, $3, $4, $5, $6
       )`,
-      [machineId, windowStart, windowEnd, productionOrderId]
+      [machineId, windowStart, windowEnd, calculationType, productionOrderId, shiftId]
     );
 
     if (result.rows.length > 0) {
@@ -73,12 +90,13 @@ async function syncMachineAvailability(machineId, windowMinutes = 10) {
  * Synchronize availability aggregations for all machines
  * Processes all machines across all production lines
  * Includes all related machine and production data
+ * Uses shift-based calculation by default
  * 
- * @param {number} windowMinutes - Window size in minutes (default: 10)
+ * @param {boolean} useShiftBased - Whether to use shift-based calculation (default: true)
  * @param {boolean} retryFailed - Whether to retry failed machines (default: false)
  * @returns {Promise<Object>} Synchronization summary
  */
-export async function syncAllMachinesAvailability(windowMinutes = 10, retryFailed = false) {
+export async function syncAllMachinesAvailability(useShiftBased = true, retryFailed = false) {
   try {
     // Get all machines with their current status and production order info
     const machinesResult = await query(
@@ -117,7 +135,7 @@ export async function syncAllMachinesAvailability(windowMinutes = 10, retryFaile
     // Process all machines in parallel for better performance
     // Use Promise.allSettled to ensure all machines are processed even if some fail
     const syncPromises = machines.map(machine => 
-      syncMachineAvailability(machine.id, windowMinutes)
+      syncMachineAvailability(machine.id, useShiftBased)
         .then(result => {
           if (result.success) {
             successCount++;
@@ -167,7 +185,7 @@ export async function syncAllMachinesAvailability(windowMinutes = 10, retryFaile
       await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
       
       const retryPromises = failedMachines.map(machineId => 
-        syncMachineAvailability(machineId, windowMinutes)
+        syncMachineAvailability(machineId, useShiftBased)
           .then(result => {
             if (result.success) {
               successCount++;
@@ -206,12 +224,13 @@ export async function syncAllMachinesAvailability(windowMinutes = 10, retryFaile
 
 /**
  * Synchronize availability for machines in a specific production area
+ * Uses shift-based calculation by default
  * 
  * @param {string} area - Production area (drawing, stranding, armoring, sheathing)
- * @param {number} windowMinutes - Window size in minutes (default: 10)
+ * @param {boolean} useShiftBased - Whether to use shift-based calculation (default: true)
  * @returns {Promise<Object>} Synchronization summary
  */
-export async function syncAreaAvailability(area, windowMinutes = 10) {
+export async function syncAreaAvailability(area, useShiftBased = true) {
   try {
     const machinesResult = await query(
       `SELECT id, name FROM machines WHERE area = $1 ORDER BY id`,
@@ -235,7 +254,7 @@ export async function syncAreaAvailability(area, windowMinutes = 10) {
     let failCount = 0;
 
     const syncPromises = machines.map(machine => 
-      syncMachineAvailability(machine.id, windowMinutes)
+      syncMachineAvailability(machine.id, useShiftBased)
         .then(result => {
           if (result.success) {
             successCount++;
@@ -280,17 +299,19 @@ export async function syncAreaAvailability(area, windowMinutes = 10) {
  * Start continuous availability synchronization
  * Runs synchronization at regular intervals to ensure real-time updates
  * Automatically handles all related machine and production data
+ * Uses shift-based calculation by default
  * 
  * @param {number} intervalSeconds - Sync interval in seconds (default: 30 seconds)
- * @param {number} windowMinutes - Window size in minutes (default: 10)
+ * @param {boolean} useShiftBased - Whether to use shift-based calculation (default: true)
  * @returns {Function} Stop function to cancel the interval
  */
-export function startContinuousSync(intervalSeconds = 30, windowMinutes = 10) {
-  console.log(`🔄 Starting continuous availability synchronization (interval: ${intervalSeconds}s, window: ${windowMinutes}min)`);
+export function startContinuousSync(intervalSeconds = 30, useShiftBased = true) {
+  const syncType = useShiftBased ? 'shift-based (3 shifts: 06:00-14:00, 14:00-22:00, 22:00-06:00)' : 'rolling window (10 minutes)';
+  console.log(`🔄 Starting continuous availability synchronization (interval: ${intervalSeconds}s, calculation: ${syncType})`);
   console.log(`📊 Synchronizing all machine and production data into availability_aggregations table`);
 
   // Run immediately on start with retry for failed machines
-  syncAllMachinesAvailability(windowMinutes, true)
+  syncAllMachinesAvailability(useShiftBased, true)
     .then(result => {
       if (result.success) {
         console.log(`✅ Initial sync completed: ${result.syncedMachines}/${result.totalMachines} machines synced`);
@@ -309,7 +330,7 @@ export function startContinuousSync(intervalSeconds = 30, windowMinutes = 10) {
   const intervalId = setInterval(async () => {
     try {
       // Sync all machines with retry for failed ones
-      const result = await syncAllMachinesAvailability(windowMinutes, true);
+      const result = await syncAllMachinesAvailability(useShiftBased, true);
       if (result.success) {
         const successRate = ((result.syncedMachines / result.totalMachines) * 100).toFixed(1);
         console.log(`✅ Sync completed: ${result.syncedMachines}/${result.totalMachines} machines synced (${successRate}% success)`);
@@ -375,7 +396,7 @@ export async function getSyncStatus() {
            production_order_id
          FROM availability_aggregations
          WHERE machine_id = m.id
-           AND calculation_type = 'rolling_window'
+           AND calculation_type = 'shift'
          ORDER BY window_end DESC
          LIMIT 1
        ) aa ON true

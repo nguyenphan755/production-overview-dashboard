@@ -174,11 +174,13 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`💾 Machine status cache initialized - status updates are event-based (only on change)`);
   
   // Start continuous availability synchronization
-  // Syncs all machines every 30 seconds with 10-minute rolling window
+  // Syncs all machines every 30 seconds using shift-based calculation
+  // Shifts: 06:00-14:00 (Shift 1), 14:00-22:00 (Shift 2), 22:00-06:00 (Shift 3)
   const SYNC_INTERVAL_SECONDS = parseInt(process.env.AVAILABILITY_SYNC_INTERVAL || '30', 10);
-  const WINDOW_MINUTES = parseInt(process.env.AVAILABILITY_WINDOW_MINUTES || '3', 10);
+  const USE_SHIFT_BASED = process.env.AVAILABILITY_USE_SHIFTS !== 'false'; // Default to true
   
-  startContinuousSync(SYNC_INTERVAL_SECONDS, WINDOW_MINUTES);
-  console.log(`🔄 Continuous availability synchronization started (interval: ${SYNC_INTERVAL_SECONDS}s, window: ${WINDOW_MINUTES}min)`);
+  startContinuousSync(SYNC_INTERVAL_SECONDS, USE_SHIFT_BASED);
+  const syncType = USE_SHIFT_BASED ? 'shift-based (3 shifts: 06:00-14:00, 14:00-22:00, 22:00-06:00)' : 'rolling window';
+  console.log(`🔄 Continuous availability synchronization started (interval: ${SYNC_INTERVAL_SECONDS}s, calculation: ${syncType})`);
 });
 

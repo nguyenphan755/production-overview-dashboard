@@ -73,7 +73,7 @@ export function AreaCard({ area }: AreaCardProps) {
             <span className="text-white/60 text-sm">SPEED</span>
           </div>
           <div className="text-2xl text-[#4FFFBC]">
-            {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(2) : area.speedAvg.toFixed(2)}
+            {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(1) : area.speedAvg.toFixed(1)}
           </div>
         </div>
         <div>

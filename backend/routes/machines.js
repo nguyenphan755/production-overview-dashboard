@@ -507,8 +507,9 @@ router.patch('/:machineId', async (req, res) => {
       updateCachedStatus(machineId, updatedMachine.status);
       
       // Ensure availability aggregation is calculated when status changes
+      // Uses shift-based calculation
       try {
-        await ensureAvailabilityCalculated(machineId, 10); // 10-minute window
+        await ensureAvailabilityCalculated(machineId, true); // Shift-based calculation
       } catch (error) {
         console.error(`Error ensuring availability calculated for ${machineId}:`, error);
         // Continue without blocking
@@ -715,9 +716,10 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     const updatedMachine = formatMachine(result.rows[0]);
 
     // Ensure availability aggregation is calculated when status changes
+    // Uses shift-based calculation
     if (updates.status !== undefined) {
       try {
-        await ensureAvailabilityCalculated(machineId, 10); // 10-minute window
+        await ensureAvailabilityCalculated(machineId, true); // Shift-based calculation
       } catch (error) {
         console.error(`Error ensuring availability calculated for ${machineId}:`, error);
         // Continue without blocking

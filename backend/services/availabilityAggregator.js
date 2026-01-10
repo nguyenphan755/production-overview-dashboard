@@ -71,7 +71,7 @@ export async function calculateAndStoreAvailability(
  * @param {string} calculationType - 'rolling_window' or 'shift' (default: 'rolling_window')
  * @returns {Promise<Object|null>} Latest availability aggregation or null if not found
  */
-export async function getLatestAvailability(machineId, calculationType = 'rolling_window') {
+export async function getLatestAvailability(machineId, calculationType = 'shift') {
   try {
     const result = await query(
       `SELECT * FROM get_latest_availability($1, $2)`,
@@ -108,21 +108,40 @@ export async function getLatestAvailability(machineId, calculationType = 'rollin
 /**
  * Ensure availability aggregation is calculated for a machine's current window
  * This is called when machine status changes to keep aggregations up-to-date
+ * Uses shift-based calculation by default
  * 
  * @param {string} machineId - Machine ID
- * @param {number} windowMinutes - Window size in minutes (default: 10)
+ * @param {boolean} useShiftBased - Whether to use shift-based calculation (default: true)
  * @returns {Promise<Object>} Aggregation result
  */
-export async function ensureAvailabilityCalculated(machineId, windowMinutes = 10) {
+export async function ensureAvailabilityCalculated(machineId, useShiftBased = true) {
   try {
-    const windowEnd = new Date();
-    const windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+    let windowStart, windowEnd, calculationType, shiftId;
+    
+    if (useShiftBased) {
+      // Use shift-based calculation
+      const { getCurrentShiftWindow, getShiftId } = await import('../utils/shiftCalculator.js');
+      const shiftWindow = getCurrentShiftWindow();
+      windowStart = shiftWindow.start;
+      windowEnd = shiftWindow.end;
+      calculationType = 'shift';
+      shiftId = getShiftId(shiftWindow.shift, new Date());
+    } else {
+      // Fallback to rolling window (legacy support)
+      const windowMinutes = 10;
+      windowEnd = new Date();
+      windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+      calculationType = 'rolling_window';
+      shiftId = null;
+    }
 
     return await calculateAndStoreAvailability(
       machineId,
       windowStart,
       windowEnd,
-      'rolling_window'
+      calculationType,
+      null,
+      shiftId
     );
   } catch (error) {
     console.error(`Error ensuring availability calculated for ${machineId}:`, error);

@@ -251,7 +251,7 @@ $$ LANGUAGE plpgsql;
 -- Function to get the latest availability aggregation for a machine (for real-time queries)
 CREATE OR REPLACE FUNCTION get_latest_availability(
     p_machine_id VARCHAR(50),
-    p_calculation_type VARCHAR(50) DEFAULT 'rolling_window'
+    p_calculation_type VARCHAR(50) DEFAULT 'shift'
 )
 RETURNS TABLE (
     availability_percentage DECIMAL(5, 2),
@@ -292,16 +292,50 @@ $$ LANGUAGE plpgsql;
 
 -- Trigger function to automatically calculate availability when machine status changes
 -- This ensures the aggregation table is always up-to-date with all related data
+-- Uses shift-based calculation: Shift 1: 06:00-14:00, Shift 2: 14:00-22:00, Shift 3: 22:00-06:00
 CREATE OR REPLACE FUNCTION trigger_availability_calculation()
 RETURNS TRIGGER AS $$
 DECLARE
     v_window_start TIMESTAMP;
     v_window_end TIMESTAMP;
     v_production_order_id VARCHAR(100);
+    v_shift_id VARCHAR(100);
+    v_current_hour INTEGER;
+    v_current_date DATE;
+    v_shift_number INTEGER;
 BEGIN
-    -- Calculate for 10-minute rolling window (can be changed to shift-based in production)
-    v_window_end := CURRENT_TIMESTAMP;
-    v_window_start := v_window_end - INTERVAL '10 minutes';
+    -- Calculate for current shift window
+    v_current_hour := EXTRACT(HOUR FROM CURRENT_TIMESTAMP);
+    v_current_date := CURRENT_DATE;
+    
+    -- Determine current shift and calculate window
+    IF v_current_hour >= 6 AND v_current_hour < 14 THEN
+        -- Shift 1: 06:00-14:00
+        v_shift_number := 1;
+        v_window_start := (v_current_date + INTERVAL '6 hours')::TIMESTAMP;
+        v_window_end := (v_current_date + INTERVAL '14 hours')::TIMESTAMP;
+        v_shift_id := 'shift-1-' || TO_CHAR(v_current_date, 'YYYY-MM-DD');
+    ELSIF v_current_hour >= 14 AND v_current_hour < 22 THEN
+        -- Shift 2: 14:00-22:00
+        v_shift_number := 2;
+        v_window_start := (v_current_date + INTERVAL '14 hours')::TIMESTAMP;
+        v_window_end := (v_current_date + INTERVAL '22 hours')::TIMESTAMP;
+        v_shift_id := 'shift-2-' || TO_CHAR(v_current_date, 'YYYY-MM-DD');
+    ELSE
+        -- Shift 3: 22:00-06:00 (spans midnight)
+        v_shift_number := 3;
+        IF v_current_hour < 6 THEN
+            -- Before 6 AM, shift started yesterday at 22:00
+            v_window_start := ((v_current_date - INTERVAL '1 day') + INTERVAL '22 hours')::TIMESTAMP;
+            v_window_end := (v_current_date + INTERVAL '6 hours')::TIMESTAMP;
+            v_shift_id := 'shift-3-' || TO_CHAR(v_current_date - INTERVAL '1 day', 'YYYY-MM-DD');
+        ELSE
+            -- After 22:00, shift ends tomorrow at 6:00
+            v_window_start := (v_current_date + INTERVAL '22 hours')::TIMESTAMP;
+            v_window_end := ((v_current_date + INTERVAL '1 day') + INTERVAL '6 hours')::TIMESTAMP;
+            v_shift_id := 'shift-3-' || TO_CHAR(v_current_date, 'YYYY-MM-DD');
+        END IF;
+    END IF;
     
     -- Get current production order for this machine (if any)
     SELECT id INTO v_production_order_id
@@ -314,14 +348,14 @@ BEGIN
     LIMIT 1;
     
     -- Calculate and store aggregation for the affected machine
-    -- Includes production order context for comprehensive data synchronization
+    -- Uses shift-based calculation with shift ID for tracking
     PERFORM calculate_availability_aggregation(
         NEW.id,
         v_window_start,
         v_window_end,
-        'rolling_window',
+        'shift',
         v_production_order_id, -- Include production order if available
-        NULL  -- shift_id (can be added for shift-based)
+        v_shift_id  -- Shift ID for shift-based tracking
     );
     
     RETURN NEW;
