@@ -210,10 +210,20 @@ export function useMachines(areaId?: string) {
         const response = areaId
           ? await apiClient.getMachinesByArea(areaId as any)
           : await apiClient.getAllMachines();
+        
+        console.log(`🔍 useMachines response:`, {
+          success: response.success,
+          hasData: !!response.data,
+          dataType: Array.isArray(response.data) ? 'array' : typeof response.data,
+          dataLength: Array.isArray(response.data) ? response.data.length : 'N/A',
+          message: response.message,
+        });
+        
         if (mounted) {
           if (response.success && response.data) {
             // Ensure data is an array
             const machinesData = Array.isArray(response.data) ? response.data : [];
+            console.log(`✅ Machines data loaded:`, machinesData.length, 'machines');
             
             // Only update if data actually changed (efficient comparison)
             setMachines((prevMachines) => {
@@ -252,7 +262,12 @@ export function useMachines(areaId?: string) {
             });
             setError(null);
           } else {
-            console.error('❌ Failed to fetch machines:', response.message);
+            console.error('❌ Failed to fetch machines:', {
+              success: response.success,
+              message: response.message,
+              hasData: !!response.data,
+              dataType: typeof response.data,
+            });
             setMachines([]); // Set empty array instead of undefined
             setError(response.message || 'Failed to fetch machines');
           }
