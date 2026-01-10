@@ -390,6 +390,66 @@ router.get('/:machineId', async (req, res) => {
   }
 });
 
+// GET /api/machines/:machineId/status-history - Get status history for Gantt chart
+router.get('/:machineId/status-history', async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { hours = 8 } = req.query; // Default to 8 hours (shift length)
+    
+    // Calculate start time (8 hours ago)
+    const hoursAgo = parseInt(hours, 10);
+    const startTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    
+    // Fetch status history for the last 8 hours
+    const statusHistoryResult = await query(
+      `SELECT 
+        id,
+        machine_id,
+        status,
+        previous_status,
+        status_start_time,
+        status_end_time,
+        duration_seconds,
+        is_production_time
+      FROM machine_status_history
+      WHERE machine_id = $1
+        AND (
+          (status_start_time >= $2 AND status_start_time <= NOW())
+          OR (status_end_time >= $2 AND status_end_time <= NOW())
+          OR (status_start_time <= $2 AND (status_end_time IS NULL OR status_end_time >= $2))
+        )
+      ORDER BY status_start_time ASC`,
+      [machineId, startTime]
+    );
+    
+    // Format the data for frontend
+    const statusHistory = statusHistoryResult.rows.map(row => ({
+      id: row.id,
+      machineId: row.machine_id,
+      status: row.status,
+      previousStatus: row.previous_status,
+      startTime: new Date(row.status_start_time).toISOString(),
+      endTime: row.status_end_time ? new Date(row.status_end_time).toISOString() : null,
+      durationSeconds: row.duration_seconds,
+      isProductionTime: row.is_production_time
+    }));
+    
+    res.json({
+      data: statusHistory,
+      timestamp: new Date().toISOString(),
+      success: true,
+    });
+  } catch (error) {
+    console.error('Error fetching status history:', error);
+    res.status(500).json({
+      data: null,
+      timestamp: new Date().toISOString(),
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 // PATCH /api/machines/:machineId - Update machine data
 router.patch('/:machineId', async (req, res) => {
   try {

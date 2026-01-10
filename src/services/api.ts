@@ -222,6 +222,10 @@ class APIClient {
     return this.request<MachineDetail>(`/machines/${machineId}`);
   }
 
+  async getMachineStatusHistory(machineId: string, hours: number = 8): Promise<APIResponse<any[]>> {
+    return this.request<any[]>(`/machines/${machineId}/status-history?hours=${hours}`);
+  }
+
   // Production Orders
   async getProductionOrders(): Promise<APIResponse<ProductionOrder[]>> {
     return this.request<ProductionOrder[]>('/orders');

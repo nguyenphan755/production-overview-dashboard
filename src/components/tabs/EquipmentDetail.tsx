@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
 import { useMachineDetailTrends } from '../../hooks/useMachineDetailTrends';
+import { apiClient } from '../../services/api';
 
 interface EquipmentDetailProps {
   machineId: string;
@@ -12,6 +13,32 @@ interface EquipmentDetailProps {
 export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
   const realTimeTrends = useMachineDetailTrends(machine);
+  const [statusHistory, setStatusHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Fetch status history for Gantt chart (8-hour shift)
+  useEffect(() => {
+    if (!machineId) return;
+    
+    const fetchStatusHistory = async () => {
+      setLoadingHistory(true);
+      try {
+        const response = await apiClient.getMachineStatusHistory(machineId, 8);
+        if (response.success && response.data) {
+          setStatusHistory(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching status history:', error);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+
+    fetchStatusHistory();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchStatusHistory, 30000);
+    return () => clearInterval(interval);
+  }, [machineId]);
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   // Memoize chart data to prevent unnecessary re-renders
@@ -53,9 +80,53 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
 
   const energyData = useMemo(() => {
     if (!machine) return [];
-    return realTimeTrends.energy.length > 0 
+    
+    // Get raw energy data
+    const rawData = realTimeTrends.energy.length > 0 
       ? realTimeTrends.energy 
       : (machine.energyConsumption || []);
+    
+    // Transform data to ensure it has hour and energy keys, and limit to 8 hours
+    const now = new Date();
+    const eightHoursAgo = new Date(now.getTime() - 8 * 60 * 60 * 1000);
+    
+    // If we have data, process it
+    if (rawData && rawData.length > 0) {
+      // Transform to hourly format if needed
+      const processedData = rawData.map((item: any, index: number) => {
+        if (typeof item === 'object' && item !== null) {
+          // If it already has hour and energy, use it
+          if (item.hour !== undefined && item.energy !== undefined) {
+            return item;
+          }
+          // Otherwise, try to extract energy value
+          const energy = item.energy || item.value || item || 0;
+          const hour = item.hour || item.time || index;
+          return { hour, energy: typeof energy === 'number' ? energy : parseFloat(energy) || 0 };
+        } else {
+          // If it's a number, use it as energy value
+          return { hour: index, energy: typeof item === 'number' ? item : parseFloat(item) || 0 };
+        }
+      });
+      
+      // Take last 8 hours
+      return processedData.slice(-8).map((item: any, index: number) => {
+        const hourTime = new Date(eightHoursAgo.getTime() + index * 60 * 60 * 1000);
+        return {
+          hour: hourTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          energy: item.energy || 0
+        };
+      });
+    }
+    
+    // If no data, generate 8 hours of zero/placeholder data
+    return Array.from({ length: 8 }, (_, index) => {
+      const hourTime = new Date(eightHoursAgo.getTime() + index * 60 * 60 * 1000);
+      return {
+        hour: hourTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        energy: 0
+      };
+    });
   }, [realTimeTrends.energy, machine?.energyConsumption]);
 
   // Helper function to calculate dynamic Y-axis domain with ±30% margin
@@ -298,88 +369,115 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
 
   return (
     <div>
-      {/* Header with Back Button */}
+      {/* Combined Top Section: Machine Name, Operator, and Current Production Order */}
       <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onBack}
-              className="p-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition-all group"
-            >
-              <ArrowLeft className="w-6 h-6 text-white group-hover:text-[#34E7F8]" strokeWidth={2.5} />
-            </button>
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl text-white tracking-tight">{machineInfo.name}</h1>
+        <div className="flex items-start gap-6 flex-wrap">
+          {/* Left Section: Machine Name and Operator */}
+          <div className="flex items-start gap-6 flex-1 min-w-0">
+            {/* Machine Name */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <button
+                onClick={onBack}
+                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 transition-all group flex-shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5 text-white group-hover:text-[#34E7F8]" strokeWidth={2.5} />
+              </button>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl lg:text-3xl text-white font-bold tracking-tight">{machineInfo.name}</h1>
+                <span className="text-base lg:text-lg text-white/60">({machineInfo.id})</span>
                 <div 
-                  className="px-3 py-1.5 rounded-lg tracking-wider border text-sm"
+                  className="px-3 py-1 rounded-md tracking-wider border text-sm whitespace-nowrap"
                   style={{
                     backgroundColor: `${statusColor}20`,
                     borderColor: `${statusColor}40`,
                     color: statusColor
                   }}
                 >
-                  RUNNING
+                  {machine.status.toUpperCase()}
                 </div>
               </div>
-              <div className="text-white/60 text-base">{machineInfo.id}</div>
+            </div>
+
+            {/* Operator */}
+            <div className="flex items-start gap-2 flex-shrink-0">
+              <User className="w-5 h-5 text-[#34E7F8] mt-1" />
+              <div className="flex flex-col">
+                <div className="text-white/60 text-xs">Operator:</div>
+                <span className="text-lg lg:text-xl text-white font-semibold">{machineInfo.operator}</span>
+              </div>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-white/60 text-xs mb-1">OPERATOR</div>
-            <div className="flex items-center gap-2 justify-end">
-              <User className="w-4 h-4 text-[#34E7F8]" />
-              <span className="text-lg text-white">{machineInfo.operator}</span>
+
+          {/* Middle Divider */}
+          <div className="h-12 w-px bg-white/20 flex-shrink-0"></div>
+
+          {/* Right Section: Current Production Order */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <Package className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
+              <h2 className="text-sm lg:text-base text-white font-medium">Current Production Order</h2>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-4">
+              <div className="min-w-0">
+                <div className="text-white/60 text-xs mb-0.5">ORDER ID</div>
+                <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.currentOrder || 'N/A'}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-white/60 text-xs mb-0.5">PRODUCT</div>
+                <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.productName || 'N/A'}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-white/60 text-xs mb-0.5">CUSTOMER</div>
+                <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.customer || 'N/A'}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-white/60 text-xs mb-0.5">EST. COMPLETION</div>
+                <div className="text-sm lg:text-base text-[#4FFFBC] tracking-tight truncate">{productionData.estimatedCompletion}</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Production Order Info */}
-      <div className="mb-4 rounded-xl bg-gradient-to-br from-[#34E7F8]/20 to-[#34E7F8]/5 backdrop-blur-xl border border-[#34E7F8]/30 shadow-2xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Package className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-          <h2 className="text-xl text-white">Current Production Order</h2>
+      {/* Gantt Chart: Operational States */}
+      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Activity className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
+          <h2 className="text-xl text-white">Operational States - Last 8 Hours (Shift)</h2>
         </div>
-        <div className="grid grid-cols-4 gap-4">
-          <div>
-            <div className="text-white/60 text-xs mb-1.5">ORDER ID</div>
-            <div className="text-xl text-white tracking-tight">{machineInfo.currentOrder}</div>
+        
+        {loadingHistory ? (
+          <div className="flex items-center justify-center h-32 text-white/60">
+            Loading status history...
           </div>
-          <div>
-            <div className="text-white/60 text-xs mb-1.5">PRODUCT</div>
-            <div className="text-xl text-white tracking-tight">{machineInfo.productName}</div>
+        ) : statusHistory.length === 0 ? (
+          <div className="flex items-center justify-center h-32 text-white/60">
+            No status history available
           </div>
-          <div>
-            <div className="text-white/60 text-xs mb-1.5">CUSTOMER</div>
-            <div className="text-xl text-white tracking-tight">{machineInfo.customer}</div>
-          </div>
-          <div>
-            <div className="text-white/60 text-xs mb-1.5">EST. COMPLETION</div>
-            <div className="text-xl text-[#4FFFBC] tracking-tight">{productionData.estimatedCompletion}</div>
-          </div>
-        </div>
+        ) : (
+          <GanttChart data={statusHistory} />
+        )}
       </div>
 
       {/* Production Metrics */}
-      <div className="mb-4 grid grid-cols-2 gap-4">
+      <div className="mb-4 grid grid-cols-2 gap-3">
         {/* Production Length */}
-        <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-            <h3 className="text-lg text-white">Production Length</h3>
+        <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
+            <h3 className="text-base text-white">Production Length</h3>
           </div>
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-4xl text-[#34E7F8] tracking-tight">{productionData.currentLength.toLocaleString()}</span>
-            <span className="text-xl text-white/40">/ {productionData.targetLength.toLocaleString()}</span>
-            <span className="text-base text-white/60">meters</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl text-[#34E7F8] tracking-tight">{productionData.currentLength.toLocaleString()}</span>
+            <span className="text-base text-white/40">/ {productionData.targetLength.toLocaleString()}</span>
+            <span className="text-sm text-white/60">meters</span>
           </div>
-          <div className="mb-3">
-            <div className="flex justify-between items-center mb-1.5">
-              <span className="text-white/60 text-sm">Progress</span>
-              <span className="text-xl text-white">{progressPercentage.toFixed(1)}%</span>
+          <div className="mb-2">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-white/60 text-xs">Progress</span>
+              <span className="text-base text-white">{progressPercentage.toFixed(1)}%</span>
             </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full transition-all duration-500"
                 style={{
@@ -389,35 +487,35 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               />
             </div>
           </div>
-          <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-3">
+          <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2">
             <div>
-              <div className="text-white/60 text-xs mb-1">RUNTIME</div>
-              <div className="text-xl text-white">{productionData.runtime.toFixed(2)}h</div>
+              <div className="text-white/60 text-xs mb-0.5">RUNTIME</div>
+              <div className="text-base text-white">{productionData.runtime.toFixed(2)}h</div>
             </div>
             <div>
-              <div className="text-white/60 text-xs mb-1">REMAINING TIME</div>
-              <div className="text-xl text-[#FFB86C]">{productionData.remainingTime}</div>
+              <div className="text-white/60 text-xs mb-0.5">REMAINING TIME</div>
+              <div className="text-base text-[#FFB86C]">{productionData.remainingTime}</div>
             </div>
           </div>
         </div>
 
         {/* Machine Speed */}
-        <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Gauge className="w-5 h-5 text-[#4FFFBC]" strokeWidth={2.5} />
-            <h3 className="text-lg text-white">Machine Speed</h3>
+        <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Gauge className="w-4 h-4 text-[#4FFFBC]" strokeWidth={2.5} />
+            <h3 className="text-base text-white">Machine Speed</h3>
           </div>
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-4xl text-[#4FFFBC] tracking-tight">{productionData.speed.toFixed(2)}</span>
-            <span className="text-xl text-white/40">/ {productionData.targetSpeed.toFixed(2)}</span>
-            <span className="text-base text-white/60">{productionData.speedUnit}</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl text-[#4FFFBC] tracking-tight">{productionData.speed.toFixed(2)}</span>
+            <span className="text-base text-white/40">/ {productionData.targetSpeed.toFixed(2)}</span>
+            <span className="text-sm text-white/60">{productionData.speedUnit}</span>
           </div>
-          <div className="mb-3">
-            <div className="flex justify-between items-center mb-1.5">
-              <span className="text-white/60 text-sm">Performance</span>
-              <span className="text-xl text-white">{speedPercentage.toFixed(1)}%</span>
+          <div className="mb-2">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-white/60 text-xs">Performance</span>
+              <span className="text-base text-white">{speedPercentage.toFixed(1)}%</span>
             </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full transition-all duration-500"
                 style={{
@@ -427,36 +525,36 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               />
             </div>
           </div>
-          <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-3">
+          <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2">
             <div>
-              <div className="text-white/60 text-xs mb-1">AVG SPEED</div>
-              <div className="text-xl text-white">{productionData.avgSpeed.toFixed(2)} {productionData.speedUnit}</div>
+              <div className="text-white/60 text-xs mb-0.5">AVG SPEED</div>
+              <div className="text-base text-white">{productionData.avgSpeed.toFixed(2)} {productionData.speedUnit}</div>
             </div>
             <div>
-              <div className="text-white/60 text-xs mb-1">EFFICIENCY</div>
-              <div className="text-xl text-[#4FFFBC]">{speedPercentage.toFixed(1)}%</div>
+              <div className="text-white/60 text-xs mb-0.5">EFFICIENCY</div>
+              <div className="text-base text-[#4FFFBC]">{speedPercentage.toFixed(1)}%</div>
             </div>
           </div>
         </div>
       </div>
 
       {/* OEE Metrics */}
-      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Target className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-          <h3 className="text-lg text-white">Overall Equipment Effectiveness (OEE)</h3>
+      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+        <div className="flex items-center gap-2 mb-3">
+          <Target className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
+          <h3 className="text-base text-white">Overall Equipment Effectiveness (OEE)</h3>
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-3">
           {/* OEE */}
-          <div className="p-4 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-2 tracking-wider">OEE</div>
+          <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">OEE</div>
             <div 
-              className="text-5xl tracking-tight mb-3"
+              className="text-3xl tracking-tight mb-2"
               style={{ color: getOEEColor(oeeMetrics.oee) }}
             >
               {oeeMetrics.oee}%
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full"
                 style={{
@@ -468,10 +566,10 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
 
           {/* Availability */}
-          <div className="p-4 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-2 tracking-wider">AVAILABILITY</div>
-            <div className="text-5xl text-[#4FFFBC] tracking-tight mb-3">{oeeMetrics.availability}%</div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">AVAILABILITY</div>
+            <div className="text-3xl text-[#4FFFBC] tracking-tight mb-2">{oeeMetrics.availability}%</div>
+            <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full bg-[#4FFFBC]"
                 style={{ width: `${oeeMetrics.availability}%` }}
@@ -480,10 +578,10 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
 
           {/* Performance */}
-          <div className="p-4 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-2 tracking-wider">PERFORMANCE</div>
-            <div className="text-5xl text-[#FFB86C] tracking-tight mb-3">{oeeMetrics.performance}%</div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">PERFORMANCE</div>
+            <div className="text-3xl text-[#FFB86C] tracking-tight mb-2">{oeeMetrics.performance}%</div>
+            <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full bg-[#FFB86C]"
                 style={{ width: `${oeeMetrics.performance}%` }}
@@ -492,10 +590,10 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
 
           {/* Quality */}
-          <div className="p-4 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-2 tracking-wider">QUALITY</div>
-            <div className="text-5xl text-[#34E7F8] tracking-tight mb-3">{oeeMetrics.quality}%</div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">QUALITY</div>
+            <div className="text-3xl text-[#34E7F8] tracking-tight mb-2">{oeeMetrics.quality}%</div>
+            <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full bg-[#34E7F8]"
                 style={{ width: `${oeeMetrics.quality}%` }}
@@ -524,7 +622,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <AreaChart 
                 data={tempData}
                 isAnimationActive={false}
-                syncId="machine-charts"
               >
                 <defs>
                   <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
@@ -580,7 +677,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <LineChart 
                 data={speedData}
                 isAnimationActive={false}
-                syncId="machine-charts"
               >
                 <XAxis 
                   dataKey="time" 
@@ -640,7 +736,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <AreaChart 
                 data={currentData}
                 isAnimationActive={false}
-                syncId="machine-charts"
               >
                 <defs>
                   <linearGradient id="currentGradient" x1="0" y1="0" x2="0" y2="1">
@@ -693,8 +788,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
         
         {/* Current Zone Temperatures */}
         {machine.area === 'sheathing' ? (
-          // Extrusion machines: 10 zones in 5x2 grid
-          <div className="grid grid-cols-5 gap-3 mb-4">
+          // Extrusion machines: 10 zones in single horizontal row
+          <div className="grid grid-cols-10 gap-2 mb-4">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((zoneNum) => {
               const zoneKey = `zone${zoneNum}` as keyof typeof machine.multiZoneTemperatures;
               const zoneColors = [
@@ -705,12 +800,12 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               const zoneValue = machine.multiZoneTemperatures?.[zoneKey];
               
               return (
-                <div key={zoneNum} className="p-3 rounded-lg bg-white/5 border border-white/10">
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: zoneColor }} />
-                    <div className="text-white/60 text-xs">ZONE {zoneNum}</div>
+                <div key={zoneNum} className="p-2 rounded-lg bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-1 mb-1">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: zoneColor }} />
+                    <div className="text-white/60 text-[10px] truncate">Z{zoneNum}</div>
                   </div>
-                  <div className="text-2xl tracking-tight" style={{ color: zoneColor }}>
+                  <div className="text-base tracking-tight" style={{ color: zoneColor }}>
                     {zoneValue ? `${Math.round(zoneValue as number)}°C` : 'N/A'}
                   </div>
                 </div>
@@ -765,7 +860,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             <LineChart 
               data={multiZoneTempData}
               isAnimationActive={false}
-              syncId="machine-charts"
             >
               <XAxis 
                 dataKey="time" 
@@ -780,12 +874,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 tickFormatter={(value) => value.toFixed(2)}
               />
               <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#0E2F4F', 
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: '8px',
-                  padding: '10px'
-                }}
+                content={<CompactMultiZoneTooltip />}
               />
               <Legend 
                 wrapperStyle={{ paddingTop: '20px' }}
@@ -911,7 +1000,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <AreaChart 
                 data={powerData}
                 isAnimationActive={false}
-                syncId="machine-charts"
               >
                 <defs>
                   <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
@@ -961,72 +1049,67 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           
           <div className="mb-3">
             <div className="text-3xl text-[#4FFFBC] tracking-tight">
-              {energyData.reduce((sum: number, d: any) => sum + (typeof d === 'object' ? (d.energy || 0) : d), 0).toFixed(0)} kWh
+              {energyData.reduce((sum: number, d: any) => sum + (typeof d === 'object' ? (d.energy || 0) : d), 0).toFixed(1)} kWh
             </div>
-            <div className="text-white/60 text-xs">Last 24 hours total</div>
+            <div className="text-white/60 text-xs">8-hour shift total</div>
           </div>
 
           <div className="h-40">
-            {energyData && energyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
-                  data={energyData} 
-                  margin={{ top: 10, right: 10, left: 40, bottom: 50 }}
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart 
+                data={energyData} 
+                margin={{ top: 10, right: 10, left: 40, bottom: 50 }}
+                isAnimationActive={false}
+                barCategoryGap="10%"
+              >
+                <defs>
+                  <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4FFFBC" stopOpacity={1}/>
+                    <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.7}/>
+                  </linearGradient>
+                </defs>
+                <XAxis 
+                  dataKey="hour" 
+                  stroke="#ffffff40" 
+                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={60}
+                  label={{ value: 'Time (Hour)', position: 'insideBottom', offset: -5, fill: '#ffffff60', fontSize: 10 }}
+                />
+                <YAxis 
+                  stroke="#ffffff40" 
+                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  label={{ value: 'Energy (kWh)', angle: -90, position: 'insideLeft', fill: '#ffffff60', fontSize: 10, style: { textAnchor: 'middle' } }}
+                  domain={[0, 'auto']}
+                  width={50}
+                  tickFormatter={(value) => value.toFixed(1)}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0E2F4F', 
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: '#ffffff',
+                    padding: '6px 8px'
+                  }}
+                  formatter={(value: any) => {
+                    const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                    return [`${numValue.toFixed(2)} kWh`, 'Energy'];
+                  }}
+                  labelFormatter={(label) => `Hour: ${label}`}
+                />
+                <Bar 
+                  dataKey="energy" 
+                  fill="url(#energyGradient)"
+                  radius={[4, 4, 0, 0]}
                   isAnimationActive={false}
-                  barCategoryGap="20%"
-                >
-                  <defs>
-                    <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#4FFFBC" stopOpacity={1}/>
-                      <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0.7}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis 
-                    dataKey="hour" 
-                    stroke="#ffffff40" 
-                    tick={{ fill: '#ffffff60', fontSize: 10 }}
-                    angle={-45}
-                    textAnchor="end"
-                    height={60}
-                    label={{ value: 'Time', position: 'insideBottom', offset: -5, fill: '#ffffff60', fontSize: 11 }}
-                  />
-                  <YAxis 
-                    stroke="#ffffff40" 
-                    tick={{ fill: '#ffffff60', fontSize: 11 }}
-                    label={{ value: 'Energy (kWh)', angle: -90, position: 'insideLeft', fill: '#ffffff60', fontSize: 11, style: { textAnchor: 'middle' } }}
-                    domain={[0, 'auto']}
-                    width={60}
-                    tickFormatter={(value) => value.toFixed(2)}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#0E2F4F', 
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      color: '#ffffff'
-                    }}
-                    formatter={(value: any) => {
-                      const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-                      return [`${numValue.toFixed(2)} kWh`, 'Energy Consumption'];
-                    }}
-                    labelFormatter={(label) => `Time: ${label}`}
-                  />
-                  <Bar 
-                    dataKey="energy" 
-                    fill="url(#energyGradient)"
-                    radius={[4, 4, 0, 0]}
-                    isAnimationActive={false}
-                    stroke="#4FFFBC"
-                    strokeWidth={1}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-white/40 text-sm">
-                No energy consumption data available
-              </div>
-            )}
+                  stroke="#4FFFBC"
+                  strokeWidth={1}
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
@@ -1144,6 +1227,253 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Compact Multi-Zone Temperature Tooltip Component
+const CompactMultiZoneTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || !payload.length) return null;
+
+  // Filter out null/undefined values and sort by zone number
+  const validPayloads = payload
+    .filter((item: any) => item.value !== null && item.value !== undefined)
+    .sort((a: any, b: any) => {
+      const zoneNumA = parseInt(a.dataKey.replace('zone', ''));
+      const zoneNumB = parseInt(b.dataKey.replace('zone', ''));
+      return zoneNumA - zoneNumB;
+    });
+
+  if (validPayloads.length === 0) return null;
+
+  // Group zones into columns (2 columns max)
+  const columns = 2;
+  const rows = Math.ceil(validPayloads.length / columns);
+
+  return (
+    <div 
+      style={{
+        backgroundColor: '#0E2F4F',
+        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: '6px',
+        padding: '6px 8px',
+        fontSize: '10px',
+        maxWidth: '280px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+      }}
+    >
+      <div style={{ marginBottom: '4px', color: '#ffffff80', fontSize: '9px' }}>
+        {label}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '4px' }}>
+        {validPayloads.map((item: any, index: number) => {
+          const zoneNum = item.dataKey.replace('zone', '');
+          return (
+            <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: item.color,
+                  flexShrink: 0
+                }}
+              />
+              <span style={{ color: '#ffffff60', fontSize: '9px' }}>Z{zoneNum}:</span>
+              <span style={{ color: item.color, fontWeight: '500', fontSize: '10px' }}>
+                {typeof item.value === 'number' ? `${Math.round(item.value)}°C` : 'N/A'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Gantt Chart Component for Operational States
+interface GanttChartProps {
+  data: Array<{
+    id: number;
+    status: string;
+    startTime: string;
+    endTime: string | null;
+    durationSeconds: number | null;
+  }>;
+}
+
+function GanttChart({ data }: GanttChartProps) {
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'running': return '#22C55E';
+      case 'idle': return '#64748B';
+      case 'warning': return '#F59E0B';
+      case 'error': return '#EF4444';
+      case 'alarm': return '#EF4444';
+      case 'stopped': return '#34E7F8';
+      case 'setup': return '#FFB86C';
+      default: return '#64748B';
+    }
+  };
+
+  // Calculate time range (8 hours = 480 minutes)
+  const now = new Date();
+  const startTime = new Date(now.getTime() - 8 * 60 * 60 * 1000);
+  const endTime = now;
+  const totalMinutes = 8 * 60;
+  
+  // Process data to create timeline segments
+  const timelineSegments = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    
+    const segments: Array<{
+      status: string;
+      startPercent: number;
+      endPercent: number;
+      duration: number;
+      startTime: Date;
+      endTime: Date | null;
+    }> = [];
+    
+    data.forEach((item) => {
+      const itemStart = new Date(item.startTime);
+      const itemEnd = item.endTime ? new Date(item.endTime) : now;
+      
+      // Only include segments within the 8-hour window
+      if (itemEnd >= startTime && itemStart <= endTime) {
+        const actualStart = itemStart < startTime ? startTime : itemStart;
+        const actualEnd = itemEnd > endTime ? endTime : itemEnd;
+        
+        const startMinutes = Math.max(0, (actualStart.getTime() - startTime.getTime()) / (1000 * 60));
+        const endMinutes = Math.min(totalMinutes, (actualEnd.getTime() - startTime.getTime()) / (1000 * 60));
+        
+        if (endMinutes > startMinutes) {
+          segments.push({
+            status: item.status,
+            startPercent: (startMinutes / totalMinutes) * 100,
+            endPercent: (endMinutes / totalMinutes) * 100,
+            duration: endMinutes - startMinutes,
+            startTime: actualStart,
+            endTime: actualEnd,
+          });
+        }
+      }
+    });
+    
+    // Sort by start time
+    return segments.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  }, [data, startTime, endTime, now, totalMinutes]);
+
+  // Generate time labels for the x-axis (every hour)
+  const timeLabels = useMemo(() => {
+    const labels = [];
+    for (let i = 0; i <= 8; i++) {
+      const time = new Date(startTime.getTime() + i * 60 * 60 * 1000);
+      labels.push({
+        time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        percent: (i / 8) * 100,
+      });
+    }
+    return labels;
+  }, [startTime]);
+
+  // Group segments by status for legend
+  const statusGroups = useMemo(() => {
+    const groups: Record<string, typeof timelineSegments> = {};
+    timelineSegments.forEach((segment) => {
+      const statusKey = segment.status.toLowerCase();
+      if (!groups[statusKey]) {
+        groups[statusKey] = [];
+      }
+      groups[statusKey].push(segment);
+    });
+    return groups;
+  }, [timelineSegments]);
+
+  const statusOrder = ['running', 'idle', 'setup', 'warning', 'stopped', 'error', 'alarm'];
+  
+  // Calculate current time position
+  const currentTimePercent = ((now.getTime() - startTime.getTime()) / (8 * 60 * 60 * 1000)) * 100;
+  
+  return (
+    <div className="space-y-4">
+      {/* Status Legend */}
+      <div className="flex flex-wrap gap-4">
+        {statusOrder.map((status) => {
+          if (!statusGroups[status] || statusGroups[status].length === 0) return null;
+          const totalDuration = statusGroups[status].reduce((sum, seg) => sum + seg.duration, 0);
+          const hours = Math.floor(totalDuration / 60);
+          const minutes = Math.floor(totalDuration % 60);
+          return (
+            <div key={status} className="flex items-center gap-2">
+              <div
+                className="w-4 h-4 rounded"
+                style={{ backgroundColor: getStatusColor(status) }}
+              />
+              <span className="text-sm text-white/80 font-medium uppercase">{status}</span>
+              <span className="text-xs text-white/50">
+                ({hours}h {minutes}m)
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Gantt Chart */}
+      <div className="relative h-32 bg-white/5 rounded-lg overflow-hidden border border-white/10">
+        {/* Time grid lines */}
+        <div className="absolute inset-0">
+          {timeLabels.map((label, index) => (
+            <div
+              key={index}
+              className="absolute top-0 bottom-0 border-l border-white/10"
+              style={{ left: `${label.percent}%` }}
+            >
+            </div>
+          ))}
+        </div>
+
+        {/* Status segments */}
+        <div className="relative h-full flex items-center pt-6">
+          {timelineSegments.map((segment, index) => {
+            const width = segment.endPercent - segment.startPercent;
+            const statusLower = segment.status.toLowerCase();
+            return (
+              <div
+                key={`${segment.status}-${index}`}
+                className="absolute h-16 rounded transition-all hover:opacity-90 hover:shadow-lg cursor-pointer border border-white/20"
+                style={{
+                  left: `${segment.startPercent}%`,
+                  width: `${width}%`,
+                  backgroundColor: getStatusColor(statusLower),
+                  minWidth: '3px',
+                }}
+                title={`${segment.status.toUpperCase()}\nStart: ${segment.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}\nEnd: ${segment.endTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) || 'Now'}\nDuration: ${Math.round(segment.duration)} min (${(segment.duration / 60).toFixed(1)}h)`}
+              >
+                {/* Show status label if segment is wide enough */}
+                {width > 5 && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs text-white font-semibold drop-shadow-lg uppercase">
+                      {segment.status}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Current time indicator */}
+        {currentTimePercent > 0 && currentTimePercent < 100 && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-[#34E7F8] z-20 pointer-events-none"
+            style={{ left: `${currentTimePercent}%` }}
+          >
+            <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-[#34E7F8]" />
+            <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-[#34E7F8]" />
+          </div>
+        )}
       </div>
     </div>
   );
