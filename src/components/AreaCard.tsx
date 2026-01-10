@@ -72,7 +72,9 @@ export function AreaCard({ area }: AreaCardProps) {
             <Gauge className="w-3 h-3 text-[#4FFFBC]" />
             <span className="text-white/60 text-sm">SPEED</span>
           </div>
-          <div className="text-xl text-[#4FFFBC]">{area.speedAvg}</div>
+          <div className="text-xl text-[#4FFFBC]">
+            {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(2) : area.speedAvg}
+          </div>
         </div>
         <div>
           <div className="flex items-center gap-1 mb-0.5">
@@ -108,7 +110,7 @@ export function AreaCard({ area }: AreaCardProps) {
                     'text-[#34E7F8]'
                   }`}>
                     {displaySpeed > 0 
-                      ? (area.id === 'drawing' ? `${displaySpeed.toFixed(2)}` : `${displaySpeed}`)
+                      ? (area.id === 'drawing' ? `${(displaySpeed / 60.0).toFixed(2)}` : `${displaySpeed}`)
                       : '0'
                     } <span className="text-sm text-white/60">{area.id === 'drawing' ? 'm/s' : 'm/min'}</span>
                   </div>

@@ -87,9 +87,9 @@ export function MachineGrid() {
             
             <div className="mb-1">
               <div className={`text-2xl ${getSpeedColor(machine.status)} tracking-tight`}>
-                  {machine.lineSpeed > 0 ? machine.lineSpeed : '--'}
-                </div>
+                {(machine.lineSpeed || 0).toFixed(1)}
               </div>
+            </div>
 
               <div className="text-white/40 text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
             </div>

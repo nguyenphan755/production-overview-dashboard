@@ -1,4 +1,5 @@
-import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target } from 'lucide-react';
+import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
 import { useMachines } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
@@ -18,6 +19,7 @@ const areaConfig: Record<ProductionArea, { name: string; icon: any }> = {
 export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
   const { machines, loading } = useMachines();
   const trends = useMachineTrends(machines);
+  const [expandedMachines, setExpandedMachines] = useState<Set<string>>(new Set());
 
   // Group machines by area
   const productionAreas = (['drawing', 'stranding', 'armoring', 'sheathing'] as ProductionArea[]).map((areaId) => {
@@ -123,14 +125,14 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
           return (
             <div key={area.id} className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl overflow-hidden">
               {/* Area Header */}
-              <div className="bg-gradient-to-r from-[#34E7F8]/20 via-[#34E7F8]/10 to-transparent border-b border-white/10 px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-[#34E7F8]/20 border border-[#34E7F8]/30">
-                    <AreaIcon className="w-6 h-6 text-[#34E7F8]" strokeWidth={2.5} />
+              <div className="bg-gradient-to-r from-[#34E7F8]/20 via-[#34E7F8]/10 to-transparent border-b border-white/10 px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-[#34E7F8]/20 border border-[#34E7F8]/30">
+                    <AreaIcon className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
                   </div>
-                  <h2 className="text-2xl text-white tracking-wide">{area.name}</h2>
-                  <div className="ml-auto flex items-center gap-4">
-                    <div className="text-white/60 text-sm">
+                  <h2 className="text-lg text-white tracking-wide">{area.name}</h2>
+                  <div className="ml-auto flex items-center gap-2">
+                    <div className="text-white/60 text-xs">
                       {area.machines.filter(m => m.status === 'running').length} / {area.machines.length} Running
                     </div>
                   </div>
@@ -138,212 +140,266 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
               </div>
 
               {/* Machines Grid */}
-              <div className="p-6">
-                <div className="grid grid-cols-4 gap-4">
-                  {area.machines.map((machine) => {
+              <div className="p-3">
+                <div className="grid grid-cols-4 gap-2">
+                  {[...area.machines]
+                    .sort((a, b) => {
+                      // Prioritize RUNNING machines
+                      if (a.status === 'running' && b.status !== 'running') return -1;
+                      if (a.status !== 'running' && b.status === 'running') return 1;
+                      return 0;
+                    })
+                    .map((machine) => {
                     const statusColor = getStatusColor(machine.status);
                     const lineSpeed = machine.lineSpeed || 0;
                     const targetSpeed = machine.targetSpeed || 0;
                     const speedPercentage = targetSpeed > 0 ? (lineSpeed / targetSpeed) * 100 : 0;
                     
+                    const isRunning = machine.status === 'running';
+                    const isIdle = machine.status === 'idle';
+                    const isExpanded = isRunning || expandedMachines.has(machine.id);
+                    
+                    const toggleExpand = (e: React.MouseEvent) => {
+                      e.stopPropagation(); // Prevent card click
+                      setExpandedMachines(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(machine.id)) {
+                          newSet.delete(machine.id);
+                        } else {
+                          newSet.add(machine.id);
+                        }
+                        return newSet;
+                      });
+                    };
+                    
                     return (
                       <div 
                         key={machine.id}
                         onClick={() => onMachineClick(machine.id)}
-                        className="rounded-xl bg-gradient-to-br from-white/8 to-white/3 border border-white/10 p-5 hover:border-[#34E7F8]/50 hover:bg-white/12 transition-all group cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                        className={`rounded-xl transition-all group cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+                          isRunning 
+                            ? 'p-3 bg-gradient-to-br from-[#22C55E]/30 to-[#22C55E]/10 border-2 border-[#22C55E] hover:border-[#22C55E] hover:bg-gradient-to-br hover:from-[#22C55E]/40 hover:to-[#22C55E]/15' 
+                            : 'p-3 bg-gradient-to-br from-white/8 to-white/3 border border-white/10 hover:border-[#34E7F8]/50 hover:bg-white/12'
+                        }`}
                         style={{
-                          boxShadow: machine.status !== 'idle' ? `0 0 20px ${statusColor}15` : 'none'
+                          boxShadow: isRunning 
+                            ? `0 0 40px ${statusColor}60, 0 6px 30px ${statusColor}30, inset 0 0 30px ${statusColor}15` 
+                            : machine.status !== 'idle' 
+                              ? `0 0 20px ${statusColor}15` 
+                              : 'none'
                         }}
                       >
                         {/* Machine Header */}
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <div className="text-2xl text-white tracking-tight mb-1">{machine.name}</div>
-                            <div className="text-white/60 text-sm">
+                        <div className="flex items-start justify-between mb-2" style={{ minHeight: '45px' }}>
+                          <div className="flex-1 min-w-0">
+                            <div className={`${isRunning ? 'text-xl' : 'text-lg'} ${isRunning ? 'text-white font-semibold' : 'text-white'} tracking-tight mb-0.5`}>{machine.name}</div>
+                            <div className="text-white/60 text-xs leading-tight">
                               {machine.productionOrderId && machine.productionOrderProductName ? (
                                 <>
                                   <span>{machine.productionOrderId} • </span>
-                                  <span className="text-[#34E7F8] font-bold text-lg">{machine.productionOrderProductName}</span>
+                                  <span className="text-[#34E7F8] font-semibold text-sm">{machine.productionOrderProductName}</span>
                                 </>
                               ) : (
                                 machine.productionOrderId || 'No active order'
                               )}
                             </div>
                           </div>
-                          <div 
-                            className="px-3 py-1.5 rounded-lg text-sm tracking-wider border"
-                            style={{
-                              backgroundColor: `${statusColor}20`,
-                              borderColor: `${statusColor}40`,
-                              color: statusColor
-                            }}
-                          >
-                            {getStatusLabel(machine.status)}
+                          <div className="flex items-center gap-2">
+                            {!isRunning && (
+                              <button
+                                onClick={toggleExpand}
+                                className="p-1 rounded hover:bg-white/10 transition-colors"
+                                title={isExpanded ? 'Collapse details' : 'Expand details'}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-white/60" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-white/60" />
+                                )}
+                              </button>
+                            )}
+                            <div 
+                              className="px-2 py-1 rounded text-xs tracking-wider border flex-shrink-0"
+                              style={{
+                                backgroundColor: `${statusColor}${isRunning ? '30' : '20'}`,
+                                borderColor: `${statusColor}${isRunning ? '60' : '40'}`,
+                                color: statusColor
+                              }}
+                            >
+                              {getStatusLabel(machine.status)}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Speed Indicator */}
-                        <div className="mb-4">
-                          <div className="flex items-baseline justify-between mb-2">
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-3xl tracking-tight" style={{ color: statusColor }}>
+                        {/* Speed Indicator - Primary KPI */}
+                        <div className="mb-2" style={{ minHeight: isRunning ? '55px' : '45px' }}>
+                          <div className={`flex items-baseline justify-between ${isRunning ? 'mb-2' : 'mb-1.5'}`}>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className={`${isRunning ? 'text-3xl font-bold' : 'text-xl'} tracking-tight`} style={{ color: isRunning ? '#22C55E' : statusColor }}>
                                 {machine.area === 'drawing' ? (machine.lineSpeed || 0).toFixed(2) : (machine.lineSpeed || 0)}
                               </span>
-                              <span className="text-white/40">/ {machine.area === 'drawing' ? (machine.targetSpeed || 0).toFixed(2) : (machine.targetSpeed || 0)}</span>
-                              <span className="text-white/60 text-sm">{machine.area === 'drawing' ? 'm/s' : 'm/min'}</span>
+                              <span className="text-white/40 text-xs">/ {machine.area === 'drawing' ? (machine.targetSpeed || 0).toFixed(2) : (machine.targetSpeed || 0)}</span>
+                              <span className="text-white/60 text-xs">{machine.area === 'drawing' ? 'm/s' : 'm/min'}</span>
                             </div>
-                            <span className="text-lg text-white/60">{speedPercentage.toFixed(0)}%</span>
+                            <span className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} text-white/60`}>{speedPercentage.toFixed(0)}%</span>
                           </div>
-                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                          <div className={`${isRunning ? 'h-2.5' : 'h-1.5'} bg-white/10 rounded-full overflow-hidden`}>
                             <div 
                               className="h-full rounded-full transition-all duration-500"
                               style={{
                                 width: `${Math.min(speedPercentage, 100)}%`,
-                                backgroundColor: statusColor
+                                backgroundColor: isRunning ? '#22C55E' : statusColor,
+                                boxShadow: isRunning ? `0 0 10px ${statusColor}80` : 'none'
                               }}
                             />
                           </div>
                         </div>
 
-                        {/* Machine Metrics with Trends */}
-                        <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/10">
+                        {/* Machine Metrics with Trends - Show for RUNNING or expanded */}
+                        {isExpanded && (
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10" style={{ minHeight: '75px' }}>
                           {/* Current - Always render */}
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Zap className="w-4 h-4 text-[#FFB86C]" strokeWidth={2} />
-                              <span className="text-white/50 text-xs tracking-wide">CURRENT</span>
+                            <div className="flex items-center gap-1 mb-0.5">
+                              <Zap className="w-3 h-3 text-[#FFB86C]" strokeWidth={2} />
+                              <span className="text-white/50 text-[10px] tracking-wide">CURRENT</span>
                             </div>
-                            <div className="text-xl text-white tracking-tight mb-1">{(machine.current || 0).toFixed(1)}</div>
-                            <div className="text-white/40 text-xs mb-1">A</div>
+                            <div className="text-base text-white tracking-tight mb-0.5">{(machine.current || 0).toFixed(1)}</div>
+                            <div className="text-white/40 text-[10px] mb-0.5">A</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.current || []} 
                               color="#FFB86C" 
-                              height={30}
+                              height={25}
                             />
                           </div>
                           
                           {/* Power - Always render */}
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Circle className="w-4 h-4 text-[#4FFFBC]" strokeWidth={2} fill="currentColor" />
-                              <span className="text-white/50 text-xs tracking-wide">POWER</span>
+                            <div className="flex items-center gap-1 mb-0.5">
+                              <Circle className="w-3 h-3 text-[#4FFFBC]" strokeWidth={2} fill="currentColor" />
+                              <span className="text-white/50 text-[10px] tracking-wide">POWER</span>
                             </div>
-                            <div className="text-xl text-white tracking-tight mb-1">{(machine.power || 0).toFixed(1)}</div>
-                            <div className="text-white/40 text-xs mb-1">kW</div>
+                            <div className="text-base text-white tracking-tight mb-0.5">{(machine.power || 0).toFixed(1)}</div>
+                            <div className="text-white/40 text-[10px] mb-0.5">kW</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.power || []} 
                               color="#4FFFBC" 
-                              height={30}
+                              height={25}
                               showArea={true}
                             />
                           </div>
                           
                           {/* Temperature - Always render */}
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Thermometer className="w-4 h-4" style={{ color: getTempColor(machine.temperature || 0) }} strokeWidth={2} />
-                              <span className="text-white/50 text-xs tracking-wide">TEMP</span>
+                            <div className="flex items-center gap-1 mb-0.5">
+                              <Thermometer className="w-3 h-3" style={{ color: getTempColor(machine.temperature || 0) }} strokeWidth={2} />
+                              <span className="text-white/50 text-[10px] tracking-wide">TEMP</span>
                             </div>
-                            <div className="text-xl text-white tracking-tight mb-1">{Math.round(machine.temperature || 0)}</div>
-                            <div className="text-white/40 text-xs mb-1">°C</div>
+                            <div className="text-base text-white tracking-tight mb-0.5">{Math.round(machine.temperature || 0)}</div>
+                            <div className="text-white/40 text-[10px] mb-0.5">°C</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.temperature || []} 
                               color={getTempColor(machine.temperature || 0)} 
-                              height={30}
+                              height={25}
                               showArea={true}
                             />
                           </div>
                         </div>
+                        )}
 
-                        {/* Speed Trend */}
-                        <div className="mt-4 pt-4 border-t border-white/10">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-1.5">
-                              <Gauge className="w-4 h-4 text-[#34E7F8]" strokeWidth={2} />
-                              <span className="text-white/50 text-xs tracking-wide">SPEED TREND</span>
+                        {/* Speed Trend - Show for RUNNING or expanded */}
+                        {isExpanded && (
+                          <div className="mt-2 pt-2 border-t border-white/10" style={{ minHeight: '50px' }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-1">
+                              <Gauge className="w-3 h-3 text-[#34E7F8]" strokeWidth={2} />
+                              <span className="text-white/50 text-[10px] tracking-wide">SPEED</span>
                             </div>
-                            <span className="text-white/60 text-xs">
+                            <span className="text-white/60 text-[10px]">
                               {machine.area === 'drawing' ? (machine.lineSpeed || 0).toFixed(2) : (machine.lineSpeed || 0)} {machine.area === 'drawing' ? 'm/s' : 'm/min'}
                             </span>
                           </div>
                           <MachineTrendChart 
                             data={trends[machine.id]?.speed || []} 
                             color="#34E7F8" 
-                            height={35}
+                            height={25}
                             showArea={true}
                           />
                         </div>
+                        )}
 
-                        {/* OEE Metrics */}
-                        <div className="mt-4 pt-4 border-t border-white/10">
-                          <div className="flex items-center gap-1.5 mb-3">
-                            <Target className="w-4 h-4 text-[#34E7F8]" strokeWidth={2} />
-                            <div className="text-white/50 text-xs tracking-wide">OEE</div>
+                        {/* OEE Metrics - Show for RUNNING or expanded */}
+                        {isExpanded && (
+                          <div className="mt-2 pt-2 border-t border-white/10" style={{ minHeight: '50px' }}>
+                            <div className="flex items-center gap-1 mb-1">
+                              <Target className="w-2.5 h-2.5 text-[#34E7F8]" strokeWidth={2} />
+                              <div className="text-white/50 text-[9px] tracking-wide">OEE</div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1">
+                              {/* OEE */}
+                              <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">OEE</div>
+                                <div 
+                                  className={`${isRunning ? 'text-base' : 'text-sm'} tracking-tight mb-0.5`}
+                                  style={{ color: getOEEColor(machine.oee || 0) }}
+                                >
+                                  {Math.round(machine.oee || 0)}%
+                                </div>
+                                <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full"
+                                    style={{
+                                      width: `${Math.min(machine.oee || 0, 100)}%`,
+                                      backgroundColor: getOEEColor(machine.oee || 0)
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Availability */}
+                              <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">A</div>
+                                <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#4FFFBC] tracking-tight mb-0.5`}>
+                                  {Math.round(machine.availability || 0)}%
+                                </div>
+                                <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full bg-[#4FFFBC]"
+                                    style={{ width: `${Math.min(machine.availability || 0, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Performance */}
+                              <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">P</div>
+                                <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#FFB86C] tracking-tight mb-0.5`}>
+                                  {Math.round(machine.performance || 0)}%
+                                </div>
+                                <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full bg-[#FFB86C]"
+                                    style={{ width: `${Math.min(machine.performance || 0, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Quality */}
+                              <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">Q</div>
+                                <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#34E7F8] tracking-tight mb-0.5`}>
+                                  {Math.round(machine.quality || 0)}%
+                                </div>
+                                <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full bg-[#34E7F8]"
+                                    style={{ width: `${Math.min(machine.quality || 0, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-4 gap-2">
-                            {/* OEE */}
-                            <div className="p-2 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                              <div className="text-white/60 text-xs mb-1 tracking-wider">OEE</div>
-                              <div 
-                                className="text-2xl tracking-tight mb-1.5"
-                                style={{ color: getOEEColor(machine.oee || 0) }}
-                              >
-                                {Math.round(machine.oee || 0)}%
-                              </div>
-                              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${Math.min(machine.oee || 0, 100)}%`,
-                                    backgroundColor: getOEEColor(machine.oee || 0)
-                                  }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Availability */}
-                            <div className="p-2 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                              <div className="text-white/60 text-xs mb-1 tracking-wider">A</div>
-                              <div className="text-2xl text-[#4FFFBC] tracking-tight mb-1.5">
-                                {Math.round(machine.availability || 0)}%
-                              </div>
-                              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full rounded-full bg-[#4FFFBC]"
-                                  style={{ width: `${Math.min(machine.availability || 0, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Performance */}
-                            <div className="p-2 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                              <div className="text-white/60 text-xs mb-1 tracking-wider">P</div>
-                              <div className="text-2xl text-[#FFB86C] tracking-tight mb-1.5">
-                                {Math.round(machine.performance || 0)}%
-                              </div>
-                              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full rounded-full bg-[#FFB86C]"
-                                  style={{ width: `${Math.min(machine.performance || 0, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Quality */}
-                            <div className="p-2 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                              <div className="text-white/60 text-xs mb-1 tracking-wider">Q</div>
-                              <div className="text-2xl text-[#34E7F8] tracking-tight mb-1.5">
-                                {Math.round(machine.quality || 0)}%
-                              </div>
-                              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full rounded-full bg-[#34E7F8]"
-                                  style={{ width: `${Math.min(machine.quality || 0, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}

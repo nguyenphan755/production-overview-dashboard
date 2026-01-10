@@ -12,19 +12,32 @@ interface MachineTrendChartProps {
 function MachineTrendChartComponent({ data, color, height = 40, showArea = false }: MachineTrendChartProps) {
   // Memoize normalized data to prevent unnecessary recalculations
   const normalizedData = useMemo(() => {
+    // Always provide data - use zeros if empty
+    let chartData: number[] = [];
+    
     if (!data || data.length === 0) {
-      return [];
+      // Create array of zeros (at least 2 points for a line)
+      chartData = [0, 0];
+    } else {
+      // If only one data point, duplicate it for visualization
+      chartData = data.length === 1 
+        ? [data[0], data[0]] 
+        : data;
     }
-
-    // If only one data point, duplicate it for visualization
-    const chartData = data.length === 1 
-      ? [data[0], data[0]] 
-      : data;
 
     // Normalize data to 0-100 range for consistent display
     const min = Math.min(...chartData);
     const max = Math.max(...chartData);
-    const range = max - min || 1;
+    const range = max - min;
+    
+    // If all values are the same (including all zeros), display at bottom (0%)
+    if (range === 0) {
+      return chartData.map((value, index) => ({
+        index,
+        value: 0,
+        original: value,
+      }));
+    }
     
     return chartData.map((value, index) => ({
       index,
@@ -35,14 +48,6 @@ function MachineTrendChartComponent({ data, color, height = 40, showArea = false
 
   // Memoize gradient ID to prevent re-creation
   const gradientId = useMemo(() => `gradient-${color.replace('#', '')}`, [color]);
-
-  if (!data || data.length === 0) {
-    return (
-      <div style={{ height: `${height}px` }} className="flex items-center justify-center text-white/20 text-xs">
-        No data
-      </div>
-    );
-  }
 
   const ChartComponent = showArea ? AreaChart : LineChart;
 
