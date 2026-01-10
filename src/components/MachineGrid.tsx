@@ -4,11 +4,15 @@ import type { ProductionArea } from '../types';
 const areaNames: Record<ProductionArea, string> = {
   drawing: 'KÉO',
   stranding: 'XOẮN',
-  armoring: 'BỌC THÉP',
+  armoring: 'GIÁP',
   sheathing: 'BỌC',
 };
 
-export function MachineGrid() {
+interface MachineGridProps {
+  onMachineClick?: (machineId: string) => void;
+}
+
+export function MachineGrid({ onMachineClick }: MachineGridProps) {
   const { machines, loading, error } = useMachines();
   
   // Ensure machines is always an array
@@ -78,7 +82,8 @@ export function MachineGrid() {
           machinesArray.map((machine) => (
           <div
             key={machine.id}
-            className={`rounded-lg border-2 ${getStatusColor(machine.status)} backdrop-blur-sm p-2 transition-all duration-300 hover:scale-105 hover:shadow-lg`}
+            onClick={() => onMachineClick?.(machine.id)}
+            className={`rounded-lg border-2 ${getStatusColor(machine.status)} backdrop-blur-sm p-2 transition-all duration-300 hover:scale-105 hover:shadow-lg cursor-pointer`}
           >
             <div className="flex items-start justify-between mb-1.5">
               <div className="text-white text-sm tracking-wide line-clamp-2">{machine.name}</div>

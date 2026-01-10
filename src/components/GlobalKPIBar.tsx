@@ -27,7 +27,7 @@ export function GlobalKPIBar() {
         case 'alarms':
           return (kpis.alarms || 0).toString();
         case 'energy':
-          return `${(kpis.energy || 0).toFixed(2)}MW`;
+          return `${((kpis.energy || 0) * 1000).toFixed(2)}KW`;
         default:
           return '--';
       }

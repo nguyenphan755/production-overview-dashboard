@@ -6,7 +6,7 @@ const router = express.Router();
 const areaNames = {
   drawing: { name: 'KÉO', nameEn: 'DRAWING' },
   stranding: { name: 'XOẮN', nameEn: 'STRANDING' },
-  armoring: { name: 'BỌC THÉP', nameEn: 'ARMORING' },
+  armoring: { name: 'GIÁP', nameEn: 'ARMORING' },
   sheathing: { name: 'BỌC', nameEn: 'SHEATHING' },
 };
 

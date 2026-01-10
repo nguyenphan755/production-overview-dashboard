@@ -40,6 +40,8 @@ export default function App() {
 
   const handleMachineClick = (machineId: string) => {
     setSelectedMachineId(machineId);
+    // Automatically switch to Equipment tab when a machine is clicked
+    setActiveTab('equipment');
   };
 
   const handleBackToEquipment = () => {
@@ -49,7 +51,7 @@ export default function App() {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'production':
-        return <ProductionOverview />;
+        return <ProductionOverview onMachineClick={handleMachineClick} />;
       case 'quality':
         return <QualityControl />;
       case 'equipment':

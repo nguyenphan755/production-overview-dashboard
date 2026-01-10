@@ -729,7 +729,7 @@ export const mockAPI = {
     const areaNames: Record<ProductionArea, { name: string; nameEn: string }> = {
       drawing: { name: 'KÉO', nameEn: 'DRAWING' },
       stranding: { name: 'XOẮN', nameEn: 'STRANDING' },
-      armoring: { name: 'BỌC THÉP', nameEn: 'ARMORING' },
+      armoring: { name: 'GIÁP', nameEn: 'ARMORING' },
       sheathing: { name: 'BỌC', nameEn: 'SHEATHING' },
     };
 

@@ -65,15 +65,15 @@ export function AreaCard({ area }: AreaCardProps) {
             <Package className="w-3 h-3 text-[#34E7F8]" />
             <span className="text-white/60 text-sm">OUTPUT</span>
           </div>
-          <div className="text-xl text-[#34E7F8]">{(area.output / 1000).toFixed(1)}K</div>
+          <div className="text-2xl text-[#34E7F8]">{(area.output / 1000).toFixed(1)}K</div>
         </div>
         <div>
           <div className="flex items-center gap-1 mb-0.5">
             <Gauge className="w-3 h-3 text-[#4FFFBC]" />
             <span className="text-white/60 text-sm">SPEED</span>
           </div>
-          <div className="text-xl text-[#4FFFBC]">
-            {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(2) : area.speedAvg}
+          <div className="text-2xl text-[#4FFFBC]">
+            {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(2) : area.speedAvg.toFixed(2)}
           </div>
         </div>
         <div>
@@ -81,7 +81,7 @@ export function AreaCard({ area }: AreaCardProps) {
             <AlertTriangle className="w-3 h-3 text-[#FF4C4C]" />
             <span className="text-white/60 text-sm">ALARMS</span>
           </div>
-          <div className="text-xl text-[#FF4C4C]">{area.alarms}</div>
+          <div className="text-2xl text-[#FF4C4C]">{area.alarms}</div>
         </div>
       </div>
 
@@ -99,10 +99,10 @@ export function AreaCard({ area }: AreaCardProps) {
               return (
                 <div key={machine.id || index} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`w-2.5 h-2.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}></div>
-                    <span className="text-white text-base font-medium">{machine.name}</span>
+                    <div className={`w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}></div>
+                    <span className="text-white text-xl font-medium">{machine.name}</span>
                   </div>
-                  <div className={`text-lg font-semibold ${
+                  <div className={`text-xl font-semibold ${
                     machine.status === 'running' ? 'text-[#22C55E]' :
                     machine.status === 'idle' ? 'text-[#F59E0B]' :
                     machine.status === 'warning' ? 'text-[#F59E0B]' :
@@ -121,8 +121,8 @@ export function AreaCard({ area }: AreaCardProps) {
               return (
                 <div key={index} className="flex items-center justify-between opacity-30">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/20"></div>
-                    <span className="text-white/40 text-base">--</span>
+                    <div className="w-3.5 h-3.5 rounded-full bg-white/20"></div>
+                    <span className="text-white/40 text-xl">--</span>
                   </div>
                   <div className="text-white/20 text-xl">--</div>
                 </div>

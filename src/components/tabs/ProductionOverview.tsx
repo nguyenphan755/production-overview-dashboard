@@ -3,7 +3,11 @@ import { AreaCard } from '../AreaCard';
 import { MachineGrid } from '../MachineGrid';
 import { useProductionAreas } from '../../hooks/useProductionData';
 
-export function ProductionOverview() {
+interface ProductionOverviewProps {
+  onMachineClick?: (machineId: string) => void;
+}
+
+export function ProductionOverview({ onMachineClick }: ProductionOverviewProps) {
   const { areas, loading, error } = useProductionAreas();
   
   // Show error message if API fails
@@ -38,7 +42,7 @@ export function ProductionOverview() {
       </div>
 
       {/* Machine Grid */}
-      <MachineGrid />
+      <MachineGrid onMachineClick={onMachineClick} />
     </>
   );
 }
