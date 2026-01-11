@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   TrendingUp, Clock, Zap, Target, AlertTriangle, Activity, 
   BarChart3, PieChart, Calendar, Package, Flame, Battery,
-  TrendingDown, ArrowUp, ArrowDown, Minus, AlertCircle
+  TrendingDown, ArrowUp, ArrowDown, Minus, AlertCircle, Download, FileText, Image as ImageIcon
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, BarChart, Bar, 
@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { useMachines, useGlobalKPIs, useProductionOrders, useProductionAreas } from '../../hooks/useProductionData';
 import { apiClient } from '../../services/api';
+import { exportToPowerPoint, exportAsImage, exportChartAsImage, ExportOptions } from '../../utils/exportAnalytics';
 
 type TimeRange = 'today' | 'week' | 'month' | 'shift';
 
@@ -21,6 +22,24 @@ export function PerformanceAnalytics() {
   const { areas } = useProductionAreas();
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [selectedArea, setSelectedArea] = useState<string>('all');
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showExportMenu]);
 
   // Calculate aggregated OEE metrics from real machine data
   const oeeMetrics = useMemo(() => {
@@ -357,28 +376,157 @@ export function PerformanceAnalytics() {
 
   const loading = machinesLoading || kpisLoading;
 
+  // Export handlers
+  const handleExportPowerPoint = async () => {
+    if (!containerRef.current) return;
+    
+    setExporting(true);
+    setShowExportMenu(false);
+    try {
+      const options: ExportOptions = {
+        timeRange,
+        selectedArea,
+        timestamp: new Date().toISOString(),
+      };
+      
+      const data = {
+        oeeMetrics,
+        ngMetrics,
+        plannedVsActual,
+        temperatureStability,
+        areaPerformance: areaPerformanceData,
+        downtimeData,
+        sixBigLosses,
+      };
+      
+      await exportToPowerPoint(containerRef.current, options, data);
+      // File download will start automatically
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Error exporting to PowerPoint. Please check the console for details.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportImage = async (format: 'png' | 'jpeg' | 'svg') => {
+    if (!containerRef.current) return;
+    
+    setExporting(true);
+    setShowExportMenu(false);
+    try {
+      const options: ExportOptions = {
+        timeRange,
+        selectedArea,
+        timestamp: new Date().toISOString(),
+      };
+      
+      await exportAsImage(containerRef.current, format, options);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert(`Error exporting as ${format.toUpperCase()}. Please check the console for details.`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportChart = async (chartElement: HTMLElement, chartName: string, format: 'png' | 'jpeg' | 'svg') => {
+    setExporting(true);
+    try {
+      const options: ExportOptions = {
+        timeRange,
+        selectedArea,
+        timestamp: new Date().toISOString(),
+      };
+      
+      await exportChartAsImage(chartElement, format, chartName, options);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert(`Error exporting chart as ${format.toUpperCase()}. Please check the console for details.`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Time Range Selector */}
+    <div ref={containerRef} className="space-y-6">
+      {/* Header with Time Range Selector and Export Buttons */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[#34E7F8]" />
           <h2 className="text-xl text-white font-semibold">Analytics Dashboard</h2>
         </div>
-        <div className="flex gap-2">
-          {(['today', 'week', 'month', 'shift'] as TimeRange[]).map((range) => (
+        <div className="flex items-center gap-3">
+          {/* Time Range Selector */}
+          <div className="flex gap-2">
+            {(['today', 'week', 'month', 'shift'] as TimeRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  timeRange === range
+                    ? 'bg-[#34E7F8]/30 text-[#34E7F8] border border-[#34E7F8]/50'
+                    : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                {range.charAt(0).toUpperCase() + range.slice(1)}
+              </button>
+            ))}
+          </div>
+          
+          {/* Export Dropdown */}
+          <div ref={exportMenuRef} className="relative">
             <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                timeRange === range
-                  ? 'bg-[#34E7F8]/30 text-[#34E7F8] border border-[#34E7F8]/50'
-                  : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
-              }`}
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={exporting}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#34E7F8]/20 text-[#34E7F8] border border-[#34E7F8]/50 hover:bg-[#34E7F8]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {range.charAt(0).toUpperCase() + range.slice(1)}
+              <Download className="w-4 h-4" />
+              <span className="text-sm font-medium">{exporting ? 'Exporting...' : 'Export'}</span>
             </button>
-          ))}
+            
+            {/* Export Menu */}
+            {showExportMenu && (
+            <div className="absolute right-0 top-full mt-2 w-56 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-2 z-50">
+              <div className="space-y-1">
+                <button
+                  onClick={handleExportPowerPoint}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4 text-[#34E7F8]" />
+                  <span>Export to PowerPoint</span>
+                </button>
+                <div className="border-t border-white/10 my-1"></div>
+                <div className="px-2 py-1 text-xs text-white/60">Export as Image</div>
+                <button
+                  onClick={() => handleExportImage('png')}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#4FFFBC]" />
+                  <span>PNG Image</span>
+                </button>
+                <button
+                  onClick={() => handleExportImage('jpeg')}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#FFB86C]" />
+                  <span>JPEG Image</span>
+                </button>
+                <button
+                  onClick={() => handleExportImage('svg')}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#9580FF]" />
+                  <span>SVG Image</span>
+                </button>
+              </div>
+            </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -527,10 +675,25 @@ export function PerformanceAnalytics() {
       {/* Main Charts Row */}
       <div className="grid grid-cols-2 gap-4">
         {/* OEE Trend Chart */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
-            <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="OEE Trend"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
+              <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'OEE_Trend', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -593,10 +756,25 @@ export function PerformanceAnalytics() {
         </div>
 
         {/* NG Trend Chart */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-5 h-5 text-[#FF4C4C]" />
-            <h3 className="text-white font-semibold">NG Trend - Produced Length NG</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="NG Trend - Produced Length NG"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-[#FF4C4C]" />
+              <h3 className="text-white font-semibold">NG Trend - Produced Length NG</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'NG_Trend', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -653,10 +831,25 @@ export function PerformanceAnalytics() {
       {/* Six Big Losses and Downtime Analysis */}
       <div className="grid grid-cols-2 gap-4">
         {/* Six Big Losses */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <PieChart className="w-5 h-5 text-[#FFB86C]" />
-            <h3 className="text-white font-semibold">Six Big Losses Analysis</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="Six Big Losses Analysis"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <PieChart className="w-5 h-5 text-[#FFB86C]" />
+              <h3 className="text-white font-semibold">Six Big Losses Analysis</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Six_Big_Losses', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -695,10 +888,25 @@ export function PerformanceAnalytics() {
         </div>
 
         {/* Downtime Analysis */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-[#FFB86C]" />
-            <h3 className="text-white font-semibold">Downtime Analysis</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="Downtime Analysis"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-[#FFB86C]" />
+              <h3 className="text-white font-semibold">Downtime Analysis</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Downtime_Analysis', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -749,10 +957,25 @@ export function PerformanceAnalytics() {
       {/* Production Rate and Energy Consumption */}
       <div className="grid grid-cols-2 gap-4">
         {/* Production Rate Trend */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-5 h-5 text-[#4FFFBC]" />
-            <h3 className="text-white font-semibold">Production Rate Trend</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="Production Rate Trend"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-[#4FFFBC]" />
+              <h3 className="text-white font-semibold">Production Rate Trend</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Production_Rate', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -804,10 +1027,25 @@ export function PerformanceAnalytics() {
         </div>
 
         {/* Energy Consumption Trend */}
-        <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Battery className="w-5 h-5 text-[#34E7F8]" />
-            <h3 className="text-white font-semibold">Energy Consumption Trend</h3>
+        <div 
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          data-chart-export
+          data-chart-title="Energy Consumption Trend"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Battery className="w-5 h-5 text-[#34E7F8]" />
+              <h3 className="text-white font-semibold">Energy Consumption Trend</h3>
+            </div>
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Energy_Consumption', 'png')}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                title="Export as PNG"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
