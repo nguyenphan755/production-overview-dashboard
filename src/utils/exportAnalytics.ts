@@ -1,7 +1,8 @@
 // Export utilities for Analytics dashboard
 import PptxGenJS from 'pptxgenjs';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { saveAs } from 'file-saver';
+import { jsPDF } from 'jspdf';
 
 export interface ExportOptions {
   timeRange: string;
@@ -291,88 +292,174 @@ export async function exportToPowerPoint(
   }
 }
 
-/**
- * Export Analytics dashboard as image
- */
-export async function exportAsImage(
-  containerElement: HTMLElement,
-  format: 'png' | 'jpeg' | 'svg',
-  options: ExportOptions
-): Promise<void> {
-  try {
-    let canvas: HTMLCanvasElement;
-    let blob: Blob;
-    
-    if (format === 'svg') {
-      // For SVG, we'll use html2canvas and convert
-      canvas = await html2canvas(containerElement, {
-        backgroundColor: '#0A1E3A',
-        scale: 2,
-        logging: false,
-      });
-      blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/png');
-      });
-    } else {
-      canvas = await html2canvas(containerElement, {
-        backgroundColor: '#0A1E3A',
-        scale: 2,
-        logging: false,
-      });
-      
-      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-      blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), mimeType, 0.95);
-      });
-    }
-    
-    // Generate filename with timestamp and filters
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-    const filters = `_${options.timeRange}${options.selectedArea !== 'all' ? `_${options.selectedArea}` : ''}`;
-    const filename = `Analytics_Dashboard${filters}_${timestamp}.${format}`;
-    
-    // Save the file
-    saveAs(blob, filename);
-  } catch (error) {
-    console.error('Error exporting as image:', error);
-    throw error;
-  }
-}
 
 /**
- * Export individual chart as image
+ * Export Analytics dashboard as PDF
  */
-export async function exportChartAsImage(
-  chartElement: HTMLElement,
-  format: 'png' | 'jpeg' | 'svg',
-  chartName: string,
+export async function exportAsPDF(
+  containerElement: HTMLElement,
   options: ExportOptions
 ): Promise<void> {
   try {
+    if (!containerElement) {
+      throw new Error('Container element not found');
+    }
+
+    // Scroll to top to ensure we capture everything
+    containerElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+    window.scrollTo(0, 0);
+    
+    // Wait for content to be fully rendered
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Capture the dashboard as canvas
+    // html2canvas-pro supports modern CSS color functions (oklch/oklab)
     let canvas: HTMLCanvasElement;
-    let blob: Blob;
+    try {
+      canvas = await html2canvas(containerElement, {
+        backgroundColor: '#0A1E3A',
+        scale: 1.5,
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        ignoreElements: (element) => {
+          // Ignore export buttons
+          const button = element as HTMLElement;
+          return button.tagName === 'BUTTON' && 
+                 (button.textContent?.includes('Export') || 
+                  button.querySelector('[data-export-button]') !== null);
+        },
+      });
+    } catch (html2canvasError) {
+      console.error('html2canvas error:', html2canvasError);
+      throw new Error(
+        `Failed to capture dashboard: ${html2canvasError instanceof Error ? html2canvasError.message : 'Unknown error'}`
+      );
+    }
+
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+      throw new Error('Failed to capture dashboard - canvas is empty');
+    }
+
+    // Calculate PDF dimensions
+    const imgWidth = canvas.width;
+    const imgHeight = canvas.height;
     
-    canvas = await html2canvas(chartElement, {
-      backgroundColor: '#0A1E3A',
-      scale: 2,
-      logging: false,
+    // A4 dimensions in mm (landscape for better fit of dashboard)
+    const pdfWidth = 297; // A4 landscape width in mm
+    const pdfHeight = 210; // A4 landscape height in mm
+    
+    // Calculate scaling to fit A4 landscape
+    const ratio = imgWidth / imgHeight;
+    const pdfRatio = pdfWidth / pdfHeight;
+    
+    let finalWidth: number;
+    let finalHeight: number;
+    
+    if (ratio > pdfRatio) {
+      // Image is wider - fit to width
+      finalWidth = pdfWidth;
+      finalHeight = pdfWidth / ratio;
+    } else {
+      // Image is taller - fit to height
+      finalHeight = pdfHeight;
+      finalWidth = pdfHeight * ratio;
+    }
+
+    // Create PDF in landscape orientation for better dashboard fit
+    let pdf: jsPDF;
+    try {
+      pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      });
+    } catch (pdfError) {
+      console.error('jsPDF creation error:', pdfError);
+      throw new Error(`Failed to create PDF: ${pdfError instanceof Error ? pdfError.message : 'Unknown error'}`);
+    }
+
+    // Convert canvas to image data
+    let imgData: string;
+    try {
+      imgData = canvas.toDataURL('image/png', 1.0);
+      if (!imgData || imgData.length === 0) {
+        throw new Error('Failed to convert canvas to image data');
+      }
+    } catch (dataError) {
+      console.error('Canvas to data URL error:', dataError);
+      throw new Error(`Failed to convert canvas to image: ${dataError instanceof Error ? dataError.message : 'Unknown error'}`);
+    }
+
+    // Get page dimensions
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    
+    // Calculate how many pages we need
+    const totalPages = Math.ceil(finalHeight / pageHeight);
+
+    // Add image to first page
+    try {
+      pdf.addImage(imgData, 'PNG', 0, 0, finalWidth, finalHeight);
+    } catch (addImageError) {
+      console.error('Error adding image to PDF:', addImageError);
+      throw new Error(`Failed to add image to PDF: ${addImageError instanceof Error ? addImageError.message : 'Unknown error'}`);
+    }
+
+    // If content is taller than one page, split into multiple pages
+    if (totalPages > 1) {
+      for (let i = 1; i < totalPages; i++) {
+        try {
+          pdf.addPage();
+          // Calculate the y position to show the next portion of the image
+          const yPosition = -(i * pageHeight);
+          pdf.addImage(imgData, 'PNG', 0, yPosition, finalWidth, finalHeight);
+        } catch (pageError) {
+          console.error(`Error adding page ${i + 1}:`, pageError);
+          // Continue with remaining pages even if one fails
+        }
+      }
+    }
+
+    // Add metadata
+    const timestamp = new Date(options.timestamp);
+    pdf.setProperties({
+      title: 'Analytics Dashboard Report',
+      subject: `Analytics Report - ${options.timeRange}`,
+      author: 'CADIVI Production Dashboard',
+      creator: 'Tân Á Manufacturing',
+      keywords: `analytics, oee, production, ${options.timeRange}`,
     });
-    
-    const mimeType = format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'image/png';
-    blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob((b) => resolve(b!), mimeType, 0.95);
-    });
-    
+
+    // Add footer with timestamp and filters on each page
+    const pageCount = pdf.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(128, 128, 128);
+      const footerText = `Generated: ${timestamp.toLocaleString()} | Time Range: ${options.timeRange}${options.selectedArea !== 'all' ? ` | Area: ${options.selectedArea}` : ''} | Page ${i} of ${pageCount}`;
+      pdf.text(footerText, pageWidth / 2, pageHeight - 5, { align: 'center' });
+    }
+
     // Generate filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+    const dateStr = timestamp.toISOString().replace(/[:.]/g, '-').split('T')[0];
     const filters = `_${options.timeRange}${options.selectedArea !== 'all' ? `_${options.selectedArea}` : ''}`;
-    const safeChartName = chartName.replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `Chart_${safeChartName}${filters}_${timestamp}.${format}`;
-    
-    // Save the file
-    saveAs(blob, filename);
+    const filename = `Analytics_Dashboard${filters}_${dateStr}.pdf`;
+
+    // Save the PDF
+    try {
+      pdf.save(filename);
+    } catch (saveError) {
+      console.error('Error saving PDF:', saveError);
+      throw new Error(`Failed to save PDF: ${saveError instanceof Error ? saveError.message : 'Unknown error'}`);
+    }
   } catch (error) {
-    console.error('Error exporting chart as image:', error);
+    console.error('Error exporting as PDF:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : typeof error,
+    });
     throw error;
   }
 }

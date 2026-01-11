@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   TrendingUp, Clock, Zap, Target, AlertTriangle, Activity, 
   BarChart3, PieChart, Calendar, Package, Flame, Battery,
-  TrendingDown, ArrowUp, ArrowDown, Minus, AlertCircle, Download, FileText, Image as ImageIcon
+  TrendingDown, ArrowUp, ArrowDown, Minus, AlertCircle, Download, FileText, File
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, BarChart, Bar, 
@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { useMachines, useGlobalKPIs, useProductionOrders, useProductionAreas } from '../../hooks/useProductionData';
 import { apiClient } from '../../services/api';
-import { exportToPowerPoint, exportAsImage, exportChartAsImage, ExportOptions } from '../../utils/exportAnalytics';
+import { exportToPowerPoint, exportAsPDF, ExportOptions } from '../../utils/exportAnalytics';
 
 type TimeRange = 'today' | 'week' | 'month' | 'shift';
 
@@ -409,7 +409,7 @@ export function PerformanceAnalytics() {
     }
   };
 
-  const handleExportImage = async (format: 'png' | 'jpeg' | 'svg') => {
+  const handleExportPDF = async () => {
     if (!containerRef.current) return;
     
     setExporting(true);
@@ -421,28 +421,11 @@ export function PerformanceAnalytics() {
         timestamp: new Date().toISOString(),
       };
       
-      await exportAsImage(containerRef.current, format, options);
+      await exportAsPDF(containerRef.current, options);
     } catch (error) {
       console.error('Export error:', error);
-      alert(`Error exporting as ${format.toUpperCase()}. Please check the console for details.`);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleExportChart = async (chartElement: HTMLElement, chartName: string, format: 'png' | 'jpeg' | 'svg') => {
-    setExporting(true);
-    try {
-      const options: ExportOptions = {
-        timeRange,
-        selectedArea,
-        timestamp: new Date().toISOString(),
-      };
-      
-      await exportChartAsImage(chartElement, format, chartName, options);
-    } catch (error) {
-      console.error('Export error:', error);
-      alert(`Error exporting chart as ${format.toUpperCase()}. Please check the console for details.`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      alert(`PDF Export Failed\n\n${errorMessage}\n\nPlease use the PowerPoint export option instead, which works correctly with all color formats.`);
     } finally {
       setExporting(false);
     }
@@ -497,31 +480,13 @@ export function PerformanceAnalytics() {
                   <FileText className="w-4 h-4 text-[#34E7F8]" />
                   <span>Export to PowerPoint</span>
                 </button>
-                <div className="border-t border-white/10 my-1"></div>
-                <div className="px-2 py-1 text-xs text-white/60">Export as Image</div>
                 <button
-                  onClick={() => handleExportImage('png')}
+                  onClick={handleExportPDF}
                   disabled={exporting}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
                 >
-                  <ImageIcon className="w-4 h-4 text-[#4FFFBC]" />
-                  <span>PNG Image</span>
-                </button>
-                <button
-                  onClick={() => handleExportImage('jpeg')}
-                  disabled={exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
-                >
-                  <ImageIcon className="w-4 h-4 text-[#FFB86C]" />
-                  <span>JPEG Image</span>
-                </button>
-                <button
-                  onClick={() => handleExportImage('svg')}
-                  disabled={exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm transition-all disabled:opacity-50"
-                >
-                  <ImageIcon className="w-4 h-4 text-[#9580FF]" />
-                  <span>SVG Image</span>
+                  <File className="w-4 h-4 text-[#FF4C4C]" />
+                  <span>Export to PDF</span>
                 </button>
               </div>
             </div>
@@ -680,20 +645,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="OEE Trend"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
-              <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'OEE_Trend', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
+            <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -761,20 +715,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="NG Trend - Produced Length NG"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-[#FF4C4C]" />
-              <h3 className="text-white font-semibold">NG Trend - Produced Length NG</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'NG_Trend', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-5 h-5 text-[#FF4C4C]" />
+            <h3 className="text-white font-semibold">NG Trend - Produced Length NG</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -836,20 +779,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="Six Big Losses Analysis"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <PieChart className="w-5 h-5 text-[#FFB86C]" />
-              <h3 className="text-white font-semibold">Six Big Losses Analysis</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Six_Big_Losses', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <PieChart className="w-5 h-5 text-[#FFB86C]" />
+            <h3 className="text-white font-semibold">Six Big Losses Analysis</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -893,20 +825,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="Downtime Analysis"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-[#FFB86C]" />
-              <h3 className="text-white font-semibold">Downtime Analysis</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Downtime_Analysis', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-5 h-5 text-[#FFB86C]" />
+            <h3 className="text-white font-semibold">Downtime Analysis</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -962,20 +883,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="Production Rate Trend"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-[#4FFFBC]" />
-              <h3 className="text-white font-semibold">Production Rate Trend</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Production_Rate', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-5 h-5 text-[#4FFFBC]" />
+            <h3 className="text-white font-semibold">Production Rate Trend</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -1032,20 +942,9 @@ export function PerformanceAnalytics() {
           data-chart-export
           data-chart-title="Energy Consumption Trend"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Battery className="w-5 h-5 text-[#34E7F8]" />
-              <h3 className="text-white font-semibold">Energy Consumption Trend</h3>
-            </div>
-            <div className="flex gap-1">
-              <button
-                onClick={(e) => handleExportChart(e.currentTarget.closest('[data-chart-export]') as HTMLElement, 'Energy_Consumption', 'png')}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
-                title="Export as PNG"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <Battery className="w-5 h-5 text-[#34E7F8]" />
+            <h3 className="text-white font-semibold">Energy Consumption Trend</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
