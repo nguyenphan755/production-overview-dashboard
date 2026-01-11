@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
@@ -15,27 +15,37 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const realTimeTrends = useMachineDetailTrends(machine);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const isInitialLoadRef = useRef(true);
+  const hasDataRef = useRef(false);
 
   // Fetch status history for Gantt chart (8-hour shift)
   useEffect(() => {
     if (!machineId) return;
     
     const fetchStatusHistory = async () => {
-      setLoadingHistory(true);
+      // Only show loading state on initial load, not on subsequent updates
+      if (isInitialLoadRef.current) {
+        setLoadingHistory(true);
+      }
+      
       try {
         const response = await apiClient.getMachineStatusHistory(machineId, 8);
         if (response.success && response.data) {
           setStatusHistory(response.data);
+          hasDataRef.current = true;
         }
       } catch (error) {
         console.error('Error fetching status history:', error);
       } finally {
-        setLoadingHistory(false);
+        if (isInitialLoadRef.current) {
+          setLoadingHistory(false);
+          isInitialLoadRef.current = false;
+        }
       }
     };
 
     fetchStatusHistory();
-    // Refresh every 30 seconds
+    // Refresh every 30 seconds - updates data without showing loading state
     const interval = setInterval(fetchStatusHistory, 30000);
     return () => clearInterval(interval);
   }, [machineId]);
@@ -417,7 +427,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <Package className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
               <h2 className="text-sm lg:text-base text-white font-medium">Current Production Order</h2>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-4">
+            <div className="grid grid-cols-3 gap-2 lg:gap-4">
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">ORDER ID</div>
                 <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.currentOrder || 'N/A'}</div>
@@ -425,10 +435,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">PRODUCT</div>
                 <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.productName || 'N/A'}</div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-white/60 text-xs mb-0.5">CUSTOMER</div>
-                <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.customer || 'N/A'}</div>
               </div>
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">EST. COMPLETION</div>
@@ -446,16 +452,17 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           <h2 className="text-xl text-white">Operational States - Last 8 Hours (Shift)</h2>
         </div>
         
-        {loadingHistory ? (
+        {/* Keep Gantt chart mounted to prevent flicker - only show loading on initial load */}
+        {loadingHistory && !hasDataRef.current ? (
           <div className="flex items-center justify-center h-32 text-white/60">
             Loading status history...
           </div>
-        ) : statusHistory.length === 0 ? (
+        ) : statusHistory.length === 0 && !hasDataRef.current ? (
           <div className="flex items-center justify-center h-32 text-white/60">
             No status history available
           </div>
         ) : (
-          <GanttChart data={statusHistory} />
+          <GanttChart data={statusHistory.length > 0 ? statusHistory : []} />
         )}
       </div>
 
