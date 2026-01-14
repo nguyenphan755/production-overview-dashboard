@@ -36,6 +36,7 @@ export default function App() {
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, []);
+
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
 
   const handleMachineClick = (machineId: string) => {
