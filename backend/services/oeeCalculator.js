@@ -125,18 +125,32 @@ export async function calculateAvailability(machineId, productionOrderId, period
  * TODO: Once complete targetSpeed data is available, this function will always use:
  *   Performance = (actualSpeed / targetSpeed) × 100
  * 
+ * TEMPORARY CHANGE: If targetSpeed is 0 or missing, performance defaults to 100%.
+ * This is because targetSpeed values are not fully available yet.
+ * TODO: Once complete targetSpeed data is available, remove the default 100% logic.
+ * 
  * @param {number} actualSpeed - Current line speed (m/min)
  * @param {number} targetSpeed - Target/rated speed (m/min)
  * @returns {number} Performance percentage (0-100)
  */
 export function calculatePerformance(actualSpeed, targetSpeed) {
+<<<<<<< HEAD
   // If targetSpeed is 0 or missing, default Performance to 100%
+=======
+  // TEMPORARY: If targetSpeed is 0 or missing, default performance to 100%
+  // TODO: Remove this when complete targetSpeed data is available
+>>>>>>> 822e5bc (update performance with targetSpeed)
   if (!targetSpeed || targetSpeed <= 0) {
     return 100;
   }
   
+<<<<<<< HEAD
   // If targetSpeed is valid (> 0), calculate Performance normally
   // Performance = (Actual Speed / Target Speed) × 100
+=======
+  // Standard formula: Performance = (Actual Speed / Target Speed) × 100
+  // Performance cannot exceed 100% (machine cannot run faster than rated speed)
+>>>>>>> 822e5bc (update performance with targetSpeed)
   const performance = (actualSpeed / targetSpeed) * 100;
   
   // Performance cannot exceed 100% (machine cannot run faster than rated speed)
