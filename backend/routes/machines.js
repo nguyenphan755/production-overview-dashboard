@@ -87,6 +87,19 @@ const resolveMaterialName = async (materialCode) => {
   return result.rows.length > 0 ? result.rows[0].material_name : null;
 };
 
+const resolveMachineByName = async (machineName) => {
+  if (!machineName) {
+    return null;
+  }
+
+  const result = await query(
+    `SELECT id, area, production_name FROM machines WHERE name = $1`,
+    [machineName]
+  );
+
+  return result.rows.length > 0 ? result.rows[0] : null;
+};
+
 // GET /api/machines
 router.get('/', async (req, res) => {
   try {
@@ -678,13 +691,9 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     const { machineName } = req.params;
     const updates = req.body;
 
-    // First, get machine ID by name
-    const machineResult = await query(
-      `SELECT id FROM machines WHERE name = $1`,
-      [machineName]
-    );
+    const machineRecord = await resolveMachineByName(machineName);
 
-    if (machineResult.rows.length === 0) {
+    if (!machineRecord) {
       return res.status(404).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -693,7 +702,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       });
     }
 
-    const machineId = machineResult.rows[0].id;
+    const machineId = machineRecord.id;
 
     // EVENT-BASED STATUS UPDATE: Only update status if it has changed
     // This prevents excessive database writes and reduces load on machine_status_history table
@@ -764,12 +773,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       delete updates.production_name;
     }
 
-    // Get machine area to check if it's a drawing machine
-    const machineAreaResult = await query(
-      `SELECT area FROM machines WHERE id = $1`,
-      [machineId]
-    );
-    const isDrawingMachine = machineAreaResult.rows.length > 0 && machineAreaResult.rows[0].area === 'drawing';
+    const isDrawingMachine = machineRecord.area === 'drawing';
 
     for (const [key, value] of Object.entries(updates)) {
       const dbField = fieldMapping[key];
@@ -904,6 +908,7 @@ router.post('/:machineId/metrics', async (req, res) => {
   try {
     const { machineId } = req.params;
     const { metricType, value, targetValue, zoneNumber } = req.body;
+    const machineName = req.body.machine_name || req.body.machineName;
 
     if (!metricType || value === undefined) {
       return res.status(400).json({
@@ -914,19 +919,43 @@ router.post('/:machineId/metrics', async (req, res) => {
       });
     }
 
-    const productionResult = await query(
-      `SELECT production_name FROM machines WHERE id = $1`,
-      [machineId]
-    );
-    const productionName = productionResult.rows.length > 0
-      ? productionResult.rows[0].production_name
-      : null;
+    let resolvedMachineId = machineId;
+    let productionName = null;
+
+    if (machineName) {
+      const machineRecord = await resolveMachineByName(machineName);
+      if (!machineRecord) {
+        return res.status(404).json({
+          data: null,
+          timestamp: new Date().toISOString(),
+          success: false,
+          message: `Machine with name "${machineName}" not found`,
+        });
+      }
+      resolvedMachineId = machineRecord.id;
+      productionName = machineRecord.production_name || null;
+    } else if (resolvedMachineId) {
+      const productionResult = await query(
+        `SELECT production_name FROM machines WHERE id = $1`,
+        [resolvedMachineId]
+      );
+      productionName = productionResult.rows.length > 0
+        ? productionResult.rows[0].production_name
+        : null;
+    } else {
+      return res.status(400).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'machine_name or machine_id is required',
+      });
+    }
 
     const result = await query(
       `INSERT INTO machine_metrics (machine_id, metric_type, value, target_value, zone_number, production_name, timestamp)
        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
        RETURNING *`,
-      [machineId, metricType, value, targetValue || null, zoneNumber || null, productionName]
+      [resolvedMachineId, metricType, value, targetValue || null, zoneNumber || null, productionName]
     );
 
     res.json({
