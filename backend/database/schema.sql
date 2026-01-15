@@ -6,6 +6,14 @@ CREATE TYPE production_area AS ENUM ('drawing', 'stranding', 'armoring', 'sheath
 CREATE TYPE alarm_severity AS ENUM ('info', 'warning', 'error', 'critical');
 CREATE TYPE order_status AS ENUM ('running', 'completed', 'interrupted', 'cancelled');
 
+-- Material Master table
+CREATE TABLE IF NOT EXISTS material_master (
+    material_code VARCHAR(50) PRIMARY KEY,
+    material_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Machines table
 CREATE TABLE IF NOT EXISTS machines (
     id VARCHAR(50) PRIMARY KEY,
@@ -18,6 +26,8 @@ CREATE TABLE IF NOT EXISTS machines (
     target_length DECIMAL(12, 2),
     production_order_id VARCHAR(100),
     production_order_name VARCHAR(255),
+    material_code VARCHAR(50),
+    production_name VARCHAR(255),
     operator_name VARCHAR(255),
     oee DECIMAL(5, 2),
     availability DECIMAL(5, 2),
@@ -68,6 +78,7 @@ CREATE TABLE IF NOT EXISTS machine_metrics (
     value DECIMAL(10, 2),
     zone_number INTEGER, -- For multi-zone temperatures (1-4)
     target_value DECIMAL(10, 2),
+    production_name VARCHAR(255),
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -85,6 +96,8 @@ CREATE TABLE IF NOT EXISTS energy_consumption (
 CREATE INDEX IF NOT EXISTS idx_machines_area ON machines(area);
 CREATE INDEX IF NOT EXISTS idx_machines_status ON machines(status);
 CREATE INDEX IF NOT EXISTS idx_machines_last_updated ON machines(last_updated);
+CREATE INDEX IF NOT EXISTS idx_machines_material_code ON machines(material_code);
+CREATE INDEX IF NOT EXISTS idx_material_master_code ON material_master(material_code);
 CREATE INDEX IF NOT EXISTS idx_production_orders_machine_id ON production_orders(machine_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status ON production_orders(status);
 CREATE INDEX IF NOT EXISTS idx_alarms_machine_id ON alarms(machine_id);

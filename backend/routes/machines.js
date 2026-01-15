@@ -54,6 +54,8 @@ const formatMachine = (row) => {
     productionOrderId: row.production_order_id,
     productionOrderName: row.production_order_name,
     productionOrderProductName: row.order_product_name, // Product name from joined production_orders table
+    materialCode: row.material_code || undefined,
+    productionName: row.production_name || undefined,
     operatorName: row.operator_name,
     oee: row.oee ? parseFloat(row.oee) : undefined,
     availability: row.availability ? parseFloat(row.availability) : undefined,
@@ -70,6 +72,19 @@ const formatMachine = (row) => {
     alarms: [], // Will be populated separately if needed
     lastUpdated: row.last_updated ? new Date(row.last_updated).toISOString() : new Date().toISOString(),
   };
+};
+
+const resolveMaterialName = async (materialCode) => {
+  if (!materialCode) {
+    return null;
+  }
+
+  const result = await query(
+    `SELECT material_name FROM material_master WHERE material_code = $1`,
+    [materialCode]
+  );
+
+  return result.rows.length > 0 ? result.rows[0].material_name : null;
 };
 
 // GET /api/machines
@@ -487,6 +502,10 @@ router.patch('/:machineId', async (req, res) => {
       targetLength: 'target_length',
       productionOrderId: 'production_order_id',
       productionOrderName: 'production_order_name',
+      materialCode: 'material_code',
+      material_code: 'material_code',
+      productionName: 'production_name',
+      production_name: 'production_name',
       operatorName: 'operator_name',
       oee: 'oee',
       availability: 'availability',
@@ -500,6 +519,20 @@ router.patch('/:machineId', async (req, res) => {
       vibrationLevel: 'vibration_level',
       runtimeHours: 'runtime_hours',
     };
+
+    const normalizedMaterialCode = updates.materialCode !== undefined
+      ? updates.materialCode
+      : updates.material_code;
+    if (normalizedMaterialCode !== undefined) {
+      const materialName = await resolveMaterialName(normalizedMaterialCode);
+      updates.materialCode = normalizedMaterialCode;
+      updates.productionName = materialName;
+      delete updates.material_code;
+      delete updates.production_name;
+    } else {
+      delete updates.productionName;
+      delete updates.production_name;
+    }
 
     // Get machine area to check if it's a drawing machine
     const machineAreaResult = await query(
@@ -693,6 +726,10 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       targetLength: 'target_length',
       productionOrderId: 'production_order_id',
       productionOrderName: 'production_order_name',
+      materialCode: 'material_code',
+      material_code: 'material_code',
+      productionName: 'production_name',
+      production_name: 'production_name',
       operatorName: 'operator_name',
       producedLengthOk: 'produced_length_ok', // OK length for quality calculation
       producedLengthNg: 'produced_length_ng', // NG length for quality calculation
@@ -712,6 +749,20 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       runtimeHours: 'runtime_hours',
       runtime_hours: 'runtime_hours', // Support both formats
     };
+
+    const normalizedMaterialCode = updates.materialCode !== undefined
+      ? updates.materialCode
+      : updates.material_code;
+    if (normalizedMaterialCode !== undefined) {
+      const materialName = await resolveMaterialName(normalizedMaterialCode);
+      updates.materialCode = normalizedMaterialCode;
+      updates.productionName = materialName;
+      delete updates.material_code;
+      delete updates.production_name;
+    } else {
+      delete updates.productionName;
+      delete updates.production_name;
+    }
 
     // Get machine area to check if it's a drawing machine
     const machineAreaResult = await query(
@@ -863,11 +914,19 @@ router.post('/:machineId/metrics', async (req, res) => {
       });
     }
 
+    const productionResult = await query(
+      `SELECT production_name FROM machines WHERE id = $1`,
+      [machineId]
+    );
+    const productionName = productionResult.rows.length > 0
+      ? productionResult.rows[0].production_name
+      : null;
+
     const result = await query(
-      `INSERT INTO machine_metrics (machine_id, metric_type, value, target_value, zone_number, timestamp)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      `INSERT INTO machine_metrics (machine_id, metric_type, value, target_value, zone_number, production_name, timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
        RETURNING *`,
-      [machineId, metricType, value, targetValue || null, zoneNumber || null]
+      [machineId, metricType, value, targetValue || null, zoneNumber || null, productionName]
     );
 
     res.json({
