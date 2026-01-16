@@ -462,7 +462,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
         <div className="flex items-center gap-2 mb-4">
           <Activity className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-          <h2 className="text-xl text-white">Operational States - Last 8 Hours (Shift)</h2>
+          <h2 className="text-xl text-white">Operational States by Shift</h2>
         </div>
         
         {/* Keep Gantt chart mounted to prevent flicker - only show loading on initial load */}
@@ -475,7 +475,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             No status history available
           </div>
         ) : (
-          <GanttChart data={statusHistory.length > 0 ? statusHistory : []} />
+          <ShiftGanttChart data={statusHistory.length > 0 ? statusHistory : []} />
         )}
       </div>
 
@@ -1312,7 +1312,7 @@ const CompactMultiZoneTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-// Gantt Chart Component for Operational States
+// Shift-based Gantt Chart Component for Operational States
 interface GanttChartProps {
   data: Array<{
     id: number;
@@ -1323,7 +1323,7 @@ interface GanttChartProps {
   }>;
 }
 
-function GanttChart({ data }: GanttChartProps) {
+function ShiftGanttChart({ data }: GanttChartProps) {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'running': return '#22C55E';
@@ -1337,87 +1337,112 @@ function GanttChart({ data }: GanttChartProps) {
     }
   };
 
-  // Calculate time range (8 hours = 480 minutes)
   const now = new Date();
-  const startTime = new Date(now.getTime() - 8 * 60 * 60 * 1000);
-  const endTime = now;
   const totalMinutes = 8 * 60;
+
+  const formatTimeRange = (start: Date, end: Date) => (
+    `${start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+  );
+
+  const shiftWindows = useMemo(() => {
+    const current = new Date(now);
+    const base = new Date(current);
+    base.setHours(6, 0, 0, 0);
+
+    if (current < base) {
+      base.setDate(base.getDate() - 1);
+    }
+
+    const shift1Start = new Date(base);
+    const shift1End = new Date(base);
+    shift1End.setHours(14, 0, 0, 0);
+
+    const shift2Start = new Date(shift1End);
+    const shift2End = new Date(shift2Start);
+    shift2End.setHours(22, 0, 0, 0);
+
+    const shift3Start = new Date(shift2End);
+    const shift3End = new Date(shift3Start);
+    shift3End.setDate(shift3End.getDate() + 1);
+    shift3End.setHours(6, 0, 0, 0);
+
+    return [
+      { id: 'shift1', label: `Shift 1 (${formatTimeRange(shift1Start, shift1End)})`, start: shift1Start, end: shift1End },
+      { id: 'shift2', label: `Shift 2 (${formatTimeRange(shift2Start, shift2End)})`, start: shift2Start, end: shift2End },
+      { id: 'shift3', label: `Shift 3 (${formatTimeRange(shift3Start, shift3End)})`, start: shift3Start, end: shift3End },
+    ];
+  }, [now]);
   
-  // Process data to create timeline segments
-  const timelineSegments = useMemo(() => {
+  const buildSegments = (windowStart: Date, windowEnd: Date) => {
     if (!data || data.length === 0) return [];
-    
-    const segments: Array<{
+
+    const windowMs = windowEnd.getTime() - windowStart.getTime();
+    return data.reduce((segments, item) => {
+      const itemStart = new Date(item.startTime);
+      const itemEnd = item.endTime ? new Date(item.endTime) : now;
+      if (itemEnd <= windowStart || itemStart >= windowEnd) {
+        return segments;
+      }
+
+      const actualStart = itemStart < windowStart ? windowStart : itemStart;
+      const actualEnd = itemEnd > windowEnd ? windowEnd : itemEnd;
+      if (actualEnd <= actualStart) {
+        return segments;
+      }
+
+      const startMinutes = Math.max(0, (actualStart.getTime() - windowStart.getTime()) / (1000 * 60));
+      const endMinutes = Math.min(totalMinutes, (actualEnd.getTime() - windowStart.getTime()) / (1000 * 60));
+      if (endMinutes > startMinutes) {
+        segments.push({
+          status: item.status,
+          startPercent: ((actualStart.getTime() - windowStart.getTime()) / windowMs) * 100,
+          endPercent: ((actualEnd.getTime() - windowStart.getTime()) / windowMs) * 100,
+          duration: endMinutes - startMinutes,
+          startTime: actualStart,
+          endTime: actualEnd,
+        });
+      }
+      return segments;
+    }, [] as Array<{
       status: string;
       startPercent: number;
       endPercent: number;
       duration: number;
       startTime: Date;
-      endTime: Date | null;
-    }> = [];
-    
-    data.forEach((item) => {
-      const itemStart = new Date(item.startTime);
-      const itemEnd = item.endTime ? new Date(item.endTime) : now;
-      
-      // Only include segments within the 8-hour window
-      if (itemEnd >= startTime && itemStart <= endTime) {
-        const actualStart = itemStart < startTime ? startTime : itemStart;
-        const actualEnd = itemEnd > endTime ? endTime : itemEnd;
-        
-        const startMinutes = Math.max(0, (actualStart.getTime() - startTime.getTime()) / (1000 * 60));
-        const endMinutes = Math.min(totalMinutes, (actualEnd.getTime() - startTime.getTime()) / (1000 * 60));
-        
-        if (endMinutes > startMinutes) {
-          segments.push({
-            status: item.status,
-            startPercent: (startMinutes / totalMinutes) * 100,
-            endPercent: (endMinutes / totalMinutes) * 100,
-            duration: endMinutes - startMinutes,
-            startTime: actualStart,
-            endTime: actualEnd,
-          });
-        }
-      }
-    });
-    
-    // Sort by start time
-    return segments.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-  }, [data, startTime, endTime, now, totalMinutes]);
+      endTime: Date;
+    }>).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  };
 
-  // Generate time labels for the x-axis (every hour)
-  const timeLabels = useMemo(() => {
-    const labels = [];
-    for (let i = 0; i <= 8; i++) {
-      const time = new Date(startTime.getTime() + i * 60 * 60 * 1000);
+  const getTimeLabels = (windowStart: Date) => {
+    const labels: Array<{ time: string; percent: number }> = [];
+    for (let i = 0; i <= 4; i++) {
+      const time = new Date(windowStart.getTime() + i * 2 * 60 * 60 * 1000);
       labels.push({
         time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        percent: (i / 8) * 100,
+        percent: (i / 4) * 100,
       });
     }
     return labels;
-  }, [startTime]);
-
-  // Group segments by status for legend
-  const statusGroups = useMemo(() => {
-    const groups: Record<string, typeof timelineSegments> = {};
-    timelineSegments.forEach((segment) => {
-      const statusKey = segment.status.toLowerCase();
-      if (!groups[statusKey]) {
-        groups[statusKey] = [];
-      }
-      groups[statusKey].push(segment);
-    });
-    return groups;
-  }, [timelineSegments]);
+  };
 
   const statusOrder = ['running', 'idle', 'setup', 'warning', 'stopped', 'error', 'alarm'];
-  
-  // Calculate current time position
-  const currentTimePercent = ((now.getTime() - startTime.getTime()) / (8 * 60 * 60 * 1000)) * 100;
+
+  const statusGroups = useMemo(() => {
+    const groups: Record<string, Array<{ duration: number }>> = {};
+    shiftWindows.forEach((shift) => {
+      buildSegments(shift.start, shift.end).forEach((segment) => {
+        const statusKey = segment.status.toLowerCase();
+        if (!groups[statusKey]) {
+          groups[statusKey] = [];
+        }
+        groups[statusKey].push(segment);
+      });
+    });
+    return groups;
+  }, [data, shiftWindows]);
   
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Status Legend */}
       <div className="flex flex-wrap gap-4">
         {statusOrder.map((status) => {
@@ -1440,61 +1465,76 @@ function GanttChart({ data }: GanttChartProps) {
         })}
       </div>
 
-      {/* Gantt Chart */}
-      <div className="relative h-32 bg-white/5 rounded-lg overflow-hidden border border-white/10">
-        {/* Time grid lines */}
-        <div className="absolute inset-0">
-          {timeLabels.map((label, index) => (
-            <div
-              key={index}
-              className="absolute top-0 bottom-0 border-l border-white/10"
-              style={{ left: `${label.percent}%` }}
-            >
-            </div>
-          ))}
-        </div>
+      {/* Shift Gantt Rows */}
+      {shiftWindows.map((shift) => {
+        const timelineSegments = buildSegments(shift.start, shift.end);
+        const timeLabels = getTimeLabels(shift.start);
+        const currentTimePercent = ((now.getTime() - shift.start.getTime()) / (shift.end.getTime() - shift.start.getTime())) * 100;
 
-        {/* Status segments */}
-        <div className="relative h-full flex items-center pt-6">
-          {timelineSegments.map((segment, index) => {
-            const width = segment.endPercent - segment.startPercent;
-            const statusLower = segment.status.toLowerCase();
-            return (
-              <div
-                key={`${segment.status}-${index}`}
-                className="absolute h-16 rounded transition-all hover:opacity-90 hover:shadow-lg cursor-pointer border border-white/20"
-                style={{
-                  left: `${segment.startPercent}%`,
-                  width: `${width}%`,
-                  backgroundColor: getStatusColor(statusLower),
-                  minWidth: '3px',
-                }}
-                title={`${segment.status.toUpperCase()}\nStart: ${segment.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}\nEnd: ${segment.endTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) || 'Now'}\nDuration: ${Math.round(segment.duration)} min (${(segment.duration / 60).toFixed(1)}h)`}
-              >
-                {/* Show status label if segment is wide enough */}
-                {width > 5 && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs text-white font-semibold drop-shadow-lg uppercase">
-                      {segment.status}
-                    </span>
-                  </div>
-                )}
+        return (
+          <div key={shift.id} className="space-y-2">
+            <div className="text-white/80 font-semibold">{shift.label}</div>
+            <div className="relative h-20 bg-white/5 rounded-lg overflow-hidden border border-white/10">
+              {/* Time grid lines */}
+              <div className="absolute inset-0">
+                {timeLabels.map((label, index) => (
+                  <div
+                    key={index}
+                    className="absolute top-0 bottom-0 border-l border-white/10"
+                    style={{ left: `${label.percent}%` }}
+                  />
+                ))}
               </div>
-            );
-          })}
-        </div>
 
-        {/* Current time indicator */}
-        {currentTimePercent > 0 && currentTimePercent < 100 && (
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-[#34E7F8] z-20 pointer-events-none"
-            style={{ left: `${currentTimePercent}%` }}
-          >
-            <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-[#34E7F8]" />
-            <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-[#34E7F8]" />
+              {/* Status segments */}
+              <div className="relative h-full flex items-center pt-4">
+                {timelineSegments.map((segment, index) => {
+                  const width = segment.endPercent - segment.startPercent;
+                  const statusLower = segment.status.toLowerCase();
+                  return (
+                    <div
+                      key={`${segment.status}-${index}`}
+                      className="absolute h-12 rounded transition-all hover:opacity-90 hover:shadow-lg cursor-pointer border border-white/20"
+                      style={{
+                        left: `${segment.startPercent}%`,
+                        width: `${width}%`,
+                        backgroundColor: getStatusColor(statusLower),
+                        minWidth: '3px',
+                      }}
+                      title={`${segment.status.toUpperCase()}\nStart: ${segment.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}\nEnd: ${segment.endTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) || 'Now'}\nDuration: ${Math.round(segment.duration)} min (${(segment.duration / 60).toFixed(1)}h)`}
+                    >
+                      {width > 6 && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-[10px] text-white font-semibold drop-shadow-lg uppercase">
+                            {segment.status}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Current time indicator */}
+              {currentTimePercent > 0 && currentTimePercent < 100 && (
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-[#34E7F8] z-20 pointer-events-none"
+                  style={{ left: `${currentTimePercent}%` }}
+                >
+                  <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-[#34E7F8]" />
+                  <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-[#34E7F8]" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between text-xs text-white/50">
+              {timeLabels.map((label, index) => (
+                <span key={index}>{label.time}</span>
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 }
