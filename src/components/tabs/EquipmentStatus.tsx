@@ -194,14 +194,28 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                           <div className="flex-1 min-w-0">
                             <div className={`${isRunning ? 'text-xl' : 'text-lg'} ${isRunning ? 'text-white font-semibold' : 'text-white'} tracking-tight mb-0.5`}>{machine.name}</div>
                             <div className="text-white/60 text-xs leading-tight">
-                              {machine.productionOrderId && machine.productionOrderProductName ? (
-                                <>
-                                  <span>{machine.productionOrderId} • </span>
-                                  <span className="text-[#34E7F8] font-semibold text-sm">{machine.productionOrderProductName}</span>
-                                </>
-                              ) : (
-                                machine.productionOrderId || 'No active order'
-                              )}
+                              {(() => {
+                                const productName = machine.productName?.trim();
+                                if (!productName) {
+                                  const isInvalid = !!machine.materialCode;
+                                  const message = isInvalid ? 'Invalid production name' : 'Not entered yet';
+                                  const className = isInvalid
+                                    ? 'text-[#EF4444] font-semibold text-sm'
+                                    : 'text-[#F59E0B] font-semibold text-sm';
+                                  return (
+                                    <>
+                                      {machine.productionOrderId && <span>{machine.productionOrderId} • </span>}
+                                      <span className={className}>{message}</span>
+                                    </>
+                                  );
+                                }
+                                return (
+                                  <>
+                                    {machine.productionOrderId && <span>{machine.productionOrderId} • </span>}
+                                    <span className="text-[#22C55E] font-semibold text-sm">{machine.productName}</span>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div className="flex items-center gap-2">

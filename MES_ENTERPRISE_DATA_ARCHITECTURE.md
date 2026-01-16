@@ -10,7 +10,7 @@ This document provides architectural guidance for managing production order data
 
 ### 1.1 The Core Question
 
-**Should `name` and `production_name` columns store:**
+**Should `name` and `product_name` columns store:**
 - **Option A**: Business keys (numeric IDs) - normalized approach
 - **Option B**: Human-readable descriptions - denormalized approach
 - **Option C**: Hybrid approach - both keys and descriptions

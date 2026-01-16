@@ -234,7 +234,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     status: machine.status,
     operator: machine.operatorName || 'N/A',
     currentOrder: machine.productionOrderId || 'N/A',
-    productName: machine.productionOrder?.productName || 'N/A',
+    productName: machine.productName || 'N/A',
     customer: machine.productionOrder?.customer || 'N/A'
   };
 
@@ -434,7 +434,20 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               </div>
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">PRODUCT</div>
-                <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.productName || 'N/A'}</div>
+                <div className="text-sm lg:text-base text-white tracking-tight truncate">
+                  {(() => {
+                    const productName = machine.productName?.trim();
+                    if (!productName) {
+                      const isInvalid = !!machine.materialCode;
+                      return (
+                        <span className={isInvalid ? 'text-[#EF4444]' : 'text-[#F59E0B]'}>
+                          {isInvalid ? 'Invalid production name' : 'Not entered yet'}
+                        </span>
+                      );
+                    }
+                    return <span className="text-[#22C55E]">{productName}</span>;
+                  })()}
+                </div>
               </div>
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">EST. COMPLETION</div>

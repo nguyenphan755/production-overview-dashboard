@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS machines (
     production_order_id VARCHAR(100),
     production_order_name VARCHAR(255),
     material_code VARCHAR(50),
-    production_name VARCHAR(255),
+    product_name VARCHAR(255),
     operator_name VARCHAR(255),
     oee DECIMAL(5, 2),
     availability DECIMAL(5, 2),
@@ -47,8 +47,10 @@ CREATE TABLE IF NOT EXISTS production_orders (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     product_name VARCHAR(255) NOT NULL,
+    product_name_current VARCHAR(255),
     customer VARCHAR(255) NOT NULL,
     machine_id VARCHAR(50) REFERENCES machines(id),
+    machine_name VARCHAR(255),
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP,
     produced_length DECIMAL(12, 2) DEFAULT 0,
@@ -78,7 +80,7 @@ CREATE TABLE IF NOT EXISTS machine_metrics (
     value DECIMAL(10, 2),
     zone_number INTEGER, -- For multi-zone temperatures (1-4)
     target_value DECIMAL(10, 2),
-    production_name VARCHAR(255),
+    product_name VARCHAR(255),
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

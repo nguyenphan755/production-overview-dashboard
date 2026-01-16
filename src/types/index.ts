@@ -16,6 +16,8 @@ export interface Machine {
   productionOrderId?: string;
   productionOrderName?: string;
   productionOrderProductName?: string; // Product name from production order
+  productName?: string; // Current product name for the machine
+  materialCode?: string;
   operatorName?: string;
   oee?: number; // Overall Equipment Effectiveness (0-100)
   availability?: number; // A in OEE (0-100)
@@ -86,7 +88,9 @@ export interface ProductionOrder {
   id: string;
   name: string;
   productName: string;
+  productNameCurrent?: string;
   customer: string;
+  machineName?: string;
   machineId: string;
   startTime: string; // ISO timestamp
   endTime?: string; // ISO timestamp (null if still running)
