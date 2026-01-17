@@ -17,6 +17,8 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const isInitialLoadRef = useRef(true);
   const hasDataRef = useRef(false);
+  const shiftHours = 8;
+  const shiftWindowHours = shiftHours * 3;
 
   // Fetch status history for Gantt chart (8-hour shift)
   useEffect(() => {
@@ -29,10 +31,14 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       }
       
       try {
-        const response = await apiClient.getMachineStatusHistory(machineId, 8);
+        const response = await apiClient.getMachineStatusHistory(machineId, shiftWindowHours);
         if (response.success && response.data) {
-          setStatusHistory(response.data);
-          hasDataRef.current = true;
+          if (response.data.length > 0 || !hasDataRef.current) {
+            setStatusHistory(response.data);
+          }
+          if (response.data.length > 0) {
+            hasDataRef.current = true;
+          }
         }
       } catch (error) {
         console.error('Error fetching status history:', error);
@@ -1346,31 +1352,44 @@ function ShiftGanttChart({ data }: GanttChartProps) {
 
   const shiftWindows = useMemo(() => {
     const current = new Date(now);
-    const base = new Date(current);
-    base.setHours(6, 0, 0, 0);
+    const currentShiftStart = new Date(current);
 
-    if (current < base) {
-      base.setDate(base.getDate() - 1);
+    if (current.getHours() >= 6 && current.getHours() < 14) {
+      currentShiftStart.setHours(6, 0, 0, 0);
+    } else if (current.getHours() >= 14 && current.getHours() < 22) {
+      currentShiftStart.setHours(14, 0, 0, 0);
+    } else {
+      if (current.getHours() < 6) {
+        currentShiftStart.setDate(currentShiftStart.getDate() - 1);
+      }
+      currentShiftStart.setHours(22, 0, 0, 0);
     }
 
-    const shift1Start = new Date(base);
-    const shift1End = new Date(base);
-    shift1End.setHours(14, 0, 0, 0);
+    const buildShiftWindow = (start: Date) => {
+      const end = new Date(start.getTime() + 8 * 60 * 60 * 1000);
+      const startHour = start.getHours();
+      const shiftKey = startHour === 6 ? 'shift1' : startHour === 14 ? 'shift2' : 'shift3';
+      const shiftLabel = startHour === 6 ? 'Shift 1' : startHour === 14 ? 'Shift 2' : 'Shift 3';
+      return {
+        key: shiftKey,
+        label: `${shiftLabel} (${formatTimeRange(start, end)})`,
+        start,
+        end,
+      };
+    };
 
-    const shift2Start = new Date(shift1End);
-    const shift2End = new Date(shift2Start);
-    shift2End.setHours(22, 0, 0, 0);
-
-    const shift3Start = new Date(shift2End);
-    const shift3End = new Date(shift3Start);
-    shift3End.setDate(shift3End.getDate() + 1);
-    shift3End.setHours(6, 0, 0, 0);
-
-    return [
-      { id: 'shift1', label: `Shift 1 (${formatTimeRange(shift1Start, shift1End)})`, start: shift1Start, end: shift1End },
-      { id: 'shift2', label: `Shift 2 (${formatTimeRange(shift2Start, shift2End)})`, start: shift2Start, end: shift2End },
-      { id: 'shift3', label: `Shift 3 (${formatTimeRange(shift3Start, shift3End)})`, start: shift3Start, end: shift3End },
-    ];
+    const shifts = [];
+    for (let i = 2; i >= 0; i -= 1) {
+      const shiftStart = new Date(currentShiftStart.getTime() - i * 8 * 60 * 60 * 1000);
+      shifts.push(buildShiftWindow(shiftStart));
+    }
+    const shiftsByKey = shifts.reduce<Record<string, typeof shifts[number]>>((acc, shift) => {
+      acc[shift.key] = shift;
+      return acc;
+    }, {});
+    return ['shift1', 'shift2', 'shift3']
+      .map((key) => shiftsByKey[key])
+      .filter((shift): shift is typeof shifts[number] => Boolean(shift));
   }, [now]);
   
   const buildSegments = (windowStart: Date, windowEnd: Date) => {
@@ -1440,7 +1459,29 @@ function ShiftGanttChart({ data }: GanttChartProps) {
     });
     return groups;
   }, [data, shiftWindows]);
+
+  const formatDuration = (minutesTotal: number) => {
+    const hours = Math.floor(minutesTotal / 60);
+    const minutes = Math.floor(minutesTotal % 60);
+    return `${hours}h ${minutes}m`;
+  };
+
+  const getShiftStatusSummary = (shiftStart: Date, shiftEnd: Date) => {
+    const segments = buildSegments(shiftStart, shiftEnd);
+    const runningMinutes = segments
+      .filter((segment) => segment.status.toLowerCase() === 'running')
+      .reduce((sum, segment) => sum + segment.duration, 0);
+    const idleMinutes = segments
+      .filter((segment) => segment.status.toLowerCase() === 'idle')
+      .reduce((sum, segment) => sum + segment.duration, 0);
+    return { runningMinutes, idleMinutes };
+  };
   
+  const currentShiftKey = useMemo(() => {
+    const activeShift = shiftWindows.find((shift) => now >= shift.start && now < shift.end);
+    return activeShift?.key ?? null;
+  }, [now, shiftWindows]);
+
   return (
     <div className="space-y-6">
       {/* Status Legend */}
@@ -1470,10 +1511,22 @@ function ShiftGanttChart({ data }: GanttChartProps) {
         const timelineSegments = buildSegments(shift.start, shift.end);
         const timeLabels = getTimeLabels(shift.start);
         const currentTimePercent = ((now.getTime() - shift.start.getTime()) / (shift.end.getTime() - shift.start.getTime())) * 100;
+        const isActiveShift = shift.key === currentShiftKey;
+        const { runningMinutes, idleMinutes } = getShiftStatusSummary(shift.start, shift.end);
 
         return (
-          <div key={shift.id} className="space-y-2">
-            <div className="text-white/80 font-semibold">{shift.label}</div>
+          <div
+            key={shift.key}
+            className="space-y-2 transition-opacity"
+            style={{ opacity: isActiveShift ? 1 : 0.6 }}
+          >
+            <div className="flex items-center justify-between gap-4 text-white/80 font-semibold">
+              <div>{shift.label}</div>
+              <div className="flex items-center gap-3 text-sm text-white/70">
+                <span>Running ({formatDuration(runningMinutes)})</span>
+                <span>Idle ({formatDuration(idleMinutes)})</span>
+              </div>
+            </div>
             <div className="relative h-20 bg-white/5 rounded-lg overflow-hidden border border-white/10">
               {/* Time grid lines */}
               <div className="absolute inset-0">
