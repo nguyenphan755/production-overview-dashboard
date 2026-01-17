@@ -28,29 +28,61 @@ import { query } from '../database/connection.js';
  */
 export async function calculateAvailability(machineId, productionOrderId, periodStart, periodEnd) {
   try {
-    // First, try to get availability from aggregated table (fast query)
-    // Prefer shift-based calculation, fallback to rolling_window for legacy data
-    const aggregationResult = await query(
-      `SELECT availability_percentage, running_time_seconds, downtime_seconds
-       FROM availability_aggregations
-       WHERE machine_id = $1
-         AND calculation_type IN ('shift', 'rolling_window')
-         AND window_end >= $2
-         AND window_start <= $3
-       ORDER BY 
-         CASE calculation_type 
-           WHEN 'shift' THEN 1 
-           ELSE 2 
-         END,
-         window_end DESC
-       LIMIT 1`,
-      [machineId, periodStart, periodEnd]
-    );
+    const now = new Date();
+    const isCurrentShiftWindow = periodEnd && periodEnd.getTime() > now.getTime();
 
-    if (aggregationResult.rows.length > 0) {
-      // Use pre-calculated availability from aggregation table
-      const availability = parseFloat(aggregationResult.rows[0].availability_percentage || 0);
-      return Math.max(0, Math.min(100, availability));
+    if (isCurrentShiftWindow) {
+      const previousShiftResult = await query(
+        `SELECT availability_percentage
+         FROM availability_aggregations
+         WHERE machine_id = $1
+           AND calculation_type = 'shift'
+           AND window_end <= $2
+         ORDER BY window_end DESC
+         LIMIT 1`,
+        [machineId, now]
+      );
+
+      if (previousShiftResult.rows.length > 0) {
+        const availability = parseFloat(previousShiftResult.rows[0].availability_percentage || 0);
+        return {
+          availability: Math.max(0, Math.min(100, availability)),
+          isPreliminary: true
+        };
+      }
+
+      return {
+        availability: 0,
+        isPreliminary: true
+      };
+    } else {
+      // For completed shifts, use aggregation table (fast query)
+      // Prefer shift-based calculation, fallback to rolling_window for legacy data
+      const aggregationResult = await query(
+        `SELECT availability_percentage
+         FROM availability_aggregations
+         WHERE machine_id = $1
+           AND calculation_type IN ('shift', 'rolling_window')
+           AND window_end >= $2
+           AND window_start <= $3
+         ORDER BY 
+           CASE calculation_type 
+             WHEN 'shift' THEN 1 
+             ELSE 2 
+           END,
+           window_end DESC
+         LIMIT 1`,
+        [machineId, periodStart, periodEnd]
+      );
+
+      if (aggregationResult.rows.length > 0) {
+        // Use pre-calculated availability from aggregation table
+        const availability = parseFloat(aggregationResult.rows[0].availability_percentage || 0);
+        return {
+          availability: Math.max(0, Math.min(100, availability)),
+          isPreliminary: false
+        };
+      }
     }
 
     // Fallback: Calculate on-the-fly if aggregation not available
@@ -108,10 +140,16 @@ export async function calculateAvailability(machineId, productionOrderId, period
     const availability = (finalRunningTime / plannedTimeSeconds) * 100;
     
     // Clamp between 0 and 100
-    return Math.max(0, Math.min(100, availability));
+    return {
+      availability: Math.max(0, Math.min(100, availability)),
+      isPreliminary: false
+    };
   } catch (error) {
     console.error(`Error calculating availability for ${machineId}:`, error);
-    return 0;
+    return {
+      availability: 0,
+      isPreliminary: false
+    };
   }
 }
 
@@ -266,12 +304,13 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
     }
 
     // Calculate Availability: Running time vs Planned time (shift-based)
-    const availability = await calculateAvailability(
+    const availabilityResult = await calculateAvailability(
       machineId,
       productionOrderId,
       calcPeriodStart,
       calcPeriodEnd
     );
+    const availability = availabilityResult.availability;
 
     // Calculate Performance: Current speed / Target speed (real-time)
     const performance = calculatePerformance(
@@ -311,6 +350,7 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       performance: Math.round(performance * 100) / 100,
       quality: Math.round(quality * 100) / 100,
       oee: Math.round(oee * 100) / 100,
+      availabilityIsPreliminary: availabilityResult.isPreliminary,
       calculatedAt: now.toISOString(),
       periodStart: calcPeriodStart.toISOString(),
       periodEnd: now.toISOString()
@@ -322,6 +362,7 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       performance: 0,
       quality: 0,
       oee: 0,
+      availabilityIsPreliminary: false,
       calculatedAt: new Date().toISOString(),
       error: error.message
     };

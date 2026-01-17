@@ -256,6 +256,7 @@ router.get('/:machineId', async (req, res) => {
       // Update machine OEE values
       machine.oee = oeeResult.oee;
       machine.availability = oeeResult.availability;
+      machine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
       machine.performance = oeeResult.performance;
       machine.quality = oeeResult.quality;
 
@@ -680,6 +681,7 @@ router.patch('/:machineId', async (req, res) => {
         // Update machine object with OEE values
         updatedMachine.oee = oeeResult.oee;
         updatedMachine.availability = oeeResult.availability;
+        updatedMachine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
         updatedMachine.performance = oeeResult.performance;
         updatedMachine.quality = oeeResult.quality;
       } catch (error) {
@@ -904,6 +906,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
         // Update machine object with OEE values
         updatedMachine.oee = oeeResult.oee;
         updatedMachine.availability = oeeResult.availability;
+        updatedMachine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
         updatedMachine.performance = oeeResult.performance;
         updatedMachine.quality = oeeResult.quality;
       } catch (error) {

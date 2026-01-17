@@ -335,6 +335,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     quality: machine.quality || 0,
     oee: machine.oee || 0
   };
+  const availabilityLabel = machine.availabilityIsPreliminary ? 'AVAILABILITY (PREV SHIFT)' : 'AVAILABILITY';
 
   const getOEEColor = (value: number) => {
     if (value >= 85) return '#22C55E';
@@ -593,7 +594,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
 
           {/* Availability */}
           <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-1.5 tracking-wider">AVAILABILITY</div>
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">{availabilityLabel}</div>
             <div className="text-3xl text-[#4FFFBC] tracking-tight mb-2">{oeeMetrics.availability}%</div>
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 

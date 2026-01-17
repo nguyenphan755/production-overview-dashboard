@@ -21,6 +21,7 @@ export interface Machine {
   operatorName?: string;
   oee?: number; // Overall Equipment Effectiveness (0-100)
   availability?: number; // A in OEE (0-100)
+  availabilityIsPreliminary?: boolean; // True when showing prior shift value during active shift
   performance?: number; // P in OEE (0-100)
   quality?: number; // Q in OEE (0-100)
   current?: number; // Amperes
