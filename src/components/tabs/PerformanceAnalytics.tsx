@@ -15,6 +15,17 @@ import { exportToPowerPoint, exportAsPDF, ExportOptions } from '../../utils/expo
 
 type TimeRange = 'today' | 'week' | 'month' | 'shift';
 
+type StatusHistoryEntry = {
+  id: string | number;
+  machineId: string;
+  status: string;
+  previousStatus?: string | null;
+  startTime: string;
+  endTime: string | null;
+  durationSeconds?: number | null;
+  isProductionTime?: boolean | null;
+};
+
 export function PerformanceAnalytics() {
   const { machines, loading: machinesLoading } = useMachines();
   const { kpis, loading: kpisLoading } = useGlobalKPIs();
@@ -22,6 +33,8 @@ export function PerformanceAnalytics() {
   const { areas } = useProductionAreas();
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [selectedArea, setSelectedArea] = useState<string>('all');
+  const [analyticsLayer, setAnalyticsLayer] = useState<'overview' | 'detail'>('overview');
+  const [detailFocus, setDetailFocus] = useState<'six-big-losses'>('six-big-losses');
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +65,14 @@ export function PerformanceAnalytics() {
       timestamp: number;
       energy: number;
     }>
+  >([]);
+  const [statusHistoryByMachine, setStatusHistoryByMachine] = useState<
+    Record<string, StatusHistoryEntry[]>
+  >({});
+  const [statusHistoryLoading, setStatusHistoryLoading] = useState(false);
+  const [statusHistoryError, setStatusHistoryError] = useState<string | null>(null);
+  const [lossHistory, setLossHistory] = useState<
+    Array<{ timestamp: number; categoryLosses: Record<string, number> }>
   >([]);
   
   // Close export menu when clicking outside
@@ -97,6 +118,68 @@ export function PerformanceAnalytics() {
       quality: Math.round(avgQuality * 100) / 100,
     };
   }, [machines]);
+
+  const getRangeHours = (range: TimeRange) => {
+    switch (range) {
+      case 'shift':
+        return 8;
+      case 'today':
+        return 24;
+      case 'week':
+        return 24 * 7;
+      case 'month':
+        return 24 * 30;
+      default:
+        return 24;
+    }
+  };
+
+  // Load status history for AI analytics (detail view only)
+  useEffect(() => {
+    if (analyticsLayer !== 'detail' || machines.length === 0) {
+      return;
+    }
+
+    let isMounted = true;
+    const hours = getRangeHours(timeRange);
+
+    const fetchStatusHistory = async () => {
+      try {
+        setStatusHistoryLoading(true);
+        const results = await Promise.all(
+          machines.map(async (machine) => {
+            try {
+              const response = await apiClient.getMachineStatusHistory(machine.id, hours);
+              const entries = response.success && response.data ? response.data : [];
+              return [machine.id, entries as StatusHistoryEntry[]] as const;
+            } catch (error) {
+              console.error('Status history fetch error:', machine.id, error);
+              return [machine.id, [] as StatusHistoryEntry[]] as const;
+            }
+          })
+        );
+
+        if (!isMounted) return;
+        setStatusHistoryByMachine(Object.fromEntries(results));
+        setStatusHistoryError(null);
+      } catch (error) {
+        if (isMounted) {
+          setStatusHistoryError(error instanceof Error ? error.message : 'Failed to load status history');
+        }
+      } finally {
+        if (isMounted) {
+          setStatusHistoryLoading(false);
+        }
+      }
+    };
+
+    fetchStatusHistory();
+    const interval = setInterval(fetchStatusHistory, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [analyticsLayer, machines, timeRange]);
 
   const roundOneDecimal = (value: number) =>
     Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
@@ -541,6 +624,373 @@ export function PerformanceAnalytics() {
     return losses.filter((loss) => loss.loss > 0).sort((a, b) => b.loss - a.loss);
   }, [machines, ngMetrics, oeeMetrics]);
 
+  useEffect(() => {
+    if (sixBigLosses.length === 0) return;
+    const snapshot = sixBigLosses.reduce<Record<string, number>>((acc, item) => {
+      acc[item.category] = item.loss;
+      return acc;
+    }, {});
+    setLossHistory((prev) => {
+      const next = [...prev, { timestamp: Date.now(), categoryLosses: snapshot }];
+      return next.slice(-60);
+    });
+  }, [sixBigLosses]);
+
+  const machineLossProfiles = useMemo(() => {
+    if (!machines || machines.length === 0) return [];
+
+    const clamp = (value: number, min: number, max: number) =>
+      Math.min(max, Math.max(min, value));
+    const now = Date.now();
+
+    return machines.map((machine) => {
+      const availability = clamp(machine.availability ?? 0, 0, 100);
+      const performance = clamp(machine.performance ?? 0, 0, 100);
+      const quality = clamp(machine.quality ?? 0, 0, 100);
+      const oee = clamp(machine.oee ?? 0, 0, 100);
+
+      const availabilityLoss = clamp(100 - availability, 0, 100);
+      const performanceLoss = clamp(availability - (availability * performance) / 100, 0, 100);
+      const qualityLoss = clamp((availability * performance) / 100 - oee, 0, 100);
+      const totalGap = clamp(100 - oee, 0, 100);
+      const theoreticalSum = availabilityLoss + performanceLoss + qualityLoss;
+      const scale = theoreticalSum > 0 ? totalGap / theoreticalSum : 0;
+
+      const history = statusHistoryByMachine[machine.id] || [];
+      const durations = history.reduce(
+        (acc, entry) => {
+          const start = new Date(entry.startTime).getTime();
+          const end = entry.endTime ? new Date(entry.endTime).getTime() : now;
+          const durationSeconds =
+            entry.durationSeconds !== null && entry.durationSeconds !== undefined
+              ? entry.durationSeconds
+              : Math.max(0, (end - start) / 1000);
+          const status = entry.status?.toLowerCase() || 'idle';
+          if (status !== 'running') {
+            acc.total += durationSeconds;
+            acc[status] = (acc[status] || 0) + durationSeconds;
+          }
+          if (durationSeconds <= 300 && status !== 'running') {
+            acc.shortStops += 1;
+          }
+          if (durationSeconds >= 1200 && (status === 'error' || status === 'stopped')) {
+            acc.longStops += 1;
+          }
+          return acc;
+        },
+        { total: 0, shortStops: 0, longStops: 0 } as Record<string, number>
+      );
+
+      const equipmentFailureWeight = (durations.error || 0) + (durations.stopped || 0);
+      const setupWeight = durations.setup || 0;
+      const idlingWeight = (durations.idle || 0) + (durations.warning || 0);
+      const availabilityWeightSum = equipmentFailureWeight + setupWeight + idlingWeight;
+
+      const availabilityWeights = availabilityWeightSum > 0
+        ? {
+            equipmentFailure: equipmentFailureWeight / availabilityWeightSum,
+            setup: setupWeight / availabilityWeightSum,
+            idling: idlingWeight / availabilityWeightSum,
+          }
+        : {
+            equipmentFailure: 0.4,
+            setup: 0.3,
+            idling: 0.3,
+          };
+
+      const producedOk = (machine as any).producedLengthOk || 0;
+      const producedNg = (machine as any).producedLengthNg || 0;
+      const totalProduced = producedOk + producedNg > 0 ? producedOk + producedNg : machine.producedLength || 0;
+      const ngRate = totalProduced > 0 ? (producedNg / totalProduced) * 100 : 0;
+      const defectsWeight = clamp(ngRate / 5, 0.2, 0.8);
+
+      const categoryLosses = {
+        'Equipment Failure': Math.round(availabilityLoss * scale * availabilityWeights.equipmentFailure * 100) / 100,
+        'Setup & Adjustments': Math.round(availabilityLoss * scale * availabilityWeights.setup * 100) / 100,
+        'Idling & Minor Stops': Math.round(availabilityLoss * scale * availabilityWeights.idling * 100) / 100,
+        'Reduced Speed': Math.round(performanceLoss * scale * 100) / 100,
+        'Process Defects': Math.round(qualityLoss * scale * defectsWeight * 100) / 100,
+        'Reduced Yield': Math.round(qualityLoss * scale * (1 - defectsWeight) * 100) / 100,
+      };
+
+      const speedGapPct =
+        machine.targetSpeed && machine.targetSpeed > 0
+          ? Math.max(0, (machine.targetSpeed - (machine.lineSpeed || 0)) / machine.targetSpeed) * 100
+          : 0;
+
+      return {
+        machineId: machine.id,
+        machineName: machine.name,
+        area: machine.area,
+        oee,
+        availability,
+        performance,
+        quality,
+        totalGap,
+        downtimeSeconds: durations.total,
+        shortStops: durations.shortStops,
+        longStops: durations.longStops,
+        alarms: machine.alarms || [],
+        speedGapPct: Math.round(speedGapPct * 10) / 10,
+        ngRate: Math.round(ngRate * 10) / 10,
+        categoryLosses,
+      };
+    });
+  }, [machines, statusHistoryByMachine]);
+
+  const buildParetoSeries = (items: Array<{ label: string; value: number }>) => {
+    const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
+    let cumulative = 0;
+    return items.map((item) => {
+      cumulative += item.value;
+      return {
+        label: item.label,
+        value: Math.round(item.value * 100) / 100,
+        cumulative: Math.round((cumulative / total) * 1000) / 10,
+      };
+    });
+  };
+
+  const paretoByCategory = useMemo(() => {
+    const items = [...sixBigLosses]
+      .sort((a, b) => b.loss - a.loss)
+      .map((loss) => ({ label: loss.category, value: loss.loss }));
+    return buildParetoSeries(items);
+  }, [sixBigLosses]);
+
+  const paretoByMachine = useMemo(() => {
+    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
+    const items = machineLossProfiles
+      .map((profile) => ({ label: profile.machineName, value: profile.totalGap }))
+      .sort((a, b) => b.value - a.value);
+    const scaled = items.map((item) => ({
+      label: item.label,
+      value: totalGap > 0 ? (item.value / items.reduce((sum, i) => sum + i.value, 0)) * totalGap : 0,
+    }));
+    return buildParetoSeries(scaled);
+  }, [machineLossProfiles, oeeMetrics.oee]);
+
+  const paretoByArea = useMemo(() => {
+    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
+    const areaMap = new Map<string, number>();
+    machineLossProfiles.forEach((profile) => {
+      areaMap.set(profile.area, (areaMap.get(profile.area) || 0) + profile.totalGap);
+    });
+    const items = Array.from(areaMap.entries())
+      .map(([area, value]) => ({ label: area, value }))
+      .sort((a, b) => b.value - a.value);
+    const scaled = items.map((item) => ({
+      label: item.label,
+      value: totalGap > 0 ? (item.value / items.reduce((sum, i) => sum + i.value, 0)) * totalGap : 0,
+    }));
+    return buildParetoSeries(scaled);
+  }, [machineLossProfiles, oeeMetrics.oee]);
+
+  const paretoByShift = useMemo(() => {
+    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
+    const shiftBuckets: Record<string, number> = {
+      'Shift 1 (00-08)': 0,
+      'Shift 2 (08-16)': 0,
+      'Shift 3 (16-24)': 0,
+    };
+
+    Object.values(statusHistoryByMachine).forEach((entries) => {
+      entries.forEach((entry) => {
+        const start = new Date(entry.startTime);
+        const hours = start.getHours();
+        const key = hours < 8 ? 'Shift 1 (00-08)' : hours < 16 ? 'Shift 2 (08-16)' : 'Shift 3 (16-24)';
+        const durationSeconds =
+          entry.durationSeconds !== null && entry.durationSeconds !== undefined
+            ? entry.durationSeconds
+            : entry.endTime
+              ? (new Date(entry.endTime).getTime() - start.getTime()) / 1000
+              : 0;
+        if (entry.status?.toLowerCase() !== 'running') {
+          shiftBuckets[key] += durationSeconds;
+        }
+      });
+    });
+
+    const rawTotal = Object.values(shiftBuckets).reduce((sum, value) => sum + value, 0);
+    const items = Object.entries(shiftBuckets).map(([label, value]) => ({
+      label,
+      value: rawTotal > 0 ? (value / rawTotal) * totalGap : 0,
+    }));
+    const sorted = items.sort((a, b) => b.value - a.value);
+    return buildParetoSeries(sorted);
+  }, [oeeMetrics.oee, statusHistoryByMachine]);
+
+  const lossByMachine = useMemo(() => {
+    return machineLossProfiles
+      .map((profile) => ({
+        label: profile.machineName,
+        value: profile.totalGap,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [machineLossProfiles]);
+
+  const lossByOrder = useMemo(() => {
+    const orderMap = new Map<string, { label: string; value: number }>();
+    machineLossProfiles.forEach((profile) => {
+      const order = orders.find((o) => o.machineId === profile.machineId && o.status === 'running') ||
+        orders.find((o) => o.machineId === profile.machineId);
+      if (order) {
+        const key = order.id;
+        const current = orderMap.get(key);
+        const nextValue = (current?.value || 0) + profile.totalGap;
+        orderMap.set(key, { label: order.name || order.id, value: nextValue });
+      }
+    });
+    return Array.from(orderMap.values()).sort((a, b) => b.value - a.value);
+  }, [machineLossProfiles, orders]);
+
+  const lossRanking = useMemo(() => {
+    const items = machineLossProfiles.flatMap((profile) =>
+      Object.entries(profile.categoryLosses).map(([category, loss]) => ({
+        category,
+        machineId: profile.machineId,
+        machineName: profile.machineName,
+        area: profile.area,
+        impact: loss,
+        duration: profile.downtimeSeconds,
+        frequency: profile.shortStops + profile.longStops,
+      }))
+    );
+
+    const maxImpact = Math.max(1, ...items.map((item) => item.impact));
+    const maxDuration = Math.max(1, ...items.map((item) => item.duration));
+    const maxFrequency = Math.max(1, ...items.map((item) => item.frequency));
+
+    return items
+      .map((item) => {
+        const impactScore = item.impact / maxImpact;
+        const durationScore = item.duration / maxDuration;
+        const frequencyScore = item.frequency / maxFrequency;
+        const severity = Math.round((0.5 * impactScore + 0.3 * durationScore + 0.2 * frequencyScore) * 100);
+        return { ...item, severity };
+      })
+      .filter((item) => item.impact > 0)
+      .sort((a, b) => b.severity - a.severity);
+  }, [machineLossProfiles]);
+
+  const rootCauseInsights = useMemo(() => {
+    return machineLossProfiles.flatMap((profile) => {
+      const causes = [];
+      if (profile.shortStops >= 5) {
+        causes.push({
+          machineId: profile.machineId,
+          machineName: profile.machineName,
+          category: 'Idling & Minor Stops',
+          evidence: `${profile.shortStops} short stops detected`,
+        });
+      }
+      if (profile.longStops >= 2 && profile.alarms.length > 0) {
+        causes.push({
+          machineId: profile.machineId,
+          machineName: profile.machineName,
+          category: 'Equipment Failure',
+          evidence: `${profile.longStops} long stops with alarms active`,
+        });
+      }
+      if (profile.speedGapPct >= 10) {
+        causes.push({
+          machineId: profile.machineId,
+          machineName: profile.machineName,
+          category: 'Reduced Speed',
+          evidence: `Speed ${profile.speedGapPct.toFixed(1)}% below target`,
+        });
+      }
+      if (profile.ngRate >= 1) {
+        causes.push({
+          machineId: profile.machineId,
+          machineName: profile.machineName,
+          category: 'Process Defects',
+          evidence: `NG rate ${profile.ngRate.toFixed(1)}%`,
+        });
+      }
+      return causes;
+    });
+  }, [machineLossProfiles]);
+
+  const lossAnomalies = useMemo(() => {
+    if (lossHistory.length < 6) return [];
+    const latest = lossHistory[lossHistory.length - 1];
+    const categories = Object.keys(latest.categoryLosses);
+    return categories
+      .map((category) => {
+        const series = lossHistory.map((entry) => entry.categoryLosses[category] || 0);
+        const mean = series.reduce((sum, value) => sum + value, 0) / series.length;
+        const variance = series.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / series.length;
+        const std = Math.sqrt(variance);
+        const latestValue = latest.categoryLosses[category] || 0;
+        const zScore = std > 0 ? (latestValue - mean) / std : 0;
+        return {
+          category,
+          latestValue,
+          mean,
+          zScore,
+        };
+      })
+      .filter((entry) => entry.zScore >= 2);
+  }, [lossHistory]);
+
+  const lossTrendSeries = useMemo(() => {
+    return lossHistory.map((entry) => ({
+      time: new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      totalLoss: Object.values(entry.categoryLosses).reduce((sum, value) => sum + value, 0),
+    }));
+  }, [lossHistory]);
+
+  const aiInsightSummary = useMemo(() => {
+    if (sixBigLosses.length === 0) return 'No validated loss data available yet.';
+    const topLoss = [...sixBigLosses].sort((a, b) => b.loss - a.loss)[0];
+    const topMachine = [...machineLossProfiles].sort((a, b) => b.totalGap - a.totalGap)[0];
+    const topShift = paretoByShift[0]?.label;
+
+    return `${topLoss.category} is the main contributor to the current OEE loss (${topLoss.loss.toFixed(1)}%). ` +
+      `${topMachine ? `Largest impact is from ${topMachine.machineName}. ` : ''}` +
+      `${topShift ? `Losses are concentrated in ${topShift}.` : ''}`.trim();
+  }, [machineLossProfiles, paretoByShift, sixBigLosses]);
+
+  const lossActionPlanMap = [
+    {
+      category: 'Equipment Failure',
+      oeeComponent: 'Availability',
+      action: 'Maintenance action (preventive + corrective)',
+      priority: 'High',
+    },
+    {
+      category: 'Setup & Adjustments',
+      oeeComponent: 'Availability',
+      action: 'Setup optimization / SMED',
+      priority: 'Medium',
+    },
+    {
+      category: 'Idling & Minor Stops',
+      oeeComponent: 'Performance',
+      action: 'Operator + process standardization',
+      priority: 'Medium',
+    },
+    {
+      category: 'Reduced Speed',
+      oeeComponent: 'Performance',
+      action: 'Parameter tuning + bottleneck removal',
+      priority: 'High',
+    },
+    {
+      category: 'Process Defects',
+      oeeComponent: 'Quality',
+      action: 'Process quality improvement',
+      priority: 'High',
+    },
+    {
+      category: 'Reduced Yield',
+      oeeComponent: 'Quality',
+      action: 'Standardized startup procedure',
+      priority: 'Medium',
+    },
+  ];
+
 
   // Calculate NG trend by time
   const ngTrendData = useMemo(() => {
@@ -733,6 +1183,8 @@ export function PerformanceAnalytics() {
         </div>
       </div>
 
+      {analyticsLayer === 'overview' ? (
+        <>
       {/* OEE Summary Cards */}
       <div className="grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -1061,9 +1513,21 @@ export function PerformanceAnalytics() {
       <div className="grid gap-4 responsive-grid-2">
         {/* Six Big Losses */}
         <div 
-          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
+          className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5 cursor-pointer hover:border-[#34E7F8]/60 transition-colors"
           data-chart-export
           data-chart-title="Six Big Losses Analysis"
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setDetailFocus('six-big-losses');
+            setAnalyticsLayer('detail');
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              setDetailFocus('six-big-losses');
+              setAnalyticsLayer('detail');
+            }
+          }}
         >
           <div className="flex items-center gap-2 mb-4">
             <PieChart className="w-5 h-5 text-[#FFB86C]" />
@@ -1503,6 +1967,278 @@ export function PerformanceAnalytics() {
           ))}
         </div>
       </div>
+        </>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setAnalyticsLayer('overview')}
+                className="px-3 py-2 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 transition-all"
+              >
+                ← Back to Overview
+              </button>
+              <div>
+                <div className="text-white text-lg font-semibold">AI Analytics Detail</div>
+                <div className="text-white/50 text-xs">Validated MES analytics with explainable AI logic</div>
+              </div>
+            </div>
+            <div className="text-xs text-white/60">
+              {statusHistoryLoading ? 'Loading status history…' : statusHistoryError || 'Live MES data'}
+            </div>
+          </div>
+
+          {/* AI Insight Summary */}
+          <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle className="w-5 h-5 text-[#FFB86C]" />
+              <h3 className="text-white font-semibold">AI Insight Summary</h3>
+            </div>
+            <div className="text-white/80">{aiInsightSummary}</div>
+          </div>
+
+          {/* OEE & Loss Trends */}
+          <div className="grid gap-4 responsive-grid-2">
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
+                <h3 className="text-white font-semibold">OEE Trend (Live)</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={oeeSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="time" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} domain={[0, 100]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Area type="monotone" dataKey="oee" stroke="#34E7F8" fill="#34E7F8" fillOpacity={0.2} strokeWidth={3} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingDown className="w-5 h-5 text-[#FFB86C]" />
+                <h3 className="text-white font-semibold">Total Loss Trend</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={lossTrendSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="time" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Area type="monotone" dataKey="totalLoss" stroke="#FFB86C" fill="#FFB86C" fillOpacity={0.2} strokeWidth={3} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* Pareto Analysis */}
+          <div className="grid gap-4 responsive-grid-2">
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-[#34E7F8]" />
+                <h3 className="text-white font-semibold">Pareto by Loss Category</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoByCategory}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="label" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis yAxisId="left" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Bar yAxisId="left" dataKey="value" fill="#34E7F8" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#FFB86C" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-[#4FFFBC]" />
+                <h3 className="text-white font-semibold">Pareto by Machine</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoByMachine}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="label" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis yAxisId="left" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Bar yAxisId="left" dataKey="value" fill="#4FFFBC" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#FFB86C" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 responsive-grid-2">
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-[#FFB86C]" />
+                <h3 className="text-white font-semibold">Pareto by Area</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoByArea}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="label" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis yAxisId="left" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Bar yAxisId="left" dataKey="value" fill="#FFB86C" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#4FFFBC" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-[#9580FF]" />
+                <h3 className="text-white font-semibold">Pareto by Shift</h3>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoByShift}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey="label" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
+                    <YAxis yAxisId="left" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0E2F4F', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '12px' }} />
+                    <Bar yAxisId="left" dataKey="value" fill="#9580FF" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#34E7F8" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* Loss Breakdown */}
+          <div className="grid gap-4 responsive-grid-3">
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="text-white font-semibold mb-3">Loss by Machine</div>
+              <div className="space-y-2">
+                {lossByMachine.slice(0, 6).map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                    <span>{item.label}</span>
+                    <span className="text-[#34E7F8]">{item.value.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="text-white font-semibold mb-3">Loss by Shift</div>
+              <div className="space-y-2">
+                {paretoByShift.slice(0, 3).map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                    <span>{item.label}</span>
+                    <span className="text-[#9580FF]">{item.value.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="text-white font-semibold mb-3">Loss by Order</div>
+              <div className="space-y-2">
+                {lossByOrder.length === 0 && (
+                  <div className="text-white/50 text-sm">No active orders linked to loss data.</div>
+                )}
+                {lossByOrder.slice(0, 6).map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                    <span>{item.label}</span>
+                    <span className="text-[#FFB86C]">{item.value.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Root Cause + Ranking */}
+          <div className="grid gap-4 responsive-grid-2">
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="w-5 h-5 text-[#FF4C4C]" />
+                <h3 className="text-white font-semibold">Root Cause Contributors</h3>
+              </div>
+              <div className="space-y-3">
+                {rootCauseInsights.length === 0 && (
+                  <div className="text-white/60 text-sm">No dominant root-cause patterns detected yet.</div>
+                )}
+                {rootCauseInsights.slice(0, 6).map((cause, index) => (
+                  <div key={`${cause.machineId}-${index}`} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <div className="text-white text-sm font-semibold">{cause.category}</div>
+                    <div className="text-white/60 text-xs">{cause.machineName} · {cause.evidence}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
+                <h3 className="text-white font-semibold">Loss Ranking & Severity</h3>
+              </div>
+              <div className="space-y-3">
+                {lossRanking.slice(0, 6).map((item, index) => (
+                  <div key={`${item.machineId}-${item.category}-${index}`} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <div className="flex items-center justify-between">
+                      <div className="text-white text-sm font-semibold">{item.category}</div>
+                      <div className="text-[#FFB86C] text-xs">Severity {item.severity}</div>
+                    </div>
+                    <div className="text-white/60 text-xs">
+                      {item.machineName} · Impact {item.impact.toFixed(2)}% · Duration {(item.duration / 60).toFixed(0)} min
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Anomalies */}
+          <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle className="w-5 h-5 text-[#FFB86C]" />
+              <h3 className="text-white font-semibold">Anomaly Detection</h3>
+            </div>
+            {lossAnomalies.length === 0 ? (
+              <div className="text-white/60 text-sm">No loss anomalies detected in the current window.</div>
+            ) : (
+              <div className="grid gap-3 responsive-grid-3">
+                {lossAnomalies.map((anomaly) => (
+                  <div key={anomaly.category} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <div className="text-white text-sm font-semibold">{anomaly.category}</div>
+                    <div className="text-white/60 text-xs">
+                      Latest {anomaly.latestValue.toFixed(2)}% · Baseline {anomaly.mean.toFixed(2)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Action Plan Mapping */}
+          <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Target className="w-5 h-5 text-[#34E7F8]" />
+              <h3 className="text-white font-semibold">Six Big Losses → OEE → Action Plan</h3>
+            </div>
+            <div className="grid gap-3 responsive-grid-2">
+              {lossActionPlanMap.map((item) => (
+                <div key={item.category} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div className="text-white text-sm font-semibold">{item.category}</div>
+                  <div className="text-white/60 text-xs">OEE: {item.oeeComponent}</div>
+                  <div className="text-white/60 text-xs">Action: {item.action}</div>
+                  <div className="text-[#FFB86C] text-xs">Priority: {item.priority}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
