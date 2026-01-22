@@ -21,7 +21,7 @@ export function PerformanceAnalytics() {
   const { kpis, loading: kpisLoading } = useGlobalKPIs();
   const { orders } = useProductionOrders();
   const { areas } = useProductionAreas();
-  const [timeRange, setTimeRange] = useState<TimeRange>('today');
+  const [timeRange, setTimeRange] = useState<TimeRange>('shift');
   const [selectedArea, setSelectedArea] = useState<string>('all');
   const [analyticsLayer, setAnalyticsLayer] = useState<'overview' | 'detail'>('overview');
   const [detailFocus, setDetailFocus] = useState<'six-big-losses'>('six-big-losses');
@@ -472,35 +472,9 @@ export function PerformanceAnalytics() {
     );
   };
 
-  // Calculate downtime by status from machine data
-  const downtimeData = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
-
-    const statusCounts: Record<string, number> = {};
-    machines.forEach(machine => {
-      const status = machine.status?.toLowerCase() || 'idle';
-      if (status !== 'running') {
-        statusCounts[status] = (statusCounts[status] || 0) + 1;
-      }
-    });
-
-    const statusColors: Record<string, string> = {
-      idle: '#64748B',
-      warning: '#F59E0B',
-      error: '#EF4444',
-      stopped: '#34E7F8',
-      setup: '#FFB86C',
-    };
-
-    return Object.entries(statusCounts)
-      .map(([reason, count]) => ({
-        reason: reason.charAt(0).toUpperCase() + reason.slice(1),
-        duration: count * 15, // Approximate minutes (can be enhanced with real downtime data)
-        count,
-        color: statusColors[reason] || '#9580FF',
-      }))
-      .sort((a, b) => b.duration - a.duration);
-  }, [machines]);
+  const downtimeByShift = useMemo(() => {
+    return analyticsData?.downtimeByShift ?? [];
+  }, [analyticsData]);
 
   // Calculate area performance
   const areaPerformanceData = useMemo(() => {
@@ -790,7 +764,7 @@ export function PerformanceAnalytics() {
                   setShiftNumber(event.target.value);
                   setIsLiveMode(false);
                 }}
-                className="px-3 py-2 rounded-lg bg-white/5 text-white/80 border border-white/10"
+                className="px-3 py-2 rounded-lg bg-white/5 text-white/80 border border-white/10 [&>option]:bg-[#0E2F4F] [&>option]:text-white"
               >
                 <option value="1">Shift 1 (06-14)</option>
                 <option value="2">Shift 2 (14-22)</option>
@@ -1248,36 +1222,36 @@ export function PerformanceAnalytics() {
           </div>
         </div>
 
-        {/* Downtime Analysis */}
+        {/* Downtime by Shift */}
         <div 
           className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
           data-chart-export
-          data-chart-title="Downtime Analysis"
+          data-chart-title="Downtime by Shift"
         >
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-5 h-5 text-[#FFB86C]" />
-            <h3 className="text-white font-semibold">Downtime Analysis</h3>
+            <h3 className="text-white font-semibold">Downtime by Shift</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={downtimeData} layout="vertical">
+              <BarChart data={downtimeByShift} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis 
-                  type="number" 
-                  stroke="#ffffff40" 
+                <XAxis
+                  type="number"
+                  stroke="#ffffff40"
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
-                  label={{ value: 'Duration (min)', position: 'insideBottom', offset: -5, fill: '#ffffff60' }}
+                  label={{ value: 'Downtime (min)', position: 'insideBottom', offset: -5, fill: '#ffffff60' }}
                 />
-                <YAxis 
-                  type="category" 
-                  dataKey="reason" 
-                  stroke="#ffffff40" 
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  stroke="#ffffff40"
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
-                  width={100}
+                  width={120}
                 />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#0E2F4F', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#0E2F4F',
                     border: '1px solid rgba(255,255,255,0.2)',
                     borderRadius: '8px',
                     fontSize: '12px'
@@ -1287,18 +1261,14 @@ export function PerformanceAnalytics() {
                     'Downtime'
                   ]}
                 />
-                <Bar dataKey="duration" radius={[0, 8, 8, 0]}>
-                  {downtimeData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
+                <Bar dataKey="duration" radius={[0, 8, 8, 0]} fill="#FFB86C" />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-4 text-center">
             <span className="text-white/60 text-xs">Total Downtime: </span>
             <span className="text-xl text-[#FF4C4C]">
-              {downtimeData.reduce((sum, d) => sum + d.duration, 0)} min
+              {downtimeByShift.reduce((sum, d) => sum + d.duration, 0)} min
             </span>
           </div>
         </div>

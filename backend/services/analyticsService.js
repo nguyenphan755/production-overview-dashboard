@@ -106,6 +106,86 @@ const getMachineStatusHistory = async (machineIds, start, end) => {
   return result.rows;
 };
 
+const buildDowntimeByStatus = (statusHistory, start, end) => {
+  const buckets = {};
+  const statusColors = {
+    idle: '#64748B',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    stopped: '#34E7F8',
+    setup: '#FFB86C',
+  };
+
+  statusHistory.forEach((entry) => {
+    const status = (entry.status || 'idle').toLowerCase();
+    if (status === 'running') return;
+
+    const startTime = new Date(entry.status_start_time).getTime();
+    const endTime = entry.status_end_time ? new Date(entry.status_end_time).getTime() : end.getTime();
+    const clampedStart = Math.max(startTime, start.getTime());
+    const clampedEnd = Math.min(endTime, end.getTime());
+
+    if (clampedEnd <= clampedStart) return;
+
+    const durationSeconds = (clampedEnd - clampedStart) / 1000;
+    if (!buckets[status]) {
+      buckets[status] = { durationSeconds: 0, machineIds: new Set() };
+    }
+    buckets[status].durationSeconds += durationSeconds;
+    buckets[status].machineIds.add(entry.machine_id);
+  });
+
+  return Object.entries(buckets)
+    .map(([reason, data]) => ({
+      reason: reason.charAt(0).toUpperCase() + reason.slice(1),
+      duration: Math.round((data.durationSeconds / 60) * 10) / 10,
+      count: data.machineIds.size,
+      color: statusColors[reason] || '#9580FF',
+    }))
+    .sort((a, b) => b.duration - a.duration);
+};
+
+const buildDowntimeByShift = (statusHistory, start, end) => {
+  const buckets = {
+    'Shift 1 (06-14)': { durationSeconds: 0, machineIds: new Set() },
+    'Shift 2 (14-22)': { durationSeconds: 0, machineIds: new Set() },
+    'Shift 3 (22-06)': { durationSeconds: 0, machineIds: new Set() },
+  };
+
+  statusHistory.forEach((entry) => {
+    const status = (entry.status || 'idle').toLowerCase();
+    if (status === 'running') return;
+
+    const startTime = new Date(entry.status_start_time).getTime();
+    const endTime = entry.status_end_time ? new Date(entry.status_end_time).getTime() : end.getTime();
+    let cursor = Math.max(startTime, start.getTime());
+    const rangeEnd = Math.min(endTime, end.getTime());
+
+    while (cursor < rangeEnd) {
+      const window = getCurrentShiftWindow(new Date(cursor));
+      const windowEnd = Math.min(window.end.getTime(), rangeEnd);
+      const durationSeconds = Math.max(0, (windowEnd - cursor) / 1000);
+
+      const key = window.shift === 1
+        ? 'Shift 1 (06-14)'
+        : window.shift === 2
+          ? 'Shift 2 (14-22)'
+          : 'Shift 3 (22-06)';
+
+      buckets[key].durationSeconds += durationSeconds;
+      buckets[key].machineIds.add(entry.machine_id);
+
+      cursor = windowEnd;
+    }
+  });
+
+  return Object.entries(buckets).map(([label, data]) => ({
+    label,
+    duration: Math.round((data.durationSeconds / 60) * 10) / 10,
+    count: data.machineIds.size,
+  }));
+};
+
 const getAlarmHistory = async (machineIds, start) => {
   if (!machineIds.length) return [];
   const result = await query(
@@ -508,6 +588,9 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     return acc;
   }, {});
 
+  const downtimeByStatus = buildDowntimeByStatus(statusHistory, scopeStart, scopeEnd);
+  const downtimeByShift = buildDowntimeByShift(statusHistory, scopeStart, scopeEnd);
+
   const oeeByMachine = historicalOee.reduce((acc, row) => {
     acc[row.machine_id] = {
       availability: parseFloat(row.availability || 0),
@@ -778,6 +861,8 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     oeeTrend,
     productionRateTrend,
     energyTrend,
+    downtimeByStatus,
+    downtimeByShift,
     outputSummary: {
       totalOk: Math.round(outputSummary.totalOk * 100) / 100,
       totalNg: Math.round(outputSummary.totalNg * 100) / 100,
