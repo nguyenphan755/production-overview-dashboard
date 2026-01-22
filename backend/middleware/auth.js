@@ -42,5 +42,23 @@ export const generateToken = (payload) => {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 };
 
+/**
+ * Require one of the allowed roles
+ */
+export const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'Insufficient permissions',
+      });
+    }
+
+    next();
+  };
+};
+
 export { JWT_SECRET };
 

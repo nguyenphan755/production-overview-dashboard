@@ -1,8 +1,10 @@
 // Authentication routes
 
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { query } from '../database/connection.js';
-import { generateToken } from '../middleware/auth.js';
+import { generateToken, JWT_SECRET } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
@@ -20,16 +22,15 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // For production, use proper user authentication
-    // For now, simple hardcoded credentials for Node-RED integration
-    const validUsers = {
-      nodered: { password: 'nodered123', role: 'system' },
-      admin: { password: 'admin123', role: 'admin' },
-    };
+    const normalizedUsername = username.trim().toLowerCase();
+    const result = await query(
+      `SELECT id, username, password_hash, role, is_active, plant, area, line
+       FROM mes_users
+       WHERE username = $1`,
+      [normalizedUsername]
+    );
 
-    const user = validUsers[username];
-
-    if (!user || user.password !== password) {
+    if (result.rowCount === 0) {
       return res.status(401).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -38,17 +39,47 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Generate JWT token
+    const user = result.rows[0];
+
+    if (!user.is_active) {
+      return res.status(403).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'Account is disabled',
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    if (!passwordMatch) {
+      return res.status(401).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'Invalid credentials',
+      });
+    }
+
+    await query('UPDATE mes_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+
     const token = generateToken({
-      username,
+      userId: user.id,
+      username: user.username,
       role: user.role,
     });
 
     res.json({
       data: {
         token,
-        username,
-        role: user.role,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          isActive: user.is_active,
+          plant: user.plant,
+          area: user.area,
+          line: user.line,
+        },
       },
       timestamp: new Date().toISOString(),
       success: true,
@@ -78,12 +109,21 @@ router.post('/verify', async (req, res) => {
       });
     }
 
-    // Token verification is done by middleware
-    // This endpoint just confirms the token format
-    res.json({
-      data: { valid: true },
-      timestamp: new Date().toISOString(),
-      success: true,
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        return res.status(403).json({
+          data: null,
+          timestamp: new Date().toISOString(),
+          success: false,
+          message: 'Invalid or expired token',
+        });
+      }
+
+      res.json({
+        data: { valid: true, user },
+        timestamp: new Date().toISOString(),
+        success: true,
+      });
     });
   } catch (error) {
     res.status(500).json({

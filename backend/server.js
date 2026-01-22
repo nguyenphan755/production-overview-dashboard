@@ -10,9 +10,12 @@ import ordersRouter from './routes/orders.js';
 import alarmsRouter from './routes/alarms.js';
 import authRouter from './routes/auth.js';
 import availabilityRouter from './routes/availability.js';
+import analyticsRouter from './routes/analytics.js';
+import usersRouter from './routes/users.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
 import { query } from './database/connection.js';
+import { startAnalyticsScheduler } from './services/analyticsService.js';
 
 dotenv.config();
 
@@ -119,6 +122,7 @@ app.get('/', (req, res) => {
           orders: '/api/orders',
           alarms: '/api/alarms',
           availability: '/api/availability',
+          analytics: '/api/analytics',
         },
       },
       websocket: '/ws',
@@ -133,12 +137,14 @@ app.get('/', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRouter);
+app.use('/api/users', usersRouter);
 app.use('/api/kpis', kpisRouter);
 app.use('/api/areas', areasRouter);
 app.use('/api/machines', machinesRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/alarms', alarmsRouter);
 app.use('/api/availability', availabilityRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -182,5 +188,9 @@ server.listen(PORT, '0.0.0.0', async () => {
   startContinuousSync(SYNC_INTERVAL_SECONDS, USE_SHIFT_BASED);
   const syncType = USE_SHIFT_BASED ? 'shift-based (3 shifts: 06:00-14:00, 14:00-22:00, 22:00-06:00)' : 'rolling window';
   console.log(`🔄 Continuous availability synchronization started (interval: ${SYNC_INTERVAL_SECONDS}s, calculation: ${syncType})`);
+
+  const ANALYTICS_REFRESH_SECONDS = parseInt(process.env.ANALYTICS_REFRESH_INTERVAL || '60', 10);
+  startAnalyticsScheduler({ ranges: ['shift', 'today'], intervalSeconds: ANALYTICS_REFRESH_SECONDS });
+  console.log(`🤖 Analytics cache scheduler started (interval: ${ANALYTICS_REFRESH_SECONDS}s)`);
 });
 

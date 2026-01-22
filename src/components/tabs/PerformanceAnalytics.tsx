@@ -13,18 +13,8 @@ import { useMachines, useGlobalKPIs, useProductionOrders, useProductionAreas } f
 import { apiClient } from '../../services/api';
 import { exportToPowerPoint, exportAsPDF, ExportOptions } from '../../utils/exportAnalytics';
 
-type TimeRange = 'today' | 'week' | 'month' | 'shift';
+type TimeRange = 'shift' | 'today' | 'yesterday' | 'last7' | 'month';
 
-type StatusHistoryEntry = {
-  id: string | number;
-  machineId: string;
-  status: string;
-  previousStatus?: string | null;
-  startTime: string;
-  endTime: string | null;
-  durationSeconds?: number | null;
-  isProductionTime?: boolean | null;
-};
 
 export function PerformanceAnalytics() {
   const { machines, loading: machinesLoading } = useMachines();
@@ -66,14 +56,35 @@ export function PerformanceAnalytics() {
       energy: number;
     }>
   >([]);
-  const [statusHistoryByMachine, setStatusHistoryByMachine] = useState<
-    Record<string, StatusHistoryEntry[]>
-  >({});
-  const [statusHistoryLoading, setStatusHistoryLoading] = useState(false);
-  const [statusHistoryError, setStatusHistoryError] = useState<string | null>(null);
-  const [lossHistory, setLossHistory] = useState<
-    Array<{ timestamp: number; categoryLosses: Record<string, number> }>
-  >([]);
+  const [analyticsData, setAnalyticsData] = useState<any | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analyticsCachedAt, setAnalyticsCachedAt] = useState<string | null>(null);
+  const [isLiveMode, setIsLiveMode] = useState(true);
+  const getCurrentShiftMeta = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    let shiftNum = '3';
+    let shiftDateLocal = new Date(now);
+    if (hour >= 6 && hour < 14) {
+      shiftNum = '1';
+    } else if (hour >= 14 && hour < 22) {
+      shiftNum = '2';
+    } else {
+      shiftNum = '3';
+      if (hour < 6) {
+        shiftDateLocal = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      }
+    }
+    return {
+      shiftNumber: shiftNum,
+      shiftDate: shiftDateLocal.toISOString().slice(0, 10),
+    };
+  };
+
+  const currentShiftMeta = getCurrentShiftMeta();
+  const [shiftDate, setShiftDate] = useState<string>(currentShiftMeta.shiftDate);
+  const [shiftNumber, setShiftNumber] = useState<string>(currentShiftMeta.shiftNumber);
   
   // Close export menu when clicking outside
   useEffect(() => {
@@ -119,67 +130,51 @@ export function PerformanceAnalytics() {
     };
   }, [machines]);
 
-  const getRangeHours = (range: TimeRange) => {
-    switch (range) {
-      case 'shift':
-        return 8;
-      case 'today':
-        return 24;
-      case 'week':
-        return 24 * 7;
-      case 'month':
-        return 24 * 30;
-      default:
-        return 24;
-    }
-  };
-
-  // Load status history for AI analytics (detail view only)
+  // Load analytics from backend cache
   useEffect(() => {
-    if (analyticsLayer !== 'detail' || machines.length === 0) {
-      return;
-    }
-
     let isMounted = true;
-    const hours = getRangeHours(timeRange);
 
-    const fetchStatusHistory = async () => {
+    const fetchAnalytics = async () => {
       try {
-        setStatusHistoryLoading(true);
-        const results = await Promise.all(
-          machines.map(async (machine) => {
-            try {
-              const response = await apiClient.getMachineStatusHistory(machine.id, hours);
-              const entries = response.success && response.data ? response.data : [];
-              return [machine.id, entries as StatusHistoryEntry[]] as const;
-            } catch (error) {
-              console.error('Status history fetch error:', machine.id, error);
-              return [machine.id, [] as StatusHistoryEntry[]] as const;
-            }
-          })
+        setAnalyticsLoading(true);
+        const response = await apiClient.getAnalytics(
+          timeRange,
+          selectedArea,
+          undefined,
+          timeRange === 'shift' ? shiftDate : undefined,
+          timeRange === 'shift' ? shiftNumber : undefined
         );
-
         if (!isMounted) return;
-        setStatusHistoryByMachine(Object.fromEntries(results));
-        setStatusHistoryError(null);
+        if (response.success && response.data) {
+          setAnalyticsData(response.data);
+          setAnalyticsCachedAt(response.timestamp || new Date().toISOString());
+          setAnalyticsError(null);
+        } else {
+          setAnalyticsError(response.message || 'Failed to load analytics');
+        }
       } catch (error) {
         if (isMounted) {
-          setStatusHistoryError(error instanceof Error ? error.message : 'Failed to load status history');
+          setAnalyticsError(error instanceof Error ? error.message : 'Failed to load analytics');
         }
       } finally {
         if (isMounted) {
-          setStatusHistoryLoading(false);
+          setAnalyticsLoading(false);
         }
       }
     };
 
-    fetchStatusHistory();
-    const interval = setInterval(fetchStatusHistory, 60000);
+    fetchAnalytics();
+    if (!isLiveMode) {
+      return () => {
+        isMounted = false;
+      };
+    }
+    const interval = setInterval(fetchAnalytics, 60000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [analyticsLayer, machines, timeRange]);
+  }, [isLiveMode, selectedArea, shiftDate, shiftNumber, timeRange]);
 
   const roundOneDecimal = (value: number) =>
     Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
@@ -303,8 +298,43 @@ export function PerformanceAnalytics() {
     });
   }, [machines]);
 
-  // Calculate NG (No Good) metrics from machine data
+  const latestOeePoint = oeeSeries[oeeSeries.length - 1];
+  const latestRatePoint = productionRateSeries[productionRateSeries.length - 1];
+  const latestEnergyPoint = energySeries[energySeries.length - 1];
+  const timeRangeLabels: Record<TimeRange, string> = {
+    shift: 'Shift',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    last7: 'Last 7 Days',
+    month: 'Month',
+  };
+  const analyticsOeeSummary = analyticsData?.oeeSummary;
+  const analyticsOutputSummary = analyticsData?.outputSummary;
+  const analyticsNgTrend = (analyticsData?.ngTrend ?? []).length > 0
+    ? analyticsData?.ngTrend
+    : [];
+  const analyticsProductionRateTrend = (analyticsData?.productionRateTrend ?? []).length > 0
+    ? analyticsData?.productionRateTrend
+    : productionRateSeries;
+  const analyticsEnergyTrend = (analyticsData?.energyTrend ?? []).length > 0
+    ? analyticsData?.energyTrend
+    : energySeries;
+  const analyticsPlannedVsActual = analyticsData?.plannedVsActual;
+  const analyticsTemperatureStability = analyticsData?.temperatureStability;
+  const oeeTrendData = (analyticsData?.oeeTrend ?? []).length > 0
+    ? analyticsData?.oeeTrend
+    : oeeSeries;
+  const isHistoricalRange = !isLiveMode;
+
   const ngMetrics = useMemo(() => {
+    if (isHistoricalRange && analyticsOutputSummary) {
+      return {
+        totalNG: analyticsOutputSummary.totalNg || 0,
+        totalOK: analyticsOutputSummary.totalOk || 0,
+        totalLength: analyticsOutputSummary.totalLength || 0,
+        ngRate: analyticsOutputSummary.ngRate || 0,
+      };
+    }
     if (!machines || machines.length === 0) {
       return { totalNG: 0, totalOK: 0, totalLength: 0, ngRate: 0 };
     }
@@ -314,7 +344,6 @@ export function PerformanceAnalytics() {
     let totalLength = 0;
 
     machines.forEach(machine => {
-      // Access producedLengthNg from machine detail if available
       const ngLength = (machine as any).producedLengthNg || 0;
       const okLength = (machine as any).producedLengthOk || 0;
       const totalProd = machine.producedLength || 0;
@@ -332,11 +361,19 @@ export function PerformanceAnalytics() {
       totalLength: Math.round(totalLength * 100) / 100,
       ngRate: Math.round(ngRate * 100) / 100,
     };
-  }, [machines]);
+  }, [analyticsOutputSummary, isHistoricalRange, machines]);
 
-  const latestOeePoint = oeeSeries[oeeSeries.length - 1];
-  const latestRatePoint = productionRateSeries[productionRateSeries.length - 1];
-  const latestEnergyPoint = energySeries[energySeries.length - 1];
+  useEffect(() => {
+    if (
+      isLiveMode &&
+      (timeRange !== 'shift' ||
+        shiftDate !== currentShiftMeta.shiftDate ||
+        shiftNumber !== currentShiftMeta.shiftNumber)
+    ) {
+      setIsLiveMode(false);
+    }
+  }, [currentShiftMeta.shiftDate, currentShiftMeta.shiftNumber, isLiveMode, shiftDate, shiftNumber, timeRange]);
+
 
   const formatTimeLabel = (value: string) => {
     if (!value) return value;
@@ -502,489 +539,55 @@ export function PerformanceAnalytics() {
     });
   }, [areas, machines]);
 
-  // Calculate Six Big Losses (OEE Loss Analysis)
-  // AI-assisted evaluation: rule-based classification + validation + normalization
-  // - Uses validated MES data (machine status, OEE components, NG rate)
-  // - Detects inconsistencies by normalizing to the actual OEE gap (100 - OEE)
-  // - Adjusts allocation weights based on live status distribution and NG rate
-  const sixBigLosses = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
-
-    const clamp = (value: number, min: number, max: number) =>
-      Math.min(max, Math.max(min, value));
-
-    const statusCounts = machines.reduce(
-      (acc, machine) => {
-        const status = machine.status?.toLowerCase() || 'idle';
-        acc.total += 1;
-        acc[status] = (acc[status] || 0) + 1;
-        return acc;
-      },
-      { total: 0 } as Record<string, number>
-    );
-
-    const availability = clamp(oeeMetrics.availability, 0, 100);
-    const performance = clamp(oeeMetrics.performance, 0, 100);
-    const quality = clamp(oeeMetrics.quality, 0, 100);
-    const oee = clamp(oeeMetrics.oee, 0, 100);
-
-    // Base losses derived from OEE components (validated MES data)
-    const availabilityLoss = clamp(100 - availability, 0, 100);
-    const performanceLoss = clamp(availability - (availability * performance) / 100, 0, 100);
-    const qualityLoss = clamp(
-      (availability * performance) / 100 - oee,
-      0,
-      100
-    );
-
-    // Ensure total loss matches actual OEE gap (consistency check)
-    const totalGap = clamp(100 - oee, 0, 100);
-    const theoreticalSum = availabilityLoss + performanceLoss + qualityLoss;
-    const scale = theoreticalSum > 0 ? totalGap / theoreticalSum : 0;
-
-    const scaledAvailabilityLoss = availabilityLoss * scale;
-    const scaledPerformanceLoss = performanceLoss * scale;
-    const scaledQualityLoss = qualityLoss * scale;
-
-    // AI-assisted classification weights from live status distribution
-    const equipmentFailureWeight =
-      (statusCounts.error || 0) + (statusCounts.stopped || 0);
-    const setupWeight = statusCounts.setup || 0;
-    const idlingWeight = (statusCounts.idle || 0) + (statusCounts.warning || 0);
-    const availabilityWeightSum = equipmentFailureWeight + setupWeight + idlingWeight;
-
-    const defaultAvailabilityWeights = {
-      equipmentFailure: 0.4,
-      setup: 0.3,
-      idling: 0.3,
-    };
-
-    const availabilityWeights = availabilityWeightSum > 0
-      ? {
-          equipmentFailure: equipmentFailureWeight / availabilityWeightSum,
-          setup: setupWeight / availabilityWeightSum,
-          idling: idlingWeight / availabilityWeightSum,
-        }
-      : defaultAvailabilityWeights;
-
-    // AI-assisted quality split using NG rate (detects potential misclassification)
-    const ngRate = clamp(ngMetrics.ngRate || 0, 0, 100);
-    const defectsWeight = clamp(ngRate / 5, 0.2, 0.8); // 0-5% NG -> 20-80% defects
-    const reducedYieldWeight = 1 - defectsWeight;
-
-    const losses = [
-      {
-        category: 'Equipment Failure',
-        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.equipmentFailure * 100) / 100,
-        type: 'availability',
-        color: '#EF4444',
-      },
-      {
-        category: 'Setup & Adjustments',
-        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.setup * 100) / 100,
-        type: 'availability',
-        color: '#FFB86C',
-      },
-      {
-        category: 'Idling & Minor Stops',
-        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.idling * 100) / 100,
-        type: 'availability',
-        color: '#F59E0B',
-      },
-      {
-        category: 'Reduced Speed',
-        loss: Math.round(scaledPerformanceLoss * 100) / 100,
-        type: 'performance',
-        color: '#34E7F8',
-      },
-      {
-        category: 'Process Defects',
-        loss: Math.round(scaledQualityLoss * defectsWeight * 100) / 100,
-        type: 'quality',
-        color: '#FF4C4C',
-      },
-      {
-        category: 'Reduced Yield',
-        loss: Math.round(scaledQualityLoss * reducedYieldWeight * 100) / 100,
-        type: 'quality',
-        color: '#9580FF',
-      },
-    ];
-
-    // Final normalization to avoid rounding drift (AI validation step)
-    const roundedSum = losses.reduce((sum, entry) => sum + entry.loss, 0);
-    const drift = Math.round((totalGap - roundedSum) * 100) / 100;
-    if (Math.abs(drift) > 0.01) {
-      const adjust = losses.find((entry) => entry.category === 'Reduced Speed');
-      if (adjust) {
-        adjust.loss = Math.max(0, Math.round((adjust.loss + drift) * 100) / 100);
-      }
-    }
-
-    return losses.filter((loss) => loss.loss > 0).sort((a, b) => b.loss - a.loss);
-  }, [machines, ngMetrics, oeeMetrics]);
-
-  useEffect(() => {
-    if (sixBigLosses.length === 0) return;
-    const snapshot = sixBigLosses.reduce<Record<string, number>>((acc, item) => {
-      acc[item.category] = item.loss;
-      return acc;
-    }, {});
-    setLossHistory((prev) => {
-      const next = [...prev, { timestamp: Date.now(), categoryLosses: snapshot }];
-      return next.slice(-60);
-    });
-  }, [sixBigLosses]);
-
-  const machineLossProfiles = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
-
-    const clamp = (value: number, min: number, max: number) =>
-      Math.min(max, Math.max(min, value));
-    const now = Date.now();
-
-    return machines.map((machine) => {
-      const availability = clamp(machine.availability ?? 0, 0, 100);
-      const performance = clamp(machine.performance ?? 0, 0, 100);
-      const quality = clamp(machine.quality ?? 0, 0, 100);
-      const oee = clamp(machine.oee ?? 0, 0, 100);
-
-      const availabilityLoss = clamp(100 - availability, 0, 100);
-      const performanceLoss = clamp(availability - (availability * performance) / 100, 0, 100);
-      const qualityLoss = clamp((availability * performance) / 100 - oee, 0, 100);
-      const totalGap = clamp(100 - oee, 0, 100);
-      const theoreticalSum = availabilityLoss + performanceLoss + qualityLoss;
-      const scale = theoreticalSum > 0 ? totalGap / theoreticalSum : 0;
-
-      const history = statusHistoryByMachine[machine.id] || [];
-      const durations = history.reduce(
-        (acc, entry) => {
-          const start = new Date(entry.startTime).getTime();
-          const end = entry.endTime ? new Date(entry.endTime).getTime() : now;
-          const durationSeconds =
-            entry.durationSeconds !== null && entry.durationSeconds !== undefined
-              ? entry.durationSeconds
-              : Math.max(0, (end - start) / 1000);
-          const status = entry.status?.toLowerCase() || 'idle';
-          if (status !== 'running') {
-            acc.total += durationSeconds;
-            acc[status] = (acc[status] || 0) + durationSeconds;
-          }
-          if (durationSeconds <= 300 && status !== 'running') {
-            acc.shortStops += 1;
-          }
-          if (durationSeconds >= 1200 && (status === 'error' || status === 'stopped')) {
-            acc.longStops += 1;
-          }
-          return acc;
-        },
-        { total: 0, shortStops: 0, longStops: 0 } as Record<string, number>
-      );
-
-      const equipmentFailureWeight = (durations.error || 0) + (durations.stopped || 0);
-      const setupWeight = durations.setup || 0;
-      const idlingWeight = (durations.idle || 0) + (durations.warning || 0);
-      const availabilityWeightSum = equipmentFailureWeight + setupWeight + idlingWeight;
-
-      const availabilityWeights = availabilityWeightSum > 0
-        ? {
-            equipmentFailure: equipmentFailureWeight / availabilityWeightSum,
-            setup: setupWeight / availabilityWeightSum,
-            idling: idlingWeight / availabilityWeightSum,
-          }
-        : {
-            equipmentFailure: 0.4,
-            setup: 0.3,
-            idling: 0.3,
-          };
-
-      const producedOk = (machine as any).producedLengthOk || 0;
-      const producedNg = (machine as any).producedLengthNg || 0;
-      const totalProduced = producedOk + producedNg > 0 ? producedOk + producedNg : machine.producedLength || 0;
-      const ngRate = totalProduced > 0 ? (producedNg / totalProduced) * 100 : 0;
-      const defectsWeight = clamp(ngRate / 5, 0.2, 0.8);
-
-      const categoryLosses = {
-        'Equipment Failure': Math.round(availabilityLoss * scale * availabilityWeights.equipmentFailure * 100) / 100,
-        'Setup & Adjustments': Math.round(availabilityLoss * scale * availabilityWeights.setup * 100) / 100,
-        'Idling & Minor Stops': Math.round(availabilityLoss * scale * availabilityWeights.idling * 100) / 100,
-        'Reduced Speed': Math.round(performanceLoss * scale * 100) / 100,
-        'Process Defects': Math.round(qualityLoss * scale * defectsWeight * 100) / 100,
-        'Reduced Yield': Math.round(qualityLoss * scale * (1 - defectsWeight) * 100) / 100,
-      };
-
-      const speedGapPct =
-        machine.targetSpeed && machine.targetSpeed > 0
-          ? Math.max(0, (machine.targetSpeed - (machine.lineSpeed || 0)) / machine.targetSpeed) * 100
-          : 0;
-
-      return {
-        machineId: machine.id,
-        machineName: machine.name,
-        area: machine.area,
-        oee,
-        availability,
-        performance,
-        quality,
-        totalGap,
-        downtimeSeconds: durations.total,
-        shortStops: durations.shortStops,
-        longStops: durations.longStops,
-        alarms: machine.alarms || [],
-        speedGapPct: Math.round(speedGapPct * 10) / 10,
-        ngRate: Math.round(ngRate * 10) / 10,
-        categoryLosses,
-      };
-    });
-  }, [machines, statusHistoryByMachine]);
-
-  const buildParetoSeries = (items: Array<{ label: string; value: number }>) => {
-    const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
-    let cumulative = 0;
-    return items.map((item) => {
-      cumulative += item.value;
-      return {
-        label: item.label,
-        value: Math.round(item.value * 100) / 100,
-        cumulative: Math.round((cumulative / total) * 1000) / 10,
-      };
-    });
-  };
-
-  const paretoByCategory = useMemo(() => {
-    const items = [...sixBigLosses]
-      .sort((a, b) => b.loss - a.loss)
-      .map((loss) => ({ label: loss.category, value: loss.loss }));
-    return buildParetoSeries(items);
-  }, [sixBigLosses]);
-
-  const paretoByMachine = useMemo(() => {
-    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
-    const items = machineLossProfiles
-      .map((profile) => ({ label: profile.machineName, value: profile.totalGap }))
-      .sort((a, b) => b.value - a.value);
-    const scaled = items.map((item) => ({
-      label: item.label,
-      value: totalGap > 0 ? (item.value / items.reduce((sum, i) => sum + i.value, 0)) * totalGap : 0,
-    }));
-    return buildParetoSeries(scaled);
-  }, [machineLossProfiles, oeeMetrics.oee]);
-
-  const paretoByArea = useMemo(() => {
-    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
-    const areaMap = new Map<string, number>();
-    machineLossProfiles.forEach((profile) => {
-      areaMap.set(profile.area, (areaMap.get(profile.area) || 0) + profile.totalGap);
-    });
-    const items = Array.from(areaMap.entries())
-      .map(([area, value]) => ({ label: area, value }))
-      .sort((a, b) => b.value - a.value);
-    const scaled = items.map((item) => ({
-      label: item.label,
-      value: totalGap > 0 ? (item.value / items.reduce((sum, i) => sum + i.value, 0)) * totalGap : 0,
-    }));
-    return buildParetoSeries(scaled);
-  }, [machineLossProfiles, oeeMetrics.oee]);
-
-  const paretoByShift = useMemo(() => {
-    const totalGap = Math.max(0, 100 - oeeMetrics.oee);
-    const shiftBuckets: Record<string, number> = {
-      'Shift 1 (00-08)': 0,
-      'Shift 2 (08-16)': 0,
-      'Shift 3 (16-24)': 0,
-    };
-
-    Object.values(statusHistoryByMachine).forEach((entries) => {
-      entries.forEach((entry) => {
-        const start = new Date(entry.startTime);
-        const hours = start.getHours();
-        const key = hours < 8 ? 'Shift 1 (00-08)' : hours < 16 ? 'Shift 2 (08-16)' : 'Shift 3 (16-24)';
-        const durationSeconds =
-          entry.durationSeconds !== null && entry.durationSeconds !== undefined
-            ? entry.durationSeconds
-            : entry.endTime
-              ? (new Date(entry.endTime).getTime() - start.getTime()) / 1000
-              : 0;
-        if (entry.status?.toLowerCase() !== 'running') {
-          shiftBuckets[key] += durationSeconds;
-        }
-      });
-    });
-
-    const rawTotal = Object.values(shiftBuckets).reduce((sum, value) => sum + value, 0);
-    const items = Object.entries(shiftBuckets).map(([label, value]) => ({
-      label,
-      value: rawTotal > 0 ? (value / rawTotal) * totalGap : 0,
-    }));
-    const sorted = items.sort((a, b) => b.value - a.value);
-    return buildParetoSeries(sorted);
-  }, [oeeMetrics.oee, statusHistoryByMachine]);
-
-  const lossByMachine = useMemo(() => {
-    return machineLossProfiles
-      .map((profile) => ({
-        label: profile.machineName,
-        value: profile.totalGap,
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [machineLossProfiles]);
-
-  const lossByOrder = useMemo(() => {
-    const orderMap = new Map<string, { label: string; value: number }>();
-    machineLossProfiles.forEach((profile) => {
-      const order = orders.find((o) => o.machineId === profile.machineId && o.status === 'running') ||
-        orders.find((o) => o.machineId === profile.machineId);
-      if (order) {
-        const key = order.id;
-        const current = orderMap.get(key);
-        const nextValue = (current?.value || 0) + profile.totalGap;
-        orderMap.set(key, { label: order.name || order.id, value: nextValue });
-      }
-    });
-    return Array.from(orderMap.values()).sort((a, b) => b.value - a.value);
-  }, [machineLossProfiles, orders]);
-
-  const lossRanking = useMemo(() => {
-    const items = machineLossProfiles.flatMap((profile) =>
-      Object.entries(profile.categoryLosses).map(([category, loss]) => ({
-        category,
-        machineId: profile.machineId,
-        machineName: profile.machineName,
-        area: profile.area,
-        impact: loss,
-        duration: profile.downtimeSeconds,
-        frequency: profile.shortStops + profile.longStops,
-      }))
-    );
-
-    const maxImpact = Math.max(1, ...items.map((item) => item.impact));
-    const maxDuration = Math.max(1, ...items.map((item) => item.duration));
-    const maxFrequency = Math.max(1, ...items.map((item) => item.frequency));
-
-    return items
-      .map((item) => {
-        const impactScore = item.impact / maxImpact;
-        const durationScore = item.duration / maxDuration;
-        const frequencyScore = item.frequency / maxFrequency;
-        const severity = Math.round((0.5 * impactScore + 0.3 * durationScore + 0.2 * frequencyScore) * 100);
-        return { ...item, severity };
-      })
-      .filter((item) => item.impact > 0)
-      .sort((a, b) => b.severity - a.severity);
-  }, [machineLossProfiles]);
-
-  const rootCauseInsights = useMemo(() => {
-    return machineLossProfiles.flatMap((profile) => {
-      const causes = [];
-      if (profile.shortStops >= 5) {
-        causes.push({
-          machineId: profile.machineId,
-          machineName: profile.machineName,
-          category: 'Idling & Minor Stops',
-          evidence: `${profile.shortStops} short stops detected`,
-        });
-      }
-      if (profile.longStops >= 2 && profile.alarms.length > 0) {
-        causes.push({
-          machineId: profile.machineId,
-          machineName: profile.machineName,
-          category: 'Equipment Failure',
-          evidence: `${profile.longStops} long stops with alarms active`,
-        });
-      }
-      if (profile.speedGapPct >= 10) {
-        causes.push({
-          machineId: profile.machineId,
-          machineName: profile.machineName,
-          category: 'Reduced Speed',
-          evidence: `Speed ${profile.speedGapPct.toFixed(1)}% below target`,
-        });
-      }
-      if (profile.ngRate >= 1) {
-        causes.push({
-          machineId: profile.machineId,
-          machineName: profile.machineName,
-          category: 'Process Defects',
-          evidence: `NG rate ${profile.ngRate.toFixed(1)}%`,
-        });
-      }
-      return causes;
-    });
-  }, [machineLossProfiles]);
-
-  const lossAnomalies = useMemo(() => {
-    if (lossHistory.length < 6) return [];
-    const latest = lossHistory[lossHistory.length - 1];
-    const categories = Object.keys(latest.categoryLosses);
-    return categories
-      .map((category) => {
-        const series = lossHistory.map((entry) => entry.categoryLosses[category] || 0);
-        const mean = series.reduce((sum, value) => sum + value, 0) / series.length;
-        const variance = series.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / series.length;
-        const std = Math.sqrt(variance);
-        const latestValue = latest.categoryLosses[category] || 0;
-        const zScore = std > 0 ? (latestValue - mean) / std : 0;
-        return {
-          category,
-          latestValue,
-          mean,
-          zScore,
-        };
-      })
-      .filter((entry) => entry.zScore >= 2);
-  }, [lossHistory]);
-
-  const lossTrendSeries = useMemo(() => {
-    return lossHistory.map((entry) => ({
-      time: new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      totalLoss: Object.values(entry.categoryLosses).reduce((sum, value) => sum + value, 0),
-    }));
-  }, [lossHistory]);
-
-  const aiInsightSummary = useMemo(() => {
-    if (sixBigLosses.length === 0) return 'No validated loss data available yet.';
-    const topLoss = [...sixBigLosses].sort((a, b) => b.loss - a.loss)[0];
-    const topMachine = [...machineLossProfiles].sort((a, b) => b.totalGap - a.totalGap)[0];
-    const topShift = paretoByShift[0]?.label;
-
-    return `${topLoss.category} is the main contributor to the current OEE loss (${topLoss.loss.toFixed(1)}%). ` +
-      `${topMachine ? `Largest impact is from ${topMachine.machineName}. ` : ''}` +
-      `${topShift ? `Losses are concentrated in ${topShift}.` : ''}`.trim();
-  }, [machineLossProfiles, paretoByShift, sixBigLosses]);
+  const sixBigLosses = analyticsData?.sixBigLosses ?? [];
+  const paretoByCategory = analyticsData?.pareto?.byCategory ?? [];
+  const paretoByMachine = analyticsData?.pareto?.byMachine ?? [];
+  const paretoByArea = analyticsData?.pareto?.byArea ?? [];
+  const paretoByShift = analyticsData?.pareto?.byShift ?? [];
+  const lossRanking = analyticsData?.lossRanking ?? [];
+  const rootCauseInsights = analyticsData?.rootCauseContributors ?? [];
+  const lossAnomalies = analyticsData?.anomalies ?? [];
+  const lossByMachine = analyticsData?.breakdowns?.byMachine ?? [];
+  const lossByOrder = analyticsData?.breakdowns?.byOrder ?? [];
+  const lossTrendSeries = (analyticsData?.lossTrend ?? []).map((entry: any) => ({
+    time: new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    totalLoss: entry.totalLoss,
+  }));
+  const aiInsightSummary = analyticsData?.insights?.summary || 'No validated loss data available yet.';
 
   const lossActionPlanMap = [
-    {
-      category: 'Equipment Failure',
+      {
+        category: 'Equipment Failure',
       oeeComponent: 'Availability',
       action: 'Maintenance action (preventive + corrective)',
       priority: 'High',
-    },
-    {
-      category: 'Setup & Adjustments',
+      },
+      {
+        category: 'Setup & Adjustments',
       oeeComponent: 'Availability',
       action: 'Setup optimization / SMED',
       priority: 'Medium',
-    },
-    {
-      category: 'Idling & Minor Stops',
+      },
+      {
+        category: 'Idling & Minor Stops',
       oeeComponent: 'Performance',
       action: 'Operator + process standardization',
       priority: 'Medium',
-    },
-    {
-      category: 'Reduced Speed',
+      },
+      {
+        category: 'Reduced Speed',
       oeeComponent: 'Performance',
       action: 'Parameter tuning + bottleneck removal',
       priority: 'High',
-    },
-    {
-      category: 'Process Defects',
+      },
+      {
+        category: 'Process Defects',
       oeeComponent: 'Quality',
       action: 'Process quality improvement',
       priority: 'High',
-    },
-    {
-      category: 'Reduced Yield',
+      },
+      {
+        category: 'Reduced Yield',
       oeeComponent: 'Quality',
       action: 'Standardized startup procedure',
       priority: 'Medium',
@@ -992,34 +595,22 @@ export function PerformanceAnalytics() {
   ];
 
 
-  // Calculate NG trend by time
   const ngTrendData = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
-
-    const now = new Date();
-    const hours = [];
-    const baseNG = ngMetrics.ngRate || 1;
-
-    for (let i = 0; i < 24; i++) {
-      const hour = new Date(now);
-      hour.setHours(i, 0, 0, 0);
-      const hourStr = hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-      const variation = (Math.sin(i * 0.25) * 0.5) + (Math.random() * 0.3 - 0.15);
-      const ngRate = Math.max(0, Math.min(5, baseNG + variation));
-      const ngLength = (ngMetrics.totalNG / 24) * (1 + variation * 0.1);
-
-      hours.push({
-        time: hourStr,
-        ngRate: Math.round(ngRate * 100) / 100,
-        ngLength: Math.round(ngLength * 100) / 100,
-      });
+    if (analyticsNgTrend.length > 0) return analyticsNgTrend;
+    if (ngMetrics.totalLength > 0) {
+      return [
+        {
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          ngRate: ngMetrics.ngRate,
+          ngLength: ngMetrics.totalNG,
+        },
+      ];
     }
-    return hours;
-  }, [ngMetrics]);
+    return [];
+  }, [analyticsNgTrend, ngMetrics]);
 
-  // Calculate planned vs actual production
   const plannedVsActual = useMemo(() => {
+    if (isHistoricalRange && analyticsPlannedVsActual) return analyticsPlannedVsActual;
     if (!orders || orders.length === 0) return { planned: 0, actual: 0, variance: 0 };
 
     const planned = orders.reduce((sum, order) => sum + (order.targetLength || 0), 0);
@@ -1031,10 +622,10 @@ export function PerformanceAnalytics() {
       actual: Math.round(actual * 100) / 100,
       variance: Math.round(variance * 100) / 100,
     };
-  }, [orders]);
+  }, [analyticsPlannedVsActual, isHistoricalRange, orders]);
 
-  // Calculate temperature stability (variance across zones)
   const temperatureStability = useMemo(() => {
+    if (isHistoricalRange && analyticsTemperatureStability) return analyticsTemperatureStability;
     if (!machines || machines.length === 0) return { avgVariance: 0, stability: 100 };
 
     let totalVariance = 0;
@@ -1054,13 +645,13 @@ export function PerformanceAnalytics() {
     });
 
     const avgVariance = machineCount > 0 ? totalVariance / machineCount : 0;
-    const stability = Math.max(0, 100 - (avgVariance * 2)); // Convert variance to stability percentage
+    const stability = Math.max(0, 100 - (avgVariance * 2));
 
     return {
       avgVariance: Math.round(avgVariance * 100) / 100,
       stability: Math.round(stability * 100) / 100,
     };
-  }, [machines]);
+  }, [analyticsTemperatureStability, isHistoricalRange, machines]);
 
   const loading = machinesLoading || kpisLoading;
 
@@ -1119,6 +710,30 @@ export function PerformanceAnalytics() {
     }
   };
 
+  const handleRecalculateAnalytics = async () => {
+    try {
+      setAnalyticsLoading(true);
+      const response = await apiClient.recalculateAnalytics(
+        timeRange,
+        selectedArea,
+        undefined,
+        timeRange === 'shift' ? shiftDate : undefined,
+        timeRange === 'shift' ? shiftNumber : undefined
+      );
+      if (response.success && response.data) {
+        setAnalyticsData(response.data);
+        setAnalyticsCachedAt(response.timestamp || new Date().toISOString());
+        setAnalyticsError(null);
+      } else {
+        setAnalyticsError(response.message || 'Failed to recalculate analytics');
+      }
+    } catch (error) {
+      setAnalyticsError(error instanceof Error ? error.message : 'Failed to recalculate analytics');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   return (
     <div ref={containerRef} className="space-y-6">
       {/* Header with Time Range Selector and Export Buttons */}
@@ -1126,24 +741,80 @@ export function PerformanceAnalytics() {
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[#34E7F8]" />
           <h2 className="text-xl text-white font-semibold">Analytics Dashboard</h2>
+          <span className={`text-xs px-2 py-1 rounded-full border ${
+            isLiveMode
+              ? 'text-[#4FFFBC] border-[#4FFFBC]/50 bg-[#4FFFBC]/10'
+              : 'text-[#FFB86C] border-[#FFB86C]/50 bg-[#FFB86C]/10'
+          }`}>
+            {isLiveMode ? 'LIVE' : 'HISTORY'}
+          </span>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {/* Time Range Selector */}
           <div className="flex gap-2 flex-wrap">
-            {(['today', 'week', 'month', 'shift'] as TimeRange[]).map((range) => (
+            {(['shift', 'today', 'yesterday', 'last7', 'month'] as TimeRange[]).map((range) => (
               <button
                 key={range}
-                onClick={() => setTimeRange(range)}
+                onClick={() => {
+                  setTimeRange(range);
+                  if (range !== 'shift') {
+                    setIsLiveMode(false);
+                  }
+                }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   timeRange === range
                     ? 'bg-[#34E7F8]/30 text-[#34E7F8] border border-[#34E7F8]/50'
                     : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
                 }`}
               >
-                {range.charAt(0).toUpperCase() + range.slice(1)}
+                {timeRangeLabels[range]}
               </button>
             ))}
           </div>
+
+          {/* Shift Selector */}
+          {timeRange === 'shift' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={shiftDate}
+                onChange={(event) => {
+                  setShiftDate(event.target.value);
+                  setIsLiveMode(false);
+                }}
+                className="px-3 py-2 rounded-lg bg-white/5 text-white/80 border border-white/10"
+              />
+              <select
+                value={shiftNumber}
+                onChange={(event) => {
+                  setShiftNumber(event.target.value);
+                  setIsLiveMode(false);
+                }}
+                className="px-3 py-2 rounded-lg bg-white/5 text-white/80 border border-white/10"
+              >
+                <option value="1">Shift 1 (06-14)</option>
+                <option value="2">Shift 2 (14-22)</option>
+                <option value="3">Shift 3 (22-06)</option>
+              </select>
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              const currentShift = getCurrentShiftMeta();
+              setTimeRange('shift');
+              setShiftDate(currentShift.shiftDate);
+              setShiftNumber(currentShift.shiftNumber);
+              setIsLiveMode(true);
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              isLiveMode
+                ? 'bg-[#4FFFBC]/30 text-[#4FFFBC] border border-[#4FFFBC]/50'
+                : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+            }`}
+          >
+            LIVE
+          </button>
           
           {/* Export Dropdown */}
           <div ref={exportMenuRef} className="relative">
@@ -1198,7 +869,9 @@ export function PerformanceAnalytics() {
             <div className="text-3xl text-white/40">--</div>
           ) : (
             <>
-              <div className="text-3xl text-[#34E7F8]">{oeeMetrics.oee.toFixed(1)}%</div>
+              <div className="text-3xl text-[#34E7F8]">
+                {((isHistoricalRange ? analyticsOeeSummary?.oee : oeeMetrics.oee) ?? oeeMetrics.oee).toFixed(1)}%
+              </div>
               <div className="text-white/40 text-xs mt-1">Overall Equipment Effectiveness</div>
             </>
           )}
@@ -1215,7 +888,9 @@ export function PerformanceAnalytics() {
             <div className="text-3xl text-white/40">--</div>
           ) : (
             <>
-              <div className="text-3xl text-[#4FFFBC]">{oeeMetrics.availability.toFixed(1)}%</div>
+              <div className="text-3xl text-[#4FFFBC]">
+                {((isHistoricalRange ? analyticsOeeSummary?.availability : oeeMetrics.availability) ?? oeeMetrics.availability).toFixed(1)}%
+              </div>
               <div className="text-white/40 text-xs mt-1">Uptime / Planned Time</div>
             </>
           )}
@@ -1232,7 +907,9 @@ export function PerformanceAnalytics() {
             <div className="text-3xl text-white/40">--</div>
           ) : (
             <>
-              <div className="text-3xl text-[#FFB86C]">{oeeMetrics.performance.toFixed(1)}%</div>
+              <div className="text-3xl text-[#FFB86C]">
+                {((isHistoricalRange ? analyticsOeeSummary?.performance : oeeMetrics.performance) ?? oeeMetrics.performance).toFixed(1)}%
+              </div>
               <div className="text-white/40 text-xs mt-1">Actual Speed / Ideal Speed</div>
             </>
           )}
@@ -1249,7 +926,9 @@ export function PerformanceAnalytics() {
             <div className="text-3xl text-white/40">--</div>
           ) : (
             <>
-              <div className="text-3xl text-[#9580FF]">{oeeMetrics.quality.toFixed(1)}%</div>
+              <div className="text-3xl text-[#9580FF]">
+                {((isHistoricalRange ? analyticsOeeSummary?.quality : oeeMetrics.quality) ?? oeeMetrics.quality).toFixed(1)}%
+              </div>
               <div className="text-white/40 text-xs mt-1">OK Length / Total Length</div>
             </>
           )}
@@ -1337,7 +1016,7 @@ export function PerformanceAnalytics() {
         >
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
-            <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
+            <h3 className="text-white font-semibold">OEE Trend ({timeRangeLabels[timeRange]})</h3>
             <div className="ml-auto flex items-center gap-3">
               <div className="flex items-center gap-2 text-xs text-[#4FFFBC]">
                 <span className="inline-flex h-2 w-2 rounded-full bg-[#4FFFBC] animate-pulse" />
@@ -1350,7 +1029,7 @@ export function PerformanceAnalytics() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={oeeSeries}>
+              <ComposedChart data={isHistoricalRange ? oeeTrendData : oeeSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
@@ -1648,7 +1327,7 @@ export function PerformanceAnalytics() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={productionRateSeries}>
+              <AreaChart data={isHistoricalRange ? analyticsProductionRateTrend : productionRateSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
@@ -1749,7 +1428,7 @@ export function PerformanceAnalytics() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={energySeries}>
+              <AreaChart data={isHistoricalRange ? analyticsEnergyTrend : energySeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
@@ -1983,8 +1662,17 @@ export function PerformanceAnalytics() {
                 <div className="text-white/50 text-xs">Validated MES analytics with explainable AI logic</div>
               </div>
             </div>
+            <button
+              onClick={handleRecalculateAnalytics}
+              disabled={analyticsLoading}
+              className="px-3 py-2 rounded-lg bg-[#34E7F8]/20 text-[#34E7F8] border border-[#34E7F8]/50 hover:bg-[#34E7F8]/30 transition-all text-xs disabled:opacity-50"
+            >
+              Recalculate Now
+            </button>
             <div className="text-xs text-white/60">
-              {statusHistoryLoading ? 'Loading status history…' : statusHistoryError || 'Live MES data'}
+              {analyticsLoading
+                ? 'Loading analytics…'
+                : analyticsError || (isLiveMode ? 'Live refresh enabled' : `Cached ${analyticsCachedAt ? new Date(analyticsCachedAt).toLocaleTimeString() : 'now'}`)}
             </div>
           </div>
 
@@ -2006,7 +1694,7 @@ export function PerformanceAnalytics() {
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={oeeSeries}>
+                  <AreaChart data={isHistoricalRange ? oeeTrendData : oeeSeries}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                     <XAxis dataKey="time" stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 10 }} />
                     <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff80', fontSize: 11 }} domain={[0, 100]} />

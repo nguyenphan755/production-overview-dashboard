@@ -9,10 +9,11 @@ interface TabItem {
 interface TabNavigationProps {
   activeTab: string;
   onTabChange: (tabId: string) => void;
+  tabs?: TabItem[];
 }
 
-export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
-  const tabs: TabItem[] = [
+export function TabNavigation({ activeTab, onTabChange, tabs: tabsProp }: TabNavigationProps) {
+  const baseTabs: TabItem[] = [
     { id: 'production', label: 'Production', icon: Activity },
     { id: 'quality', label: 'Quality', icon: ClipboardCheck },
     { id: 'equipment', label: 'Equipment', icon: Settings },
@@ -20,6 +21,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
     { id: 'maintenance', label: 'Maintenance', icon: Wrench },
     { id: 'schedule', label: 'Schedule', icon: Calendar }
   ];
+  const tabs = tabsProp ?? baseTabs;
 
   return (
     <>

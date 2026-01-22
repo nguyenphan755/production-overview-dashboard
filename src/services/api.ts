@@ -239,6 +239,42 @@ class APIClient {
     return this.request<ProductionOrder[]>(`/machines/${machineId}/orders`);
   }
 
+  // Analytics (cached, backend computed)
+  async getAnalytics(
+    range: string,
+    area: string = 'all',
+    machineId?: string,
+    shiftDate?: string,
+    shiftNumber?: string
+  ): Promise<APIResponse<any>> {
+    const params = new URLSearchParams();
+    params.set('range', range);
+    params.set('area', area);
+    if (machineId) {
+      params.set('machineId', machineId);
+    }
+    if (shiftDate) {
+      params.set('shiftDate', shiftDate);
+    }
+    if (shiftNumber) {
+      params.set('shiftNumber', shiftNumber);
+    }
+    return this.request<any>(`/analytics?${params.toString()}`);
+  }
+
+  async recalculateAnalytics(
+    range: string,
+    area: string = 'all',
+    machineId?: string,
+    shiftDate?: string,
+    shiftNumber?: string
+  ): Promise<APIResponse<any>> {
+    return this.request<any>('/analytics/recalculate', {
+      method: 'POST',
+      body: JSON.stringify({ range, area, machineId, shiftDate, shiftNumber }),
+    });
+  }
+
   // WebSocket connection for real-time updates
   private ws: WebSocket | null = null;
   private wsCallbacks: Map<string, Set<(data: any) => void>> = new Map();
