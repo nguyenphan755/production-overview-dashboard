@@ -21,7 +21,7 @@ export function ProductionOverview({ onMachineClick }: ProductionOverviewProps) 
       <GlobalKPIBar />
 
       {/* Area Cards - Always horizontal - 4 columns in one row */}
-      <div className="grid grid-cols-4 gap-3 mb-2">
+      <div className="grid gap-3 mb-2 responsive-grid-4">
         {loading ? (
           // Loading skeleton
           Array.from({ length: 4 }).map((_, i) => (

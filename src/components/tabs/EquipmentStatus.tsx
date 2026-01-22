@@ -74,7 +74,7 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
   return (
     <>
       {/* Summary Bar */}
-      <div className="mb-6 grid grid-cols-5 gap-4">
+      <div className="mb-6 grid gap-4 responsive-grid-5">
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-red/5 backdrop-blur-xl border border-white/20 p-5">
           <div className="text-white/60 tracking-wider mb-2 text-sm">TOTAL MACHINES</div>
           <div className="text-4xl text-white tracking-tight">{totalMachines}</div>
@@ -126,7 +126,7 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
             <div key={area.id} className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl overflow-hidden">
               {/* Area Header */}
               <div className="bg-gradient-to-r from-[#34E7F8]/20 via-[#34E7F8]/10 to-transparent border-b border-white/10 px-4 py-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mobile-stack">
                   <div className="p-1.5 rounded-lg bg-[#34E7F8]/20 border border-[#34E7F8]/30">
                     <AreaIcon className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
                   </div>
@@ -141,7 +141,7 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
 
               {/* Machines Grid */}
               <div className="p-3">
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid gap-2 responsive-grid-4">
                   {[...area.machines]
                     .sort((a, b) => {
                       // Prioritize RUNNING machines
@@ -271,7 +271,7 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
 
                         {/* Machine Metrics with Trends - Show for RUNNING or expanded */}
                         {isExpanded && (
-                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10" style={{ minHeight: '75px' }}>
+                          <div className="grid gap-2 pt-2 border-t border-white/10 responsive-grid-3" style={{ minHeight: '75px' }}>
                           {/* Current - Always render */}
                           <div>
                             <div className="flex items-center gap-1 mb-0.5">
@@ -349,7 +349,7 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                               <Target className="w-2.5 h-2.5 text-[#34E7F8]" strokeWidth={2} />
                               <div className="text-white/50 text-[9px] tracking-wide">OEE</div>
                             </div>
-                            <div className="grid grid-cols-4 gap-1">
+                            <div className="grid gap-1 responsive-grid-4">
                               {/* OEE */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                                 <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">OEE</div>

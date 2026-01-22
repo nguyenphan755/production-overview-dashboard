@@ -59,7 +59,7 @@ export function AreaCard({ area }: AreaCardProps) {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-3 gap-2 p-2 border-b border-white/10">
+      <div className="grid gap-2 p-2 border-b border-white/10 responsive-grid-3">
         <div>
           <div className="flex items-center gap-1 mb-0.5">
             <Package className="w-3 h-3 text-[#34E7F8]" />

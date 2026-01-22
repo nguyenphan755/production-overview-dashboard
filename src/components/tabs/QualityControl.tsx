@@ -23,7 +23,7 @@ export function QualityControl() {
   return (
     <>
       {/* Quality KPIs */}
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-[#4FFFBC]/20">
@@ -69,7 +69,7 @@ export function QualityControl() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="desktop-only grid grid-cols-2 gap-4 mb-6">
         {/* Defects by Area */}
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -137,8 +137,70 @@ export function QualityControl() {
         </div>
       </div>
 
+      <div className="mobile-only space-y-3 mb-6">
+        <details className="mobile-accordion rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 p-4">
+          <summary className="flex items-center justify-between gap-2 text-white">
+            <div className="flex items-center gap-2">
+              <TrendingDown className="w-5 h-5 text-[#FF4C4C]" />
+              <span>Defect Rate by Area</span>
+            </div>
+            <span className="text-white/60 text-xs">Tap to expand</span>
+          </summary>
+          <div className="h-48 mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={defectData}>
+                <XAxis dataKey="name" stroke="#ffffff40" tick={{ fill: '#ffffff80' }} />
+                <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff80' }} />
+                <Bar dataKey="defects" fill="#FF4C4C" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </details>
+
+        <details className="mobile-accordion rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 p-4">
+          <summary className="flex items-center justify-between gap-2 text-white">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-[#FFB86C]" />
+              <span>Defect Types Distribution</span>
+            </div>
+            <span className="text-white/60 text-xs">Tap to expand</span>
+          </summary>
+          <div className="mt-4 space-y-4">
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={defectTypes}
+                    dataKey="count"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={60}
+                  >
+                    {defectTypes.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="space-y-3">
+              {defectTypes.map((item, index) => (
+                <div key={index} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="text-white/80">{item.type}</span>
+                  </div>
+                  <span className="text-lg" style={{ color: item.color }}>{item.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </details>
+      </div>
+
       {/* Recent Inspections */}
-      <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+      <div className="desktop-only rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
         <h3 className="text-white mb-4">Recent Inspections</h3>
         <div className="space-y-3">
           {inspectionStatus.map((inspection, index) => (
@@ -165,6 +227,32 @@ export function QualityControl() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mobile-only rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
+        <details className="mobile-accordion">
+          <summary className="flex items-center justify-between text-white">
+            <span>Recent Inspections</span>
+            <span className="text-white/60 text-xs">Tap to expand</span>
+          </summary>
+          <div className="space-y-3 mt-4">
+            {inspectionStatus.map((inspection, index) => (
+              <div key={index} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      inspection.status === 'passed' ? 'bg-[#4FFFBC]' : 'bg-[#FFB86C]'
+                    }`} />
+                    <div className="text-white">{inspection.area}</div>
+                  </div>
+                  <div className="text-white/40 text-xs">{inspection.time}</div>
+                </div>
+                <div className="text-white/60 text-xs">{inspection.inspector}</div>
+                <div className="mt-2 text-[#34E7F8] text-lg">{inspection.samples} samples</div>
+              </div>
+            ))}
+          </div>
+        </details>
       </div>
     </>
   );

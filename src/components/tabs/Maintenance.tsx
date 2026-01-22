@@ -114,7 +114,7 @@ export function Maintenance() {
   return (
     <>
       {/* Summary Cards */}
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-[#FFB86C]/20">
@@ -160,7 +160,7 @@ export function Maintenance() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid gap-4 mb-6 responsive-grid-2">
         {/* Upcoming Maintenance */}
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -292,7 +292,7 @@ export function Maintenance() {
       {/* Maintenance History */}
       <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
         <h3 className="text-white mb-4">Recent Maintenance Activity</h3>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid gap-4 responsive-grid-5">
           {maintenanceHistory.map((day, index) => (
             <div 
               key={index}

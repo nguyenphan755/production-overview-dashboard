@@ -388,7 +388,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     <div>
       {/* Combined Top Section: Machine Name, Operator, and Current Production Order */}
       <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-        <div className="flex items-start gap-6 flex-wrap">
+        <div className="flex items-start gap-6 flex-wrap mobile-stack">
           {/* Left Section: Machine Name and Operator */}
           <div className="flex items-start gap-6 flex-1 min-w-0">
             {/* Machine Name */}
@@ -434,7 +434,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <Package className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
               <h2 className="text-sm lg:text-base text-white font-medium">Current Production Order</h2>
             </div>
-            <div className="grid grid-cols-3 gap-2 lg:gap-4">
+            <div className="grid gap-2 lg:gap-4 responsive-grid-3">
               <div className="min-w-0">
                 <div className="text-white/60 text-xs mb-0.5">ORDER ID</div>
                 <div className="text-sm lg:text-base text-white tracking-tight truncate">{machineInfo.currentOrder || 'N/A'}</div>
@@ -487,7 +487,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       </div>
 
       {/* Production Metrics */}
-      <div className="mb-4 grid grid-cols-2 gap-3">
+      <div className="mb-4 grid gap-3 responsive-grid-2">
         {/* Production Length */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
           <div className="flex items-center gap-2 mb-2">
@@ -514,7 +514,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               />
             </div>
           </div>
-          <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2">
+          <div className="pt-2 border-t border-white/10 grid gap-2 responsive-grid-2">
             <div>
               <div className="text-white/60 text-xs mb-0.5">RUNTIME</div>
               <div className="text-base text-white">{productionData.runtime.toFixed(2)}h</div>
@@ -552,7 +552,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               />
             </div>
           </div>
-          <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2">
+          <div className="pt-2 border-t border-white/10 grid gap-2 responsive-grid-2">
             <div>
               <div className="text-white/60 text-xs mb-0.5">AVG SPEED</div>
               <div className="text-base text-white">{productionData.avgSpeed.toFixed(2)} {productionData.speedUnit}</div>
@@ -566,12 +566,12 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       </div>
 
       {/* OEE Metrics */}
-      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+      <div className="desktop-only mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
           <h3 className="text-base text-white">Overall Equipment Effectiveness (OEE)</h3>
         </div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid gap-3 responsive-grid-4">
           {/* OEE */}
           <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
             <div className="text-white/60 text-xs mb-1.5 tracking-wider">OEE</div>
@@ -630,8 +630,60 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
         </div>
       </div>
 
+      <div className="mobile-only mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+        <details className="mobile-accordion">
+          <summary className="flex items-center justify-between gap-2 text-white">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
+              <span>OEE Summary</span>
+            </div>
+            <span className="text-white/60 text-xs">Tap to expand</span>
+          </summary>
+          <div className="mt-4 space-y-3">
+            <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+              <div className="text-white/60 text-xs mb-1.5 tracking-wider">OEE</div>
+              <div className="text-3xl tracking-tight mb-2" style={{ color: getOEEColor(oeeMetrics.oee) }}>
+                {oeeMetrics.oee}%
+              </div>
+              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${oeeMetrics.oee}%`,
+                    backgroundColor: getOEEColor(oeeMetrics.oee)
+                  }}
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 responsive-grid-2">
+              <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                <div className="text-white/60 text-xs mb-1.5 tracking-wider">{availabilityLabel}</div>
+                <div className="text-2xl text-[#4FFFBC] tracking-tight mb-2">{oeeMetrics.availability}%</div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-[#4FFFBC]" style={{ width: `${oeeMetrics.availability}%` }} />
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                <div className="text-white/60 text-xs mb-1.5 tracking-wider">PERFORMANCE</div>
+                <div className="text-2xl text-[#FFB86C] tracking-tight mb-2">{oeeMetrics.performance}%</div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-[#FFB86C]" style={{ width: `${oeeMetrics.performance}%` }} />
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
+                <div className="text-white/60 text-xs mb-1.5 tracking-wider">QUALITY</div>
+                <div className="text-2xl text-[#34E7F8] tracking-tight mb-2">{oeeMetrics.quality}%</div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-[#34E7F8]" style={{ width: `${oeeMetrics.quality}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
       {/* Real-time Charts */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid gap-4 responsive-grid-3">
         {/* Temperature Trend */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -816,7 +868,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
         {/* Current Zone Temperatures */}
         {machine.area === 'sheathing' ? (
           // Extrusion machines: 10 zones in single horizontal row
-          <div className="grid grid-cols-10 gap-2 mb-4">
+          <div className="grid gap-2 mb-4 responsive-grid-10">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((zoneNum) => {
               const zoneKey = `zone${zoneNum}` as keyof typeof machine.multiZoneTemperatures;
               const zoneColors = [
@@ -841,7 +893,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           </div>
         ) : (
           // Other machines: 4 zones in 4-column grid
-          <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="grid gap-3 mb-4 responsive-grid-4">
             <div className="p-3 rounded-lg bg-white/5 border border-white/10">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-[#FF6B6B]" />
@@ -1009,7 +1061,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       </div>
 
       {/* Power and Energy Analytics */}
-      <div className="mt-4 grid grid-cols-2 gap-4">
+      <div className="mt-4 grid gap-4 responsive-grid-2">
         {/* Real-time Power Consumption */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -1197,7 +1249,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4 mb-3">
+                <div className="grid gap-4 mb-3 responsive-grid-4">
                     <div>
                       <div className="flex items-center gap-1.5 mb-1">
                         <Clock className="w-3.5 h-3.5 text-[#34E7F8]" />

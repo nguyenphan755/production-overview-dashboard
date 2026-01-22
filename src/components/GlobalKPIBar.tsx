@@ -46,8 +46,8 @@ export function GlobalKPIBar() {
   ];
 
   return (
-    <div className="mb-2 rounded-2xl bg-gradient-to-r from-[#0E2F4F] via-[#1a4d6f] to-[#34E7F8]/20 backdrop-blur-xl shadow-2xl border border-[#34E7F8]/20 p-4" style={{ height: '85px' }}>
-      <div className="grid grid-cols-5 gap-6">
+    <div className="mb-2 rounded-2xl bg-gradient-to-r from-[#0E2F4F] via-[#1a4d6f] to-[#34E7F8]/20 backdrop-blur-xl shadow-2xl border border-[#34E7F8]/20 p-4 kpi-bar">
+      <div className="grid gap-4 responsive-grid-5">
         {kpiItems.map((kpi, index) => {
           const Icon = kpi.icon;
           return (

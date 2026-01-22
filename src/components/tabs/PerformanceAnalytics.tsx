@@ -434,14 +434,14 @@ export function PerformanceAnalytics() {
   return (
     <div ref={containerRef} className="space-y-6">
       {/* Header with Time Range Selector and Export Buttons */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 mobile-stack">
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[#34E7F8]" />
           <h2 className="text-xl text-white font-semibold">Analytics Dashboard</h2>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Time Range Selector */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {(['today', 'week', 'month', 'shift'] as TimeRange[]).map((range) => (
               <button
                 key={range}
@@ -496,7 +496,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* OEE Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-[#34E7F8]/20">
@@ -567,7 +567,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* NG Metrics Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-[#FF4C4C]/20">
@@ -638,7 +638,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* Main Charts Row */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 responsive-grid-2">
         {/* OEE Trend Chart */}
         <div 
           className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
@@ -772,7 +772,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* Six Big Losses and Downtime Analysis */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 responsive-grid-2">
         {/* Six Big Losses */}
         <div 
           className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
@@ -876,7 +876,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* Production Rate and Energy Consumption */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 responsive-grid-2">
         {/* Production Rate Trend */}
         <div 
           className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5"
@@ -989,7 +989,7 @@ export function PerformanceAnalytics() {
       </div>
 
       {/* Planned vs Actual and Temperature Stability */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 responsive-grid-2">
         {/* Planned vs Actual Production */}
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -997,7 +997,7 @@ export function PerformanceAnalytics() {
             <h3 className="text-white font-semibold">Planned vs Actual Production</h3>
           </div>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 responsive-grid-2">
               <div className="p-4 rounded-xl bg-white/5 border border-white/10">
                 <div className="text-white/60 text-xs mb-2">PLANNED</div>
                 <div className="text-2xl text-[#34E7F8]">{plannedVsActual.planned.toLocaleString()}m</div>
@@ -1071,7 +1071,7 @@ export function PerformanceAnalytics() {
           <BarChart3 className="w-5 h-5 text-[#34E7F8]" />
           <h3 className="text-white font-semibold">Performance by Production Area</h3>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid gap-4 responsive-grid-3">
           {areaPerformanceData.map((area, index) => (
             <div 
               key={index}

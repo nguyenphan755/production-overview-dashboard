@@ -84,14 +84,90 @@ export function ProductionSchedule() {
             const productLabel = order.productNameCurrent?.trim() ? 'CURRENT' : 'SNAPSHOT';
 
             return (
-              <div
-                key={`${order.id}-${order.machineId}-${order.startTime}`}
-                className="p-5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-white/60 text-sm">{order.id}</span>
+              <div key={`${order.id}-${order.machineId}-${order.startTime}`}>
+                <div className="desktop-only p-5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-white/60 text-sm">{order.id}</span>
+                        <span
+                          className="px-2 py-0.5 rounded-full text-xs border"
+                          style={{
+                            borderColor: `${orderStatus.color}80`,
+                            color: orderStatus.color
+                          }}
+                        >
+                          {orderStatus.label}
+                        </span>
+                        <span
+                          className="px-2 py-0.5 rounded-full text-xs border"
+                          style={{
+                            borderColor: `${machineStatus.color}80`,
+                            color: machineStatus.color
+                          }}
+                        >
+                          {machineStatus.label}
+                        </span>
+                      </div>
+                      <div className="text-white text-xl mb-1">{productName || 'Not entered yet'}</div>
+                      <div className="text-white/60 text-sm">{order.customer}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl text-[#34E7F8]">{progress.toFixed(0)}%</div>
+                      <div className="text-white/40 text-xs">Complete</div>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-white/60 text-sm">Progress</span>
+                      <span className="text-white text-sm">
+                        {producedLength.toLocaleString()} / {targetLength.toLocaleString()} m
+                      </span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#34E7F8] to-[#4FFFBC] rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(progress, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 responsive-grid-4">
+                    <div>
+                      <div className="text-white/60 text-xs mb-1">MACHINE</div>
+                      <div className="text-white">{machineName}</div>
+                      <div className="text-white/40 text-xs">{order.machineId}</div>
+                    </div>
+                    <div>
+                      <div className="text-white/60 text-xs mb-1">START</div>
+                      <div className="text-white">{formatTime(order.startTime)}</div>
+                    </div>
+                    <div>
+                      <div className="text-white/60 text-xs mb-1">END</div>
+                      <div className="text-white">{formatTime(order.endTime)}</div>
+                    </div>
+                    <div>
+                      <div className="text-white/60 text-xs mb-1">PRODUCT</div>
+                      <div className="text-[#34E7F8] text-sm">{productLabel}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <details className="mobile-only mobile-accordion rounded-xl bg-white/5 border border-white/10 p-4">
+                  <summary className="flex items-start justify-between gap-3 text-white cursor-pointer">
+                    <div className="min-w-0">
+                      <div className="text-white/60 text-xs">{order.id}</div>
+                      <div className="text-white text-base truncate">{productName || 'Not entered yet'}</div>
+                      <div className="text-white/40 text-xs">{order.customer}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl text-[#34E7F8]">{progress.toFixed(0)}%</div>
+                      <div className="text-white/40 text-xs">Complete</div>
+                    </div>
+                  </summary>
+                  <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
+                    <div className="flex flex-wrap gap-2">
                       <span
                         className="px-2 py-0.5 rounded-full text-xs border"
                         style={{
@@ -111,49 +187,39 @@ export function ProductionSchedule() {
                         {machineStatus.label}
                       </span>
                     </div>
-                    <div className="text-white text-xl mb-1">{productName || 'Not entered yet'}</div>
-                    <div className="text-white/60 text-sm">{order.customer}</div>
+                    <div>
+                      <div className="text-white/60 text-xs mb-1">Progress</div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#34E7F8] to-[#4FFFBC] rounded-full"
+                          style={{ width: `${Math.min(progress, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-white/60 text-xs mt-1">
+                        {producedLength.toLocaleString()} / {targetLength.toLocaleString()} m
+                      </div>
+                    </div>
+                    <div className="grid gap-3 responsive-grid-2">
+                      <div>
+                        <div className="text-white/60 text-xs mb-1">MACHINE</div>
+                        <div className="text-white">{machineName}</div>
+                        <div className="text-white/40 text-xs">{order.machineId}</div>
+                      </div>
+                      <div>
+                        <div className="text-white/60 text-xs mb-1">START</div>
+                        <div className="text-white">{formatTime(order.startTime)}</div>
+                      </div>
+                      <div>
+                        <div className="text-white/60 text-xs mb-1">END</div>
+                        <div className="text-white">{formatTime(order.endTime)}</div>
+                      </div>
+                      <div>
+                        <div className="text-white/60 text-xs mb-1">PRODUCT</div>
+                        <div className="text-[#34E7F8] text-sm">{productLabel}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-3xl text-[#34E7F8]">{progress.toFixed(0)}%</div>
-                    <div className="text-white/40 text-xs">Complete</div>
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-white/60 text-sm">Progress</span>
-                    <span className="text-white text-sm">
-                      {producedLength.toLocaleString()} / {targetLength.toLocaleString()} m
-                    </span>
-                  </div>
-                  <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#34E7F8] to-[#4FFFBC] rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(progress, 100)}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">MACHINE</div>
-                    <div className="text-white">{machineName}</div>
-                    <div className="text-white/40 text-xs">{order.machineId}</div>
-                  </div>
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">START</div>
-                    <div className="text-white">{formatTime(order.startTime)}</div>
-                  </div>
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">END</div>
-                    <div className="text-white">{formatTime(order.endTime)}</div>
-                  </div>
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">PRODUCT</div>
-                    <div className="text-[#34E7F8] text-sm">{productLabel}</div>
-                  </div>
-                </div>
+                </details>
               </div>
             );
           })}
@@ -165,7 +231,7 @@ export function ProductionSchedule() {
   return (
     <>
       {/* Summary Cards */}
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid gap-4 responsive-grid-4">
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-[#34E7F8]/20">
