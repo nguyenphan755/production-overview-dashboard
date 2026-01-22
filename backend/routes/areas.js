@@ -1,5 +1,6 @@
 import express from 'express';
 import { query } from '../database/connection.js';
+import { getCurrentShiftWindow } from '../utils/shiftCalculator.js';
 
 const router = express.Router();
 
@@ -13,6 +14,18 @@ const areaNames = {
 // GET /api/areas
 router.get('/', async (req, res) => {
   try {
+    const period = String(req.query.period || 'shift').toLowerCase();
+    const now = new Date();
+    let windowStart;
+    let windowEnd = now;
+
+    if (period === 'day') {
+      windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    } else {
+      const shiftWindow = getCurrentShiftWindow(now);
+      windowStart = shiftWindow.start;
+    }
+
     const areas = ['drawing', 'stranding', 'armoring', 'sheathing'];
     const areaSummaries = [];
 
@@ -26,7 +39,13 @@ router.get('/', async (req, res) => {
       const machines = machinesResult.rows;
       const running = machines.filter((m) => m.status === 'running').length;
       const total = machines.length;
-      const output = machines.reduce((sum, m) => sum + parseFloat(m.produced_length || 0), 0);
+      const outputResult = await query(
+        `SELECT COALESCE(SUM(delta_length), 0) as output
+         FROM production_length_events
+         WHERE area = $1 AND event_time >= $2 AND event_time <= $3`,
+        [areaId, windowStart, windowEnd]
+      );
+      const output = parseFloat(outputResult.rows[0]?.output || 0);
       
       // Calculate average speed for running machines
       const runningMachines = machines.filter((m) => m.status === 'running');
@@ -92,6 +111,7 @@ router.get('/', async (req, res) => {
         topMachines,
         allMachines, // All machines in the area
         sparklineData: sparklineData.length > 0 ? sparklineData : Array(10).fill(0),
+        outputPeriod: period,
       });
     }
 
@@ -115,6 +135,17 @@ router.get('/', async (req, res) => {
 router.get('/:areaId', async (req, res) => {
   try {
     const { areaId } = req.params;
+    const period = String(req.query.period || 'shift').toLowerCase();
+    const now = new Date();
+    let windowStart;
+    let windowEnd = now;
+
+    if (period === 'day') {
+      windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    } else {
+      const shiftWindow = getCurrentShiftWindow(now);
+      windowStart = shiftWindow.start;
+    }
 
     // Similar logic as above but for single area
     const machinesResult = await query(
@@ -125,7 +156,13 @@ router.get('/:areaId', async (req, res) => {
     const machines = machinesResult.rows;
     const running = machines.filter((m) => m.status === 'running').length;
     const total = machines.length;
-    const output = machines.reduce((sum, m) => sum + parseFloat(m.produced_length || 0), 0);
+    const outputResult = await query(
+      `SELECT COALESCE(SUM(delta_length), 0) as output
+       FROM production_length_events
+       WHERE area = $1 AND event_time >= $2 AND event_time <= $3`,
+      [areaId, windowStart, windowEnd]
+    );
+    const output = parseFloat(outputResult.rows[0]?.output || 0);
     
     const runningMachines = machines.filter((m) => m.status === 'running');
     const speedAvg = runningMachines.length > 0
@@ -188,6 +225,7 @@ router.get('/:areaId', async (req, res) => {
       topMachines,
       allMachines, // All machines in the area
       sparklineData: sparklineData.length > 0 ? sparklineData : Array(10).fill(0),
+      outputPeriod: period,
     };
 
     res.json({

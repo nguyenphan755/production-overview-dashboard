@@ -98,6 +98,21 @@ async function syncMachineAvailability(machineId, useShiftBased = true) {
  */
 export async function syncAllMachinesAvailability(useShiftBased = true, retryFailed = false) {
   try {
+    const now = new Date();
+    let windowStart = null;
+    let windowEnd = null;
+    let windowMinutes = null;
+
+    if (useShiftBased) {
+      const shiftWindow = getCurrentShiftWindow(now);
+      windowStart = shiftWindow.start;
+      windowEnd = shiftWindow.end;
+    } else {
+      windowMinutes = 10;
+      windowEnd = now;
+      windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+    }
+
     // Get all machines with their current status and production order info
     const machinesResult = await query(
       `SELECT 
@@ -111,9 +126,10 @@ export async function syncAllMachinesAvailability(useShiftBased = true, retryFai
        FROM machines m
        LEFT JOIN production_orders po ON po.machine_id = m.id 
          AND po.status = 'running'
-         AND po.start_time <= CURRENT_TIMESTAMP
-         AND (po.end_time IS NULL OR po.end_time >= CURRENT_TIMESTAMP - INTERVAL '${windowMinutes} minutes')
-       ORDER BY m.id`
+         AND po.start_time <= $1
+         AND (po.end_time IS NULL OR po.end_time >= $2)
+       ORDER BY m.id`,
+      [windowEnd, windowStart]
     );
 
     if (machinesResult.rows.length === 0) {

@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS machines (
     line_speed DECIMAL(10, 2) DEFAULT 0,
     target_speed DECIMAL(10, 2) DEFAULT 0,
     produced_length DECIMAL(12, 2) DEFAULT 0,
+    length_counter DECIMAL(12, 2) DEFAULT 0,
+    length_counter_last DECIMAL(12, 2) DEFAULT 0,
+    length_counter_last_at TIMESTAMP,
+    current_shift_id VARCHAR(50),
+    current_shift_start TIMESTAMP,
+    current_shift_end TIMESTAMP,
     target_length DECIMAL(12, 2),
     production_order_id VARCHAR(100),
     production_order_name VARCHAR(255),
@@ -40,6 +46,24 @@ CREATE TABLE IF NOT EXISTS machines (
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production length event log (delta-based)
+CREATE TABLE IF NOT EXISTS production_length_events (
+    id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    area production_area NOT NULL,
+    production_order_id VARCHAR(100),
+    shift_id VARCHAR(50) NOT NULL,
+    shift_date DATE NOT NULL,
+    status machine_status NOT NULL,
+    counter_value DECIMAL(12, 2) NOT NULL,
+    last_counter_value DECIMAL(12, 2),
+    delta_length DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    is_running BOOLEAN NOT NULL DEFAULT FALSE,
+    reset_detected BOOLEAN NOT NULL DEFAULT FALSE,
+    event_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Production Orders table
@@ -99,6 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_machines_area ON machines(area);
 CREATE INDEX IF NOT EXISTS idx_machines_status ON machines(status);
 CREATE INDEX IF NOT EXISTS idx_machines_last_updated ON machines(last_updated);
 CREATE INDEX IF NOT EXISTS idx_machines_material_code ON machines(material_code);
+CREATE INDEX IF NOT EXISTS idx_machines_length_counter ON machines(length_counter);
 CREATE INDEX IF NOT EXISTS idx_material_master_code ON material_master(material_code);
 CREATE INDEX IF NOT EXISTS idx_production_orders_machine_id ON production_orders(machine_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status ON production_orders(status);
@@ -109,6 +134,11 @@ CREATE INDEX IF NOT EXISTS idx_machine_metrics_timestamp ON machine_metrics(time
 CREATE INDEX IF NOT EXISTS idx_machine_metrics_type ON machine_metrics(metric_type);
 CREATE INDEX IF NOT EXISTS idx_energy_consumption_machine_id ON energy_consumption(machine_id);
 CREATE INDEX IF NOT EXISTS idx_energy_consumption_hour ON energy_consumption(hour);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_machine ON production_length_events(machine_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_area ON production_length_events(area);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_shift ON production_length_events(shift_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_order ON production_length_events(production_order_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_time ON production_length_events(event_time);
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

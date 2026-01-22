@@ -12,9 +12,9 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'production_dashboard',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || '',
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  max: parseInt(process.env.DB_POOL_MAX || '50'), // Maximum number of clients in the pool
+  idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000'),
+  connectionTimeoutMillis: parseInt(process.env.DB_CONN_TIMEOUT_MS || '10000'),
 });
 
 // Validate database configuration

@@ -1,5 +1,6 @@
 import express from 'express';
-import { query } from '../database/connection.js';
+import { query, getClient } from '../database/connection.js';
+import { applyLengthCounterUpdate } from '../services/productionLengthService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { broadcast } from '../websocket/broadcast.js';
 import { calculateOEE } from '../services/oeeCalculator.js';
@@ -495,9 +496,29 @@ router.get('/:machineId/status-history', async (req, res) => {
 
 // PATCH /api/machines/:machineId - Update machine data
 router.patch('/:machineId', async (req, res) => {
+  const client = await getClient();
   try {
     const { machineId } = req.params;
     const updates = req.body;
+
+    await client.query('BEGIN');
+
+    const machineResult = await client.query(
+      `SELECT * FROM machines WHERE id = $1 FOR UPDATE`,
+      [machineId]
+    );
+
+    if (machineResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'Machine not found',
+      });
+    }
+
+    const machineRow = machineResult.rows[0];
 
     // EVENT-BASED STATUS UPDATE: Only update status if it has changed
     let statusChanged = false;
@@ -515,6 +536,13 @@ router.patch('/:machineId', async (req, res) => {
       }
     }
 
+    await applyLengthCounterUpdate({
+      client,
+      machineRow,
+      updates,
+      eventTime: new Date()
+    });
+
     // Build dynamic UPDATE query
     const fields = [];
     const values = [];
@@ -525,6 +553,14 @@ router.patch('/:machineId', async (req, res) => {
       lineSpeed: 'line_speed',
       targetSpeed: 'target_speed',
       producedLength: 'produced_length',
+      lengthCounter: 'length_counter',
+      lengthCounterLast: 'length_counter_last',
+      lengthCounterLastAt: 'length_counter_last_at',
+      currentShiftId: 'current_shift_id',
+      currentShiftStart: 'current_shift_start',
+      currentShiftEnd: 'current_shift_end',
+      length_counter: 'length_counter',
+      length_counter_last: 'length_counter_last',
       producedLengthOk: 'produced_length_ok', // OK length for quality calculation
       producedLengthNg: 'produced_length_ng', // NG length for quality calculation
       targetLength: 'target_length',
@@ -562,12 +598,7 @@ router.patch('/:machineId', async (req, res) => {
       delete updates.product_name;
     }
 
-    // Get machine area to check if it's a drawing machine
-    const machineAreaResult = await query(
-      `SELECT area FROM machines WHERE id = $1`,
-      [machineId]
-    );
-    const isDrawingMachine = machineAreaResult.rows.length > 0 && machineAreaResult.rows[0].area === 'drawing';
+    const isDrawingMachine = machineRow.area === 'drawing';
 
     for (const [key, value] of Object.entries(updates)) {
       if (fieldMapping[key] && value !== undefined) {
@@ -585,6 +616,7 @@ router.patch('/:machineId', async (req, res) => {
     }
 
     if (fields.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -610,9 +642,10 @@ router.patch('/:machineId', async (req, res) => {
       RETURNING *
     `;
 
-    const result = await query(updateQuery, values);
+    const result = await client.query(updateQuery, values);
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -622,6 +655,8 @@ router.patch('/:machineId', async (req, res) => {
     }
 
     const updatedMachine = formatMachine(result.rows[0]);
+
+    await client.query('COMMIT');
 
     if (updates.productName !== undefined) {
       try {
@@ -700,17 +735,25 @@ router.patch('/:machineId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating machine:', error);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Error rolling back machine update:', rollbackError);
+    }
     res.status(500).json({
       data: null,
       timestamp: new Date().toISOString(),
       success: false,
       message: error.message,
     });
+  } finally {
+    client.release();
   }
 });
 
 // PUT /api/machines/name/:machineName - Update machine by name (for Node-RED)
 router.put('/name/:machineName', authenticateToken, async (req, res) => {
+  const client = await getClient();
   try {
     const { machineName } = req.params;
     const updates = req.body;
@@ -727,6 +770,25 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     }
 
     const machineId = machineRecord.id;
+
+    await client.query('BEGIN');
+
+    const machineResult = await client.query(
+      `SELECT * FROM machines WHERE id = $1 FOR UPDATE`,
+      [machineId]
+    );
+
+    if (machineResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'Machine not found',
+      });
+    }
+
+    const machineRow = machineResult.rows[0];
 
     // EVENT-BASED STATUS UPDATE: Only update status if it has changed
     // This prevents excessive database writes and reduces load on machine_status_history table
@@ -745,6 +807,13 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       }
     }
 
+    await applyLengthCounterUpdate({
+      client,
+      machineRow,
+      updates,
+      eventTime: new Date()
+    });
+
     // Build dynamic UPDATE query
     const fields = [];
     const values = [];
@@ -756,6 +825,14 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       lineSpeed: 'line_speed',
       targetSpeed: 'target_speed',
       producedLength: 'produced_length',
+      lengthCounter: 'length_counter',
+      lengthCounterLast: 'length_counter_last',
+      lengthCounterLastAt: 'length_counter_last_at',
+      currentShiftId: 'current_shift_id',
+      currentShiftStart: 'current_shift_start',
+      currentShiftEnd: 'current_shift_end',
+      length_counter: 'length_counter',
+      length_counter_last: 'length_counter_last',
       targetLength: 'target_length',
       productionOrderId: 'production_order_id',
       productionOrderName: 'production_order_name',
@@ -816,6 +893,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     }
 
     if (fields.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -841,9 +919,10 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       RETURNING *
     `;
 
-    const result = await query(updateQuery, values);
+    const result = await client.query(updateQuery, values);
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         data: null,
         timestamp: new Date().toISOString(),
@@ -853,6 +932,8 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     }
 
     const updatedMachine = formatMachine(result.rows[0]);
+
+    await client.query('COMMIT');
 
     if (updates.productName !== undefined) {
       try {
@@ -927,12 +1008,19 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating machine by name:', error);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Error rolling back machine name update:', rollbackError);
+    }
     res.status(500).json({
       data: null,
       timestamp: new Date().toISOString(),
       success: false,
       message: error.message,
     });
+  } finally {
+    client.release();
   }
 });
 
