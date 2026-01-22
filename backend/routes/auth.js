@@ -24,7 +24,7 @@ router.post('/login', async (req, res) => {
 
     const normalizedUsername = username.trim().toLowerCase();
     const result = await query(
-      `SELECT id, username, password_hash, role, is_active, plant, area, line
+      `SELECT id, username, password_hash, role, is_active, plant, area, line, last_login_at
        FROM mes_users
        WHERE username = $1`,
       [normalizedUsername]
@@ -50,6 +50,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    const previousLastLoginAt = user.last_login_at;
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
       return res.status(401).json({
@@ -79,6 +80,7 @@ router.post('/login', async (req, res) => {
           plant: user.plant,
           area: user.area,
           line: user.line,
+          lastLoginAt: previousLastLoginAt,
         },
       },
       timestamp: new Date().toISOString(),

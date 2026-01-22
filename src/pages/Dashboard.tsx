@@ -111,16 +111,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0A1E3A] via-[#0E2F4F] to-[#0A1E3A] p-3 mobile-bottom-padding">
-      <div className="flex justify-end px-2 pb-2">
-        <button
-          type="button"
-          onClick={onLogout}
-          className="px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-white"
-        >
-          Đăng xuất
-        </button>
-      </div>
-      <CompanyHeader />
+      <CompanyHeader onLogout={onLogout} />
       <TabNavigation
         activeTab={activeTab}
         onTabChange={handleTabChange}

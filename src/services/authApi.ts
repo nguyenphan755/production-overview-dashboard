@@ -6,6 +6,7 @@ export type AuthUser = {
   plant?: string | null;
   area?: string | null;
   line?: string | null;
+  lastLoginAt?: string | null;
 };
 
 export type AuthSession = {
