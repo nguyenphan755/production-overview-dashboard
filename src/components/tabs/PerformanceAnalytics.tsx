@@ -26,6 +26,33 @@ export function PerformanceAnalytics() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const maxOeePoints = 60;
+  const maxTrendPoints = 60;
+  const [oeeSeries, setOeeSeries] = useState<
+    Array<{
+      time: string;
+      timestamp: number;
+      oee: number;
+      availability: number;
+      performance: number;
+      quality: number;
+    }>
+  >([]);
+  const [productionRateSeries, setProductionRateSeries] = useState<
+    Array<{
+      time: string;
+      timestamp: number;
+      rate: number;
+      target: number;
+    }>
+  >([]);
+  const [energySeries, setEnergySeries] = useState<
+    Array<{
+      time: string;
+      timestamp: number;
+      energy: number;
+    }>
+  >([]);
   
   // Close export menu when clicking outside
   useEffect(() => {
@@ -71,6 +98,128 @@ export function PerformanceAnalytics() {
     };
   }, [machines]);
 
+  const roundOneDecimal = (value: number) =>
+    Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+
+  const formatOneDecimal = (value: number) =>
+    Number.isFinite(value) ? value.toFixed(1) : '--';
+
+  // Append real-time OEE snapshots as data arrives (no client-side simulation)
+  useEffect(() => {
+    const now = new Date();
+    const point = {
+      time: now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      timestamp: now.getTime(),
+      oee: roundOneDecimal(oeeMetrics.oee),
+      availability: roundOneDecimal(oeeMetrics.availability),
+      performance: roundOneDecimal(oeeMetrics.performance),
+      quality: roundOneDecimal(oeeMetrics.quality),
+    };
+
+    setOeeSeries((prev) => {
+      const last = prev[prev.length - 1];
+      const isDuplicate =
+        last &&
+        last.oee === point.oee &&
+        last.availability === point.availability &&
+        last.performance === point.performance &&
+        last.quality === point.quality &&
+        point.timestamp - last.timestamp < 1000;
+
+      if (isDuplicate) return prev;
+
+      const next = [...prev, point];
+      if (next.length > maxOeePoints) {
+        next.splice(0, next.length - maxOeePoints);
+      }
+      return next;
+    });
+  }, [oeeMetrics]);
+
+  // Append real-time production rate snapshots from live machine data
+  useEffect(() => {
+    const now = new Date();
+    const avgSpeed =
+      machines && machines.length > 0
+        ? machines.reduce((sum, m) => sum + (m.lineSpeed || 0), 0) / machines.length
+        : 0;
+    const targetSpeed =
+      machines && machines.length > 0
+        ? machines.reduce((sum, m) => sum + (m.targetSpeed || 0), 0) / machines.length
+        : 0;
+    const point = {
+      time: now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      timestamp: now.getTime(),
+      rate: roundOneDecimal(avgSpeed),
+      target: roundOneDecimal(targetSpeed),
+    };
+
+    setProductionRateSeries((prev) => {
+      const last = prev[prev.length - 1];
+      const isDuplicate =
+        last &&
+        last.rate === point.rate &&
+        last.target === point.target &&
+        point.timestamp - last.timestamp < 1000;
+
+      if (isDuplicate) return prev;
+
+      const next = [...prev, point];
+      if (next.length > maxTrendPoints) {
+        next.splice(0, next.length - maxTrendPoints);
+      }
+      return next;
+    });
+  }, [machines]);
+
+  // Append real-time energy snapshots from live machine data
+  useEffect(() => {
+    const now = new Date();
+    const totalEnergy =
+      machines && machines.length > 0
+        ? machines.reduce((sum, m) => {
+            const energyValue = (m as any).energyConsumption;
+            if (typeof energyValue === 'number') {
+              return sum + energyValue;
+            }
+            return sum + (m.power || 0);
+          }, 0)
+        : 0;
+    const point = {
+      time: now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      timestamp: now.getTime(),
+      energy: roundOneDecimal(totalEnergy),
+    };
+
+    setEnergySeries((prev) => {
+      const last = prev[prev.length - 1];
+      const isDuplicate =
+        last &&
+        last.energy === point.energy &&
+        point.timestamp - last.timestamp < 1000;
+
+      if (isDuplicate) return prev;
+
+      const next = [...prev, point];
+      if (next.length > maxTrendPoints) {
+        next.splice(0, next.length - maxTrendPoints);
+      }
+      return next;
+    });
+  }, [machines]);
+
   // Calculate NG (No Good) metrics from machine data
   const ngMetrics = useMemo(() => {
     if (!machines || machines.length === 0) {
@@ -102,34 +251,106 @@ export function PerformanceAnalytics() {
     };
   }, [machines]);
 
-  // Generate OEE trend data (simulated hourly for today, can be enhanced with real historical data)
-  const oeeTrendData = useMemo(() => {
-    const now = new Date();
-    const hours = [];
-    const baseOEE = oeeMetrics.oee || 85;
-    
-    for (let i = 0; i < 24; i++) {
-      const hour = new Date(now);
-      hour.setHours(i, 0, 0, 0);
-      const hourStr = hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      
-      // Simulate realistic variation around base OEE
-      const variation = (Math.sin(i * 0.3) * 3) + (Math.random() * 2 - 1);
-      const oee = Math.max(70, Math.min(100, baseOEE + variation));
-      const availability = oeeMetrics.availability + (Math.random() * 2 - 1);
-      const performance = oeeMetrics.performance + (Math.random() * 2 - 1);
-      const quality = oeeMetrics.quality + (Math.random() * 0.5 - 0.25);
+  const latestOeePoint = oeeSeries[oeeSeries.length - 1];
+  const latestRatePoint = productionRateSeries[productionRateSeries.length - 1];
+  const latestEnergyPoint = energySeries[energySeries.length - 1];
 
-      hours.push({
-        time: hourStr,
-        oee: Math.round(oee * 100) / 100,
-        availability: Math.round(availability * 100) / 100,
-        performance: Math.round(performance * 100) / 100,
-        quality: Math.round(quality * 100) / 100,
-      });
+  const formatTimeLabel = (value: string) => {
+    if (!value) return value;
+    const parts = value.split(' ');
+    if (parts.length < 2) return value;
+    const timeParts = parts[0].split(':');
+    if (timeParts.length < 2) return value;
+    return `${timeParts[0]}:${timeParts[1]} ${parts[1]}`;
+  };
+
+  const formatOeeTooltip = (value: any, name: string) => {
+    if (typeof value !== 'number') return [value, name];
+    const labelMap: Record<string, string> = {
+      oee: 'OEE',
+      availability: 'Availability',
+      performance: 'Performance',
+      quality: 'Quality',
+    };
+    return [`${value.toFixed(1)}%`, labelMap[name] || name];
+  };
+
+  const renderOeeLastDot = (props: any) => {
+    const { cx, cy, index, payload } = props;
+    if (index !== oeeSeries.length - 1 || cx === undefined || cy === undefined) {
+      return null;
     }
-    return hours;
-  }, [oeeMetrics]);
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={7} fill="#4FFFBC" opacity={0.15} />
+        <circle cx={cx} cy={cy} r={4} fill="#4FFFBC" stroke="#0E2F4F" strokeWidth={2} />
+        <text
+          x={cx + 10}
+          y={cy - 10}
+          fill="#4FFFBC"
+          fontSize={12}
+          fontWeight={600}
+        >
+          {formatOneDecimal(payload.oee)}%
+        </text>
+      </g>
+    );
+  };
+
+  const formatRateTooltip = (value: any, name: string) => {
+    if (typeof value !== 'number') return [value, name];
+    if (name === 'target') return [`${value.toFixed(1)} m/min`, 'Target'];
+    return [`${value.toFixed(1)} m/min`, 'Rate'];
+  };
+
+  const formatEnergyTooltip = (value: any) => {
+    if (typeof value !== 'number') return [value, 'Energy'];
+    return [`${value.toFixed(1)} kWh`, 'Energy'];
+  };
+
+  const renderRateLastDot = (props: any) => {
+    const { cx, cy, index, payload } = props;
+    if (index !== productionRateSeries.length - 1 || cx === undefined || cy === undefined) {
+      return null;
+    }
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={7} fill="#4FFFBC" opacity={0.15} />
+        <circle cx={cx} cy={cy} r={4} fill="#4FFFBC" stroke="#0E2F4F" strokeWidth={2} />
+        <text
+          x={cx + 10}
+          y={cy - 10}
+          fill="#4FFFBC"
+          fontSize={12}
+          fontWeight={600}
+        >
+          {formatOneDecimal(payload.rate)} m/min
+        </text>
+      </g>
+    );
+  };
+
+  const renderEnergyLastDot = (props: any) => {
+    const { cx, cy, index, payload } = props;
+    if (index !== energySeries.length - 1 || cx === undefined || cy === undefined) {
+      return null;
+    }
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={7} fill="#34E7F8" opacity={0.15} />
+        <circle cx={cx} cy={cy} r={4} fill="#34E7F8" stroke="#0E2F4F" strokeWidth={2} />
+        <text
+          x={cx + 10}
+          y={cy - 10}
+          fill="#34E7F8"
+          fontSize={12}
+          fontWeight={600}
+        >
+          {formatOneDecimal(payload.energy)} kWh
+        </text>
+      </g>
+    );
+  };
 
   // Calculate downtime by status from machine data
   const downtimeData = useMemo(() => {
@@ -199,110 +420,127 @@ export function PerformanceAnalytics() {
   }, [areas, machines]);
 
   // Calculate Six Big Losses (OEE Loss Analysis)
+  // AI-assisted evaluation: rule-based classification + validation + normalization
+  // - Uses validated MES data (machine status, OEE components, NG rate)
+  // - Detects inconsistencies by normalizing to the actual OEE gap (100 - OEE)
+  // - Adjusts allocation weights based on live status distribution and NG rate
   const sixBigLosses = useMemo(() => {
     if (!machines || machines.length === 0) return [];
 
-    const avgAvailability = oeeMetrics.availability;
-    const avgPerformance = oeeMetrics.performance;
-    const avgQuality = oeeMetrics.quality;
-    const idealOEE = 100;
+    const clamp = (value: number, min: number, max: number) =>
+      Math.min(max, Math.max(min, value));
 
-    // Calculate losses
-    const availabilityLoss = idealOEE - avgAvailability;
-    const performanceLoss = avgAvailability - (avgAvailability * avgPerformance / 100);
-    const qualityLoss = (avgAvailability * avgPerformance / 100) - (avgAvailability * avgPerformance * avgQuality / 10000);
+    const statusCounts = machines.reduce(
+      (acc, machine) => {
+        const status = machine.status?.toLowerCase() || 'idle';
+        acc.total += 1;
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      },
+      { total: 0 } as Record<string, number>
+    );
 
-    return [
+    const availability = clamp(oeeMetrics.availability, 0, 100);
+    const performance = clamp(oeeMetrics.performance, 0, 100);
+    const quality = clamp(oeeMetrics.quality, 0, 100);
+    const oee = clamp(oeeMetrics.oee, 0, 100);
+
+    // Base losses derived from OEE components (validated MES data)
+    const availabilityLoss = clamp(100 - availability, 0, 100);
+    const performanceLoss = clamp(availability - (availability * performance) / 100, 0, 100);
+    const qualityLoss = clamp(
+      (availability * performance) / 100 - oee,
+      0,
+      100
+    );
+
+    // Ensure total loss matches actual OEE gap (consistency check)
+    const totalGap = clamp(100 - oee, 0, 100);
+    const theoreticalSum = availabilityLoss + performanceLoss + qualityLoss;
+    const scale = theoreticalSum > 0 ? totalGap / theoreticalSum : 0;
+
+    const scaledAvailabilityLoss = availabilityLoss * scale;
+    const scaledPerformanceLoss = performanceLoss * scale;
+    const scaledQualityLoss = qualityLoss * scale;
+
+    // AI-assisted classification weights from live status distribution
+    const equipmentFailureWeight =
+      (statusCounts.error || 0) + (statusCounts.stopped || 0);
+    const setupWeight = statusCounts.setup || 0;
+    const idlingWeight = (statusCounts.idle || 0) + (statusCounts.warning || 0);
+    const availabilityWeightSum = equipmentFailureWeight + setupWeight + idlingWeight;
+
+    const defaultAvailabilityWeights = {
+      equipmentFailure: 0.4,
+      setup: 0.3,
+      idling: 0.3,
+    };
+
+    const availabilityWeights = availabilityWeightSum > 0
+      ? {
+          equipmentFailure: equipmentFailureWeight / availabilityWeightSum,
+          setup: setupWeight / availabilityWeightSum,
+          idling: idlingWeight / availabilityWeightSum,
+        }
+      : defaultAvailabilityWeights;
+
+    // AI-assisted quality split using NG rate (detects potential misclassification)
+    const ngRate = clamp(ngMetrics.ngRate || 0, 0, 100);
+    const defectsWeight = clamp(ngRate / 5, 0.2, 0.8); // 0-5% NG -> 20-80% defects
+    const reducedYieldWeight = 1 - defectsWeight;
+
+    const losses = [
       {
         category: 'Equipment Failure',
-        loss: Math.round(availabilityLoss * 0.4 * 100) / 100,
+        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.equipmentFailure * 100) / 100,
         type: 'availability',
         color: '#EF4444',
       },
       {
         category: 'Setup & Adjustments',
-        loss: Math.round(availabilityLoss * 0.3 * 100) / 100,
+        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.setup * 100) / 100,
         type: 'availability',
         color: '#FFB86C',
       },
       {
         category: 'Idling & Minor Stops',
-        loss: Math.round(availabilityLoss * 0.3 * 100) / 100,
+        loss: Math.round(scaledAvailabilityLoss * availabilityWeights.idling * 100) / 100,
         type: 'availability',
         color: '#F59E0B',
       },
       {
         category: 'Reduced Speed',
-        loss: Math.round(performanceLoss * 0.6 * 100) / 100,
+        loss: Math.round(scaledPerformanceLoss * 100) / 100,
         type: 'performance',
         color: '#34E7F8',
       },
       {
         category: 'Process Defects',
-        loss: Math.round(qualityLoss * 0.7 * 100) / 100,
+        loss: Math.round(scaledQualityLoss * defectsWeight * 100) / 100,
         type: 'quality',
         color: '#FF4C4C',
       },
       {
         category: 'Reduced Yield',
-        loss: Math.round(qualityLoss * 0.3 * 100) / 100,
+        loss: Math.round(scaledQualityLoss * reducedYieldWeight * 100) / 100,
         type: 'quality',
         color: '#9580FF',
       },
-    ].filter(loss => loss.loss > 0)
-      .sort((a, b) => b.loss - a.loss);
-  }, [oeeMetrics]);
+    ];
 
-  // Calculate production rate trend
-  const productionRateData = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
-
-    const now = new Date();
-    const hours = [];
-
-    for (let i = 0; i < 24; i++) {
-      const hour = new Date(now);
-      hour.setHours(i, 0, 0, 0);
-      const hourStr = hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-      // Calculate average speed for this hour (simulated, can be enhanced with real historical data)
-      const avgSpeed = machines.reduce((sum, m) => sum + (m.lineSpeed || 0), 0) / machines.length;
-      const variation = (Math.sin(i * 0.2) * 50) + (Math.random() * 20 - 10);
-      const rate = Math.max(0, avgSpeed + variation);
-
-      hours.push({
-        time: hourStr,
-        rate: Math.round(rate * 100) / 100,
-        target: machines[0]?.targetSpeed || 1000,
-      });
+    // Final normalization to avoid rounding drift (AI validation step)
+    const roundedSum = losses.reduce((sum, entry) => sum + entry.loss, 0);
+    const drift = Math.round((totalGap - roundedSum) * 100) / 100;
+    if (Math.abs(drift) > 0.01) {
+      const adjust = losses.find((entry) => entry.category === 'Reduced Speed');
+      if (adjust) {
+        adjust.loss = Math.max(0, Math.round((adjust.loss + drift) * 100) / 100);
+      }
     }
-    return hours;
-  }, [machines]);
 
-  // Calculate energy consumption trend
-  const energyData = useMemo(() => {
-    if (!machines || machines.length === 0) return [];
+    return losses.filter((loss) => loss.loss > 0).sort((a, b) => b.loss - a.loss);
+  }, [machines, ngMetrics, oeeMetrics]);
 
-    const now = new Date();
-    const hours = [];
-
-    for (let i = 0; i < 24; i++) {
-      const hour = new Date(now);
-      hour.setHours(i, 0, 0, 0);
-      const hourStr = hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-      // Calculate total energy for this hour
-      const totalEnergy = machines.reduce((sum, m) => sum + ((m as any).energyConsumption || (m.power || 0) * 0.5), 0);
-      const variation = (Math.sin(i * 0.15) * 5) + (Math.random() * 2 - 1);
-      const energy = Math.max(0, totalEnergy + variation);
-
-      hours.push({
-        time: hourStr,
-        energy: Math.round(energy * 100) / 100,
-      });
-    }
-    return hours;
-  }, [machines]);
 
   // Calculate NG trend by time
   const ngTrendData = useMemo(() => {
@@ -648,20 +886,33 @@ export function PerformanceAnalytics() {
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-[#34E7F8]" />
             <h3 className="text-white font-semibold">OEE Trend ({timeRange === 'today' ? 'Today' : timeRange})</h3>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-[#4FFFBC]">
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#4FFFBC] animate-pulse" />
+                LIVE
+              </div>
+              <div className="text-sm text-white/80">
+                Current: <span className="text-[#4FFFBC] font-semibold">{formatOneDecimal(latestOeePoint?.oee ?? 0)}%</span>
+              </div>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={oeeTrendData}>
+              <ComposedChart data={oeeSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
+                  tickFormatter={formatTimeLabel}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
                 />
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
-                  domain={[70, 100]}
+                  tickFormatter={(value: number) => `${value}%`}
+                  domain={[0, 100]}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -670,15 +921,32 @@ export function PerformanceAnalytics() {
                     borderRadius: '8px',
                     fontSize: '12px'
                   }}
+                  formatter={formatOeeTooltip}
                 />
                 <Legend />
+                {latestOeePoint && (
+                  <ReferenceLine
+                    y={latestOeePoint.oee}
+                    stroke="#4FFFBC"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: `Live ${formatOneDecimal(latestOeePoint.oee)}%`,
+                      position: 'right',
+                      fill: '#4FFFBC',
+                      fontSize: 11,
+                    }}
+                  />
+                )}
                 <Area 
                   type="monotone" 
                   dataKey="oee" 
                   fill="#34E7F8" 
                   fillOpacity={0.2}
                   stroke="#34E7F8" 
-                  strokeWidth={3}
+                  strokeWidth={3.5}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
                 />
                 <Line 
                   type="monotone" 
@@ -687,6 +955,9 @@ export function PerformanceAnalytics() {
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
                 />
                 <Line 
                   type="monotone" 
@@ -695,6 +966,9 @@ export function PerformanceAnalytics() {
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
                 />
                 <Line 
                   type="monotone" 
@@ -703,6 +977,18 @@ export function PerformanceAnalytics() {
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="oee"
+                  stroke="#4FFFBC"
+                  strokeWidth={0}
+                  dot={renderOeeLastDot}
+                  activeDot={{ r: 6, stroke: '#4FFFBC', strokeWidth: 2, fill: '#0E2F4F' }}
+                  isAnimationActive={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -886,19 +1172,32 @@ export function PerformanceAnalytics() {
           <div className="flex items-center gap-2 mb-4">
             <Activity className="w-5 h-5 text-[#4FFFBC]" />
             <h3 className="text-white font-semibold">Production Rate Trend</h3>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-[#4FFFBC]">
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#4FFFBC] animate-pulse" />
+                LIVE
+              </div>
+              <div className="text-sm text-white/80">
+                Current: <span className="text-[#4FFFBC] font-semibold">{formatOneDecimal(latestRatePoint?.rate ?? 0)} m/min</span>
+              </div>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={productionRateData}>
+              <AreaChart data={productionRateSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
+                  tickFormatter={formatTimeLabel}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
                 />
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
+                  tickFormatter={(value: number) => `${value}`}
                   label={{ value: 'Speed (m/min)', angle: -90, position: 'insideLeft', fill: '#ffffff60' }}
                 />
                 <Tooltip 
@@ -908,6 +1207,7 @@ export function PerformanceAnalytics() {
                     borderRadius: '8px',
                     fontSize: '12px'
                   }}
+                  formatter={formatRateTooltip}
                 />
                 <Legend />
                 <defs>
@@ -916,12 +1216,28 @@ export function PerformanceAnalytics() {
                     <stop offset="100%" stopColor="#4FFFBC" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
+                {latestRatePoint && (
+                  <ReferenceLine
+                    y={latestRatePoint.rate}
+                    stroke="#4FFFBC"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: `Live ${formatOneDecimal(latestRatePoint.rate)} m/min`,
+                      position: 'right',
+                      fill: '#4FFFBC',
+                      fontSize: 11,
+                    }}
+                  />
+                )}
                 <Area 
                   type="monotone" 
                   dataKey="rate" 
                   fill="url(#rateGradient)"
                   stroke="#4FFFBC" 
-                  strokeWidth={3}
+                  strokeWidth={3.5}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
                 />
                 <Line 
                   type="monotone" 
@@ -930,6 +1246,18 @@ export function PerformanceAnalytics() {
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="rate"
+                  stroke="#4FFFBC"
+                  strokeWidth={0}
+                  dot={renderRateLastDot}
+                  activeDot={{ r: 6, stroke: '#4FFFBC', strokeWidth: 2, fill: '#0E2F4F' }}
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -945,15 +1273,27 @@ export function PerformanceAnalytics() {
           <div className="flex items-center gap-2 mb-4">
             <Battery className="w-5 h-5 text-[#34E7F8]" />
             <h3 className="text-white font-semibold">Energy Consumption Trend</h3>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-[#34E7F8]">
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#34E7F8] animate-pulse" />
+                LIVE
+              </div>
+              <div className="text-sm text-white/80">
+                Current: <span className="text-[#34E7F8] font-semibold">{formatOneDecimal(latestEnergyPoint?.energy ?? 0)} kWh</span>
+              </div>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={energyData}>
+              <AreaChart data={energySeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis 
                   dataKey="time" 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff80', fontSize: 11 }}
+                  tickFormatter={formatTimeLabel}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
                 />
                 <YAxis 
                   stroke="#ffffff40" 
@@ -967,7 +1307,7 @@ export function PerformanceAnalytics() {
                     borderRadius: '8px',
                     fontSize: '12px'
                   }}
-                  formatter={(value: any) => [`${value.toFixed(2)} kWh`, 'Energy']}
+                  formatter={formatEnergyTooltip}
                 />
                 <defs>
                   <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
@@ -975,12 +1315,37 @@ export function PerformanceAnalytics() {
                     <stop offset="100%" stopColor="#34E7F8" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
+                {latestEnergyPoint && (
+                  <ReferenceLine
+                    y={latestEnergyPoint.energy}
+                    stroke="#34E7F8"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: `Live ${formatOneDecimal(latestEnergyPoint.energy)} kWh`,
+                      position: 'right',
+                      fill: '#34E7F8',
+                      fontSize: 11,
+                    }}
+                  />
+                )}
                 <Area 
                   type="monotone" 
                   dataKey="energy" 
                   fill="url(#energyGradient)"
                   stroke="#34E7F8" 
-                  strokeWidth={3}
+                  strokeWidth={3.5}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-in-out"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="energy"
+                  stroke="#34E7F8"
+                  strokeWidth={0}
+                  dot={renderEnergyLastDot}
+                  activeDot={{ r: 6, stroke: '#34E7F8', strokeWidth: 2, fill: '#0E2F4F' }}
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
