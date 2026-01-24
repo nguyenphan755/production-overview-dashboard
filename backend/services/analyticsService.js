@@ -274,6 +274,25 @@ const getHistoricalQuality = async (machineIds, start, end) => {
   return result.rows;
 };
 
+const getPreviousShiftAvailability = async (machineIds, now) => {
+  if (!machineIds.length) return {};
+  const result = await query(
+    `SELECT DISTINCT ON (machine_id)
+       machine_id,
+       availability_percentage
+     FROM availability_aggregations
+     WHERE machine_id = ANY($1)
+       AND calculation_type = 'shift'
+       AND window_end <= $2
+     ORDER BY machine_id, window_end DESC`,
+    [machineIds, now]
+  );
+  return result.rows.reduce((acc, row) => {
+    acc[row.machine_id] = parseFloat(row.availability_percentage || 0);
+    return acc;
+  }, {});
+};
+
 const getOeeTrend = async (machineIds, start, end) => {
   if (!machineIds.length) return [];
   const result = await query(
@@ -592,7 +611,21 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
   }
 
   const machineIds = machines.map((machine) => machine.id);
-  const [statusHistory, alarms, orders, historicalOee, historicalQuality, oeeTrend, productionRateTrend, energyTrend, outputSummary, ngTrend, plannedVsActual, temperatureStability] = await Promise.all([
+  const [
+    statusHistory,
+    alarms,
+    orders,
+    historicalOee,
+    historicalQuality,
+    oeeTrend,
+    productionRateTrend,
+    energyTrend,
+    outputSummary,
+    ngTrend,
+    plannedVsActual,
+    temperatureStability,
+    previousShiftAvailability,
+  ] = await Promise.all([
     getMachineStatusHistory(machineIds, scopeStart, scopeEnd),
     getAlarmHistory(machineIds, scopeStart),
     getOrders(machineIds),
@@ -605,6 +638,7 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     getNgTrend(machineIds, scopeStart, scopeEnd),
     getPlannedVsActual(machineIds, scopeStart, scopeEnd),
     getTemperatureStability(machineIds, scopeStart, scopeEnd),
+    isLiveShiftRange ? getPreviousShiftAvailability(machineIds, now) : Promise.resolve({}),
   ]);
 
   const alarmsByMachine = alarms.reduce((acc, alarm) => {
@@ -650,7 +684,10 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     const quality = qualityByMachine[machine.id];
     if (!historical && !quality) return machine;
     const liveAvailability = liveAvailabilityByMachine?.[machine.id];
-    const availability = liveAvailability ?? historical?.availability ?? machine.availability;
+    const previousAvailability = previousShiftAvailability?.[machine.id];
+    const availability = liveAvailability !== undefined && liveAvailability < 10 && previousAvailability !== undefined
+      ? previousAvailability
+      : (liveAvailability ?? historical?.availability ?? machine.availability);
     const performance = historical?.performance ?? machine.performance;
     const qualityValue = historical?.quality ?? machine.quality;
     const oee = liveAvailability !== undefined

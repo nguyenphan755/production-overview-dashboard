@@ -32,49 +32,58 @@ export async function calculateAvailability(machineId, productionOrderId, period
     const isCurrentShiftWindow = periodEnd && periodEnd.getTime() > now.getTime();
 
     if (isCurrentShiftWindow) {
-      const plannedTimeMs = now.getTime() - periodStart.getTime();
-      const plannedTimeSeconds = Math.max(plannedTimeMs / 1000, 1);
+      const calculateAvailabilityForWindow = async (windowStart, windowEnd) => {
+        const plannedTimeMs = windowEnd.getTime() - windowStart.getTime();
+        const plannedTimeSeconds = Math.max(plannedTimeMs / 1000, 1);
 
-      const statusDurationsResult = await query(
-        `SELECT 
-          status,
-          COALESCE(SUM(
-            CASE 
-              WHEN status_end_time IS NOT NULL THEN 
-                EXTRACT(EPOCH FROM (
-                  LEAST(status_end_time, $3::timestamp) - 
-                  GREATEST(status_start_time, $2::timestamp)
-                ))
-              ELSE 
-                EXTRACT(EPOCH FROM (
-                  LEAST($3::timestamp, CURRENT_TIMESTAMP) - 
-                  GREATEST(status_start_time, $2::timestamp)
-                ))
-            END
-          ), 0) as duration_seconds
-         FROM machine_status_history
-         WHERE machine_id = $1
-           AND status_start_time < $3
-           AND (status_end_time IS NULL OR status_end_time > $2)
-         GROUP BY status`,
-        [machineId, periodStart, now]
-      );
+        const statusDurationsResult = await query(
+          `SELECT 
+            status,
+            COALESCE(SUM(
+              CASE 
+                WHEN status_end_time IS NOT NULL THEN 
+                  EXTRACT(EPOCH FROM (
+                    LEAST(status_end_time, $3::timestamp) - 
+                    GREATEST(status_start_time, $2::timestamp)
+                  ))
+                ELSE 
+                  EXTRACT(EPOCH FROM (
+                    LEAST($3::timestamp, CURRENT_TIMESTAMP) - 
+                    GREATEST(status_start_time, $2::timestamp)
+                  ))
+              END
+            ), 0) as duration_seconds
+           FROM machine_status_history
+           WHERE machine_id = $1
+             AND status_start_time < $3
+             AND (status_end_time IS NULL OR status_end_time > $2)
+           GROUP BY status`,
+          [machineId, windowStart, windowEnd]
+        );
 
-      let runningTimeSeconds = 0;
-      let downtimeSeconds = 0;
+        let runningTimeSeconds = 0;
+        let downtimeSeconds = 0;
 
-      statusDurationsResult.rows.forEach(row => {
-        const duration = parseFloat(row.duration_seconds || 0);
-        if (row.status === 'running') {
-          runningTimeSeconds = duration;
-        } else {
-          downtimeSeconds += duration;
-        }
-      });
+        statusDurationsResult.rows.forEach(row => {
+          const duration = parseFloat(row.duration_seconds || 0);
+          if (row.status === 'running') {
+            runningTimeSeconds = duration;
+          } else {
+            downtimeSeconds += duration;
+          }
+        });
 
-      const calculatedRunningTime = Math.max(0, plannedTimeSeconds - downtimeSeconds);
-      const finalRunningTime = runningTimeSeconds > 0 ? runningTimeSeconds : calculatedRunningTime;
-      const currentAvailability = Math.max(0, Math.min(100, (finalRunningTime / plannedTimeSeconds) * 100));
+        const calculatedRunningTime = Math.max(0, plannedTimeSeconds - downtimeSeconds);
+        const finalRunningTime = runningTimeSeconds > 0 ? runningTimeSeconds : calculatedRunningTime;
+        const availability = Math.max(0, Math.min(100, (finalRunningTime / plannedTimeSeconds) * 100));
+
+        return {
+          availability,
+          hasData: statusDurationsResult.rows.length > 0
+        };
+      };
+
+      const { availability: currentAvailability } = await calculateAvailabilityForWindow(periodStart, now);
 
       if (currentAvailability < 10) {
         const previousShiftResult = await query(
@@ -92,6 +101,16 @@ export async function calculateAvailability(machineId, productionOrderId, period
           const availability = parseFloat(previousShiftResult.rows[0].availability_percentage || 0);
           return {
             availability: Math.max(0, Math.min(100, availability)),
+            isPreliminary: true
+          };
+        }
+
+        const previousShiftEnd = new Date(periodStart);
+        const previousShiftStart = new Date(previousShiftEnd.getTime() - 8 * 60 * 60 * 1000);
+        const previousShiftCalc = await calculateAvailabilityForWindow(previousShiftStart, previousShiftEnd);
+        if (previousShiftCalc.hasData) {
+          return {
+            availability: previousShiftCalc.availability,
             isPreliminary: true
           };
         }
