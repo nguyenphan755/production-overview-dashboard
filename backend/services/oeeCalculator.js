@@ -32,28 +32,74 @@ export async function calculateAvailability(machineId, productionOrderId, period
     const isCurrentShiftWindow = periodEnd && periodEnd.getTime() > now.getTime();
 
     if (isCurrentShiftWindow) {
-      const previousShiftResult = await query(
-        `SELECT availability_percentage
-         FROM availability_aggregations
+      const plannedTimeMs = now.getTime() - periodStart.getTime();
+      const plannedTimeSeconds = Math.max(plannedTimeMs / 1000, 1);
+
+      const statusDurationsResult = await query(
+        `SELECT 
+          status,
+          COALESCE(SUM(
+            CASE 
+              WHEN status_end_time IS NOT NULL THEN 
+                EXTRACT(EPOCH FROM (
+                  LEAST(status_end_time, $3::timestamp) - 
+                  GREATEST(status_start_time, $2::timestamp)
+                ))
+              ELSE 
+                EXTRACT(EPOCH FROM (
+                  LEAST($3::timestamp, CURRENT_TIMESTAMP) - 
+                  GREATEST(status_start_time, $2::timestamp)
+                ))
+            END
+          ), 0) as duration_seconds
+         FROM machine_status_history
          WHERE machine_id = $1
-           AND calculation_type = 'shift'
-           AND window_end <= $2
-         ORDER BY window_end DESC
-         LIMIT 1`,
-        [machineId, now]
+           AND status_start_time < $3
+           AND (status_end_time IS NULL OR status_end_time > $2)
+         GROUP BY status`,
+        [machineId, periodStart, now]
       );
 
-      if (previousShiftResult.rows.length > 0) {
-        const availability = parseFloat(previousShiftResult.rows[0].availability_percentage || 0);
-        return {
-          availability: Math.max(0, Math.min(100, availability)),
-          isPreliminary: true
-        };
+      let runningTimeSeconds = 0;
+      let downtimeSeconds = 0;
+
+      statusDurationsResult.rows.forEach(row => {
+        const duration = parseFloat(row.duration_seconds || 0);
+        if (row.status === 'running') {
+          runningTimeSeconds = duration;
+        } else {
+          downtimeSeconds += duration;
+        }
+      });
+
+      const calculatedRunningTime = Math.max(0, plannedTimeSeconds - downtimeSeconds);
+      const finalRunningTime = runningTimeSeconds > 0 ? runningTimeSeconds : calculatedRunningTime;
+      const currentAvailability = Math.max(0, Math.min(100, (finalRunningTime / plannedTimeSeconds) * 100));
+
+      if (currentAvailability < 10) {
+        const previousShiftResult = await query(
+          `SELECT availability_percentage
+           FROM availability_aggregations
+           WHERE machine_id = $1
+             AND calculation_type = 'shift'
+             AND window_end <= $2
+           ORDER BY window_end DESC
+           LIMIT 1`,
+          [machineId, now]
+        );
+
+        if (previousShiftResult.rows.length > 0) {
+          const availability = parseFloat(previousShiftResult.rows[0].availability_percentage || 0);
+          return {
+            availability: Math.max(0, Math.min(100, availability)),
+            isPreliminary: true
+          };
+        }
       }
 
       return {
-        availability: 0,
-        isPreliminary: true
+        availability: currentAvailability,
+        isPreliminary: false
       };
     } else {
       // For completed shifts, use aggregation table (fast query)
