@@ -284,6 +284,7 @@ const getPreviousShiftAvailability = async (machineIds, now) => {
      WHERE machine_id = ANY($1)
        AND calculation_type = 'shift'
        AND window_end <= $2
+       AND availability_percentage > 0
      ORDER BY machine_id, window_end DESC`,
     [machineIds, now]
   );

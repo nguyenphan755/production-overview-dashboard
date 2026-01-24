@@ -92,6 +92,7 @@ export async function calculateAvailability(machineId, productionOrderId, period
            WHERE machine_id = $1
              AND calculation_type = 'shift'
              AND window_end <= $2
+             AND availability_percentage > 0
            ORDER BY window_end DESC
            LIMIT 1`,
           [machineId, now]
@@ -105,14 +106,22 @@ export async function calculateAvailability(machineId, productionOrderId, period
           };
         }
 
+        const shiftWindows = [];
         const previousShiftEnd = new Date(periodStart);
         const previousShiftStart = new Date(previousShiftEnd.getTime() - 8 * 60 * 60 * 1000);
-        const previousShiftCalc = await calculateAvailabilityForWindow(previousShiftStart, previousShiftEnd);
-        if (previousShiftCalc.hasData) {
-          return {
-            availability: previousShiftCalc.availability,
-            isPreliminary: true
-          };
+        shiftWindows.push({ start: previousShiftStart, end: previousShiftEnd });
+        const secondPreviousShiftEnd = new Date(previousShiftStart);
+        const secondPreviousShiftStart = new Date(secondPreviousShiftEnd.getTime() - 8 * 60 * 60 * 1000);
+        shiftWindows.push({ start: secondPreviousShiftStart, end: secondPreviousShiftEnd });
+
+        for (const window of shiftWindows) {
+          const previousShiftCalc = await calculateAvailabilityForWindow(window.start, window.end);
+          if (previousShiftCalc.hasData && previousShiftCalc.availability > 0) {
+            return {
+              availability: previousShiftCalc.availability,
+              isPreliminary: true
+            };
+          }
         }
       }
 
