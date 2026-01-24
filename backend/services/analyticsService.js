@@ -186,6 +186,33 @@ const buildDowntimeByShift = (statusHistory, start, end) => {
   }));
 };
 
+const buildLiveAvailabilityByMachine = (statusHistory, start, now) => {
+  if (!statusHistory.length) return {};
+  const planned = Math.max(1, (now.getTime() - start.getTime()) / 1000);
+  const runningByMachine = {};
+
+  statusHistory.forEach((entry) => {
+    const status = (entry.status || '').toLowerCase();
+    if (status !== 'running') return;
+
+    const startTime = new Date(entry.status_start_time).getTime();
+    const endTime = entry.status_end_time ? new Date(entry.status_end_time).getTime() : now.getTime();
+    const clampedStart = Math.max(startTime, start.getTime());
+    const clampedEnd = Math.min(endTime, now.getTime());
+
+    if (clampedEnd <= clampedStart) return;
+
+    const durationSeconds = (clampedEnd - clampedStart) / 1000;
+    runningByMachine[entry.machine_id] = (runningByMachine[entry.machine_id] || 0) + durationSeconds;
+  });
+
+  return Object.entries(runningByMachine).reduce((acc, [machineId, runningSeconds]) => {
+    const availability = (runningSeconds / planned) * 100;
+    acc[machineId] = clamp(availability, 0, 100);
+    return acc;
+  }, {});
+};
+
 const getAlarmHistory = async (machineIds, start) => {
   if (!machineIds.length) return [];
   const result = await query(
@@ -545,6 +572,10 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
   const window = getRangeWindow(range, now, { shiftDate, shiftNumber });
   const scopeStart = window.start;
   const scopeEnd = window.end;
+  const isLiveShiftRange =
+    window.range === 'shift' &&
+    now.getTime() >= window.start.getTime() &&
+    now.getTime() <= window.end.getTime();
 
   const machinesResult = await query(
     `SELECT id, name, area, status, line_speed, target_speed, produced_length, produced_length_ok, produced_length_ng,
@@ -590,6 +621,9 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
 
   const downtimeByStatus = buildDowntimeByStatus(statusHistory, scopeStart, scopeEnd);
   const downtimeByShift = buildDowntimeByShift(statusHistory, scopeStart, scopeEnd);
+  const liveAvailabilityByMachine = isLiveShiftRange
+    ? buildLiveAvailabilityByMachine(statusHistory, scopeStart, now)
+    : null;
 
   const oeeByMachine = historicalOee.reduce((acc, row) => {
     acc[row.machine_id] = {
@@ -615,12 +649,19 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     const historical = oeeByMachine[machine.id];
     const quality = qualityByMachine[machine.id];
     if (!historical && !quality) return machine;
+    const liveAvailability = liveAvailabilityByMachine?.[machine.id];
+    const availability = liveAvailability ?? historical?.availability ?? machine.availability;
+    const performance = historical?.performance ?? machine.performance;
+    const qualityValue = historical?.quality ?? machine.quality;
+    const oee = liveAvailability !== undefined
+      ? (availability * performance * qualityValue) / 10000
+      : (historical?.oee ?? machine.oee);
     return {
       ...machine,
-      availability: historical?.availability ?? machine.availability,
-      performance: historical?.performance ?? machine.performance,
-      quality: historical?.quality ?? machine.quality,
-      oee: historical?.oee ?? machine.oee,
+      availability,
+      performance,
+      quality: qualityValue,
+      oee,
       line_speed: historical?.actualSpeed ?? machine.line_speed,
       target_speed: historical?.targetSpeed ?? machine.target_speed,
       produced_length_ok: quality?.producedLengthOk ?? machine.produced_length_ok,

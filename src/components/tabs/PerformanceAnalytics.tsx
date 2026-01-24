@@ -321,9 +321,11 @@ export function PerformanceAnalytics() {
     : energySeries;
   const analyticsPlannedVsActual = analyticsData?.plannedVsActual;
   const analyticsTemperatureStability = analyticsData?.temperatureStability;
-  const oeeTrendData = (analyticsData?.oeeTrend ?? []).length > 0
-    ? analyticsData?.oeeTrend
-    : oeeSeries;
+  const oeeTrendData = isLiveMode
+    ? oeeSeries
+    : (analyticsData?.oeeTrend ?? []).length > 0
+      ? analyticsData?.oeeTrend
+      : oeeSeries;
   const isHistoricalRange = !isLiveMode;
 
   const ngMetrics = useMemo(() => {
