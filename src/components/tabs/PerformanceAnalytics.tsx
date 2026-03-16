@@ -570,6 +570,43 @@ export function PerformanceAnalytics() {
     },
   ];
 
+  const getPriorityStyles = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return {
+          badge: 'bg-[#FF4C4C]/20 text-[#FF4C4C] border-[#FF4C4C]/40',
+          accent: 'from-[#FF4C4C]/25 via-[#0E2F4F]/40 to-transparent',
+          border: 'border-[#FF4C4C]/30',
+          glow: 'shadow-[0_0_24px_rgba(255,76,76,0.18)]',
+        };
+      case 'medium':
+        return {
+          badge: 'bg-[#FFB86C]/20 text-[#FFB86C] border-[#FFB86C]/40',
+          accent: 'from-[#FFB86C]/25 via-[#0E2F4F]/40 to-transparent',
+          border: 'border-[#FFB86C]/30',
+          glow: 'shadow-[0_0_24px_rgba(255,184,108,0.16)]',
+        };
+      default:
+        return {
+          badge: 'bg-[#4FFFBC]/20 text-[#4FFFBC] border-[#4FFFBC]/40',
+          accent: 'from-[#4FFFBC]/25 via-[#0E2F4F]/40 to-transparent',
+          border: 'border-[#4FFFBC]/30',
+          glow: 'shadow-[0_0_24px_rgba(79,255,188,0.14)]',
+        };
+    }
+  };
+
+  const actionPlanSummary = lossActionPlanMap.reduce(
+    (acc, item) => {
+      const key = item.priority.toLowerCase();
+      if (key === 'high') acc.high += 1;
+      else if (key === 'medium') acc.medium += 1;
+      else acc.low += 1;
+      return acc;
+    },
+    { high: 0, medium: 0, low: 0 }
+  );
+
 
   const ngTrendData = useMemo(() => {
     if (analyticsNgTrend.length > 0) return analyticsNgTrend;
@@ -1780,36 +1817,36 @@ export function PerformanceAnalytics() {
 
           {/* Loss Breakdown */}
           <div className="grid gap-4 responsive-grid-3">
-            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="rounded-2xl bg-gradient-to-br from-[#123B63]/60 via-[#0E2F4F]/50 to-[#0B2440]/30 backdrop-blur-xl border border-[#34E7F8]/20 shadow-2xl p-5">
               <div className="text-white font-semibold mb-3">Loss by Machine</div>
               <div className="space-y-2">
                 {lossByMachine.slice(0, 6).map((item) => (
-                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/80">
                     <span>{item.label}</span>
                     <span className="text-[#34E7F8]">{item.value.toFixed(2)}%</span>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="rounded-2xl bg-gradient-to-br from-[#123B63]/60 via-[#0E2F4F]/50 to-[#0B2440]/30 backdrop-blur-xl border border-[#9580FF]/20 shadow-2xl p-5">
               <div className="text-white font-semibold mb-3">Loss by Shift</div>
               <div className="space-y-2">
                 {paretoByShift.slice(0, 3).map((item) => (
-                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/80">
                     <span>{item.label}</span>
                     <span className="text-[#9580FF]">{item.value.toFixed(2)}%</span>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
+            <div className="rounded-2xl bg-gradient-to-br from-[#123B63]/60 via-[#0E2F4F]/50 to-[#0B2440]/30 backdrop-blur-xl border border-[#FFB86C]/20 shadow-2xl p-5">
               <div className="text-white font-semibold mb-3">Loss by Order</div>
               <div className="space-y-2">
                 {lossByOrder.length === 0 && (
-                  <div className="text-white/50 text-sm">No active orders linked to loss data.</div>
+                  <div className="text-white/60 text-sm">No active orders linked to loss data.</div>
                 )}
                 {lossByOrder.slice(0, 6).map((item) => (
-                  <div key={item.label} className="flex items-center justify-between text-sm text-white/70">
+                  <div key={item.label} className="flex items-center justify-between text-sm text-white/80">
                     <span>{item.label}</span>
                     <span className="text-[#FFB86C]">{item.value.toFixed(2)}%</span>
                   </div>
@@ -1881,20 +1918,53 @@ export function PerformanceAnalytics() {
           </div>
 
           {/* Action Plan Mapping */}
-          <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Target className="w-5 h-5 text-[#34E7F8]" />
-              <h3 className="text-white font-semibold">Six Big Losses → OEE → Action Plan</h3>
-            </div>
-            <div className="grid gap-3 responsive-grid-2">
-              {lossActionPlanMap.map((item) => (
-                <div key={item.category} className="p-3 rounded-lg bg-white/5 border border-white/10">
-                  <div className="text-white text-sm font-semibold">{item.category}</div>
-                  <div className="text-white/60 text-xs">OEE: {item.oeeComponent}</div>
-                  <div className="text-white/60 text-xs">Action: {item.action}</div>
-                  <div className="text-[#FFB86C] text-xs">Priority: {item.priority}</div>
+          <div className="rounded-2xl bg-gradient-to-br from-[#123B63]/60 via-[#0E2F4F]/55 to-[#0B2440]/30 backdrop-blur-xl border border-[#34E7F8]/20 shadow-2xl p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-[#34E7F8]/20">
+                  <Target className="w-5 h-5 text-[#34E7F8]" />
                 </div>
-              ))}
+                <div>
+                  <h3 className="text-white text-lg font-semibold">Six Big Losses → OEE → Action Plan</h3>
+                  <p className="text-white/60 text-xs">Ưu tiên hành động có tác động lớn, hiển thị ngắn gọn cho lãnh đạo.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-white/70">
+                <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10">High {actionPlanSummary.high}</span>
+                <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10">Medium {actionPlanSummary.medium}</span>
+                <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10">Low {actionPlanSummary.low}</span>
+              </div>
+            </div>
+            <div className="grid gap-4 responsive-grid-2">
+              {lossActionPlanMap.map((item) => {
+                const styles = getPriorityStyles(item.priority);
+                return (
+                  <div
+                    key={item.category}
+                    className={`relative overflow-hidden rounded-xl border ${styles.border} bg-gradient-to-br ${styles.accent} p-4 ${styles.glow}`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-white font-semibold">{item.category}</div>
+                      <span className={`text-xs px-2 py-1 rounded-full border ${styles.badge}`}>
+                        Priority {item.priority}
+                      </span>
+                    </div>
+                    <div className="grid gap-2 text-sm text-white/70">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white/50">OEE Impact</span>
+                        <span className="text-white/80">{item.oeeComponent}</span>
+                      </div>
+                      <div className="h-px bg-white/10" />
+                      <div>
+                        <div className="text-white/50 text-xs mb-1">Recommended Action</div>
+                        <div className="inline-flex w-full items-center rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white font-semibold">
+                          {item.action}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

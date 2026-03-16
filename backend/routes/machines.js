@@ -1,5 +1,5 @@
 import express from 'express';
-import { query, getClient } from '../database/connection.js';
+import { query, withClient } from '../database/connection.js';
 import { applyLengthCounterUpdate } from '../services/productionLengthService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { broadcast } from '../websocket/broadcast.js';
@@ -496,7 +496,7 @@ router.get('/:machineId/status-history', async (req, res) => {
 
 // PATCH /api/machines/:machineId - Update machine data
 router.patch('/:machineId', async (req, res) => {
-  const client = await getClient();
+  return await withClient(async (client) => {
   try {
     const { machineId } = req.params;
     const updates = req.body;
@@ -728,7 +728,7 @@ router.patch('/:machineId', async (req, res) => {
     // Broadcast WebSocket update (includes OEE if calculated)
     broadcast('machine:update', updatedMachine);
 
-    res.json({
+    return res.json({
       data: updatedMachine,
       timestamp: new Date().toISOString(),
       success: true,
@@ -740,20 +740,19 @@ router.patch('/:machineId', async (req, res) => {
     } catch (rollbackError) {
       console.error('Error rolling back machine update:', rollbackError);
     }
-    res.status(500).json({
+    return res.status(500).json({
       data: null,
       timestamp: new Date().toISOString(),
       success: false,
       message: error.message,
     });
-  } finally {
-    client.release();
   }
+  });
 });
 
 // PUT /api/machines/name/:machineName - Update machine by name (for Node-RED)
 router.put('/name/:machineName', authenticateToken, async (req, res) => {
-  const client = await getClient();
+  return await withClient(async (client) => {
   try {
     const { machineName } = req.params;
     const updates = req.body;
@@ -1001,7 +1000,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
 
     console.log(`✅ Machine ${machineName} updated via API by ${req.user?.username || 'unknown'}`);
 
-    res.json({
+    return res.json({
       data: updatedMachine,
       timestamp: new Date().toISOString(),
       success: true,
@@ -1013,15 +1012,14 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
     } catch (rollbackError) {
       console.error('Error rolling back machine name update:', rollbackError);
     }
-    res.status(500).json({
+    return res.status(500).json({
       data: null,
       timestamp: new Date().toISOString(),
       success: false,
       message: error.message,
     });
-  } finally {
-    client.release();
   }
+  });
 });
 
 // POST /api/machines/:machineId/metrics - Insert metric data point

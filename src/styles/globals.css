@@ -187,3 +187,11 @@
 html {
   font-size: var(--font-size);
 }
+
+/* Recharts tooltip text to stay readable on dark dashboards */
+.recharts-default-tooltip,
+.recharts-tooltip-label,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  color: #e2e8f0;
+}

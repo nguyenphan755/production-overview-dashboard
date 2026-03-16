@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "description": "MES Tag Mapping - PLC/SCADA tagname to MES API & PostgreSQL",
+  "lastUpdated": "2025-02-25",
+
+  "plant": {
+    "id": "P01",
+    "name": "Plant 01",
+    "description": "Mã nhà máy - dùng cho multi-plant"
+  },
+
+  "areas": [
+    {
+      "id": "drawing",
+      "name": "Kéo sợi",
+      "nameEn": "Drawing",
+      "speedUnit": "m/s",
+      "machines": ["D-01", "D-02", "D-03"]
+    },
+    {
+      "id": "stranding",
+      "name": "Bện",
+      "nameEn": "Stranding",
+      "speedUnit": "m/min",
+      "machines": ["S-01", "S-02"]
+    },
+    {
+      "id": "armoring",
+      "name": "Bọc thép",
+      "nameEn": "Armoring",
+      "speedUnit": "m/min",
+      "machines": []
+    },
+    {
+      "id": "sheathing",
+      "name": "Bọc vỏ",
+      "nameEn": "Sheathing",
+      "speedUnit": "m/min",
+      "machines": ["SH-01", "SH-02"]
+    }
+  ],
+
+  "tagMapping": {
+    "machine": {
+      "description": "PLC tag → API field → DB column",
+      "mappings": [
+        {
+          "plcTag": "{Machine}_Status",
+          "apiField": "status",
+          "dbColumn": "status",
+          "type": "enum",
+          "enumValues": ["running", "idle", "warning", "error", "stopped", "setup"],
+          "unit": null
+        },
+        {
+          "plcTag": "{Machine}_LineSpeed",
+          "apiField": "lineSpeed",
+          "dbColumn": "line_speed",
+          "type": "number",
+          "unit": "m/min",
+          "note": "Drawing: convert m/s to m/min (x60) before DB"
+        },
+        {
+          "plcTag": "{Machine}_TargetSpeed",
+          "apiField": "targetSpeed",
+          "dbColumn": "target_speed",
+          "type": "number",
+          "unit": "m/min"
+        },
+        {
+          "plcTag": "{Machine}_LengthCounter",
+          "apiField": "lengthCounter",
+          "dbColumn": "length_counter",
+          "type": "number",
+          "unit": "m"
+        },
+        {
+          "plcTag": "{Machine}_ProducedLength",
+          "apiField": "producedLength",
+          "dbColumn": "produced_length",
+          "type": "number",
+          "unit": "m"
+        },
+        {
+          "plcTag": "{Machine}_ProducedLengthOK",
+          "apiField": "producedLengthOk",
+          "dbColumn": "produced_length_ok",
+          "type": "number",
+          "unit": "m"
+        },
+        {
+          "plcTag": "{Machine}_ProducedLengthNG",
+          "apiField": "producedLengthNg",
+          "dbColumn": "produced_length_ng",
+          "type": "number",
+          "unit": "m"
+        },
+        {
+          "plcTag": "{Machine}_TargetLength",
+          "apiField": "targetLength",
+          "dbColumn": "target_length",
+          "type": "number",
+          "unit": "m"
+        },
+        {
+          "plcTag": "{Machine}_Current",
+          "apiField": "current",
+          "dbColumn": "current",
+          "type": "number",
+          "unit": "A"
+        },
+        {
+          "plcTag": "{Machine}_Power",
+          "apiField": "power",
+          "dbColumn": "power",
+          "type": "number",
+          "unit": "kW"
+        },
+        {
+          "plcTag": "{Machine}_Temperature",
+          "apiField": "temperature",
+          "dbColumn": "temperature",
+          "type": "number",
+          "unit": "°C"
+        },
+        {
+          "plcTag": "{Machine}_TempZone1",
+          "apiField": "multiZoneTemperatures.zone1",
+          "dbColumn": "multi_zone_temperatures",
+          "type": "object",
+          "unit": "°C",
+          "note": "zone1..zone10 in JSONB"
+        },
+        {
+          "plcTag": "{Machine}_OEE",
+          "apiField": "oee",
+          "dbColumn": "oee",
+          "type": "number",
+          "unit": "%",
+          "note": "Usually calculated by MES"
+        },
+        {
+          "plcTag": "{Machine}_Availability",
+          "apiField": "availability",
+          "dbColumn": "availability",
+          "type": "number",
+          "unit": "%"
+        },
+        {
+          "plcTag": "{Machine}_Performance",
+          "apiField": "performance",
+          "dbColumn": "performance",
+          "type": "number",
+          "unit": "%"
+        },
+        {
+          "plcTag": "{Machine}_Quality",
+          "apiField": "quality",
+          "dbColumn": "quality",
+          "type": "number",
+          "unit": "%"
+        },
+        {
+          "plcTag": "{Machine}_HealthScore",
+          "apiField": "healthScore",
+          "dbColumn": "health_score",
+          "type": "number",
+          "unit": "0-100"
+        },
+        {
+          "plcTag": "{Machine}_VibrationLevel",
+          "apiField": "vibrationLevel",
+          "dbColumn": "vibration_level",
+          "type": "enum",
+          "enumValues": ["Normal", "Elevated", "High", "Critical"]
+        },
+        {
+          "plcTag": "{Machine}_RuntimeHours",
+          "apiField": "runtimeHours",
+          "dbColumn": "runtime_hours",
+          "type": "number",
+          "unit": "h"
+        },
+        {
+          "plcTag": "{Machine}_OrderId",
+          "apiField": "productionOrderId",
+          "dbColumn": "production_order_id",
+          "type": "string"
+        },
+        {
+          "plcTag": "{Machine}_OrderName",
+          "apiField": "productionOrderName",
+          "dbColumn": "production_order_name",
+          "type": "string"
+        },
+        {
+          "plcTag": "{Machine}_MaterialCode",
+          "apiField": "materialCode",
+          "dbColumn": "material_code",
+          "type": "string",
+          "note": "Lookup product_name from material_master"
+        },
+        {
+          "plcTag": "{Machine}_ProductName",
+          "apiField": "productName",
+          "dbColumn": "product_name",
+          "type": "string",
+          "note": "Tên sản phẩm"
+        },
+        {
+          "plcTag": "{Machine}_OrderCode",
+          "apiField": "orderCode",
+          "dbColumn": "production_order_id",
+          "type": "string",
+          "note": "Mã đơn hàng SAP/ERP"
+        },
+        {
+          "plcTag": "{Machine}_CustomerName",
+          "apiField": "customer",
+          "dbColumn": "production_orders.customer",
+          "type": "string",
+          "note": "Tên công ty đối tác"
+        },
+        {
+          "plcTag": "{Machine}_OperatorName",
+          "apiField": "operatorName",
+          "dbColumn": "operator_name",
+          "type": "string",
+          "note": "Tên công nhân vận hành"
+        }
+      ]
+    },
+
+    "machineMetrics": {
+      "description": "Time series metrics → machine_metrics table",
+      "endpoint": "POST /api/machines/:machineId/metrics",
+      "metricTypes": [
+        { "plcTag": "{Machine}_Speed_TS", "metricType": "speed", "unit": "m/min" },
+        { "plcTag": "{Machine}_Temperature_TS", "metricType": "temperature", "unit": "°C" },
+        { "plcTag": "{Machine}_Current_TS", "metricType": "current", "unit": "A" },
+        { "plcTag": "{Machine}_Power_TS", "metricType": "power", "unit": "kW" },
+        { "plcTag": "{Machine}_MultiZoneTemp_TS", "metricType": "multi_zone_temp", "unit": "°C", "zoneNumber": "1-10" }
+      ]
+    },
+
+    "alarms": {
+      "description": "Alarm tags → alarms table",
+      "endpoint": "POST /api/machines/:machineId/alarms",
+      "mappings": [
+        { "plcTag": "{Machine}_AlarmSeverity", "apiField": "severity", "enumValues": ["info", "warning", "error", "critical"] },
+        { "plcTag": "{Machine}_AlarmMessage", "apiField": "message", "type": "string" }
+      ]
+    },
+
+    "energy": {
+      "description": "Energy consumption → energy_consumption table",
+      "mappings": [
+        { "plcTag": "{Machine}_EnergyKwh", "dbColumn": "energy_kwh", "unit": "kWh" },
+        { "plcTag": "{Machine}_EnergyHour", "dbColumn": "hour", "type": "timestamp" }
+      ]
+    },
+
+    "productionOrder": {
+      "description": "Chi tiết đơn hàng - production_orders",
+      "endpoint": "POST/PUT /api/orders",
+      "source": "SAP/ERP, QR scan, nhập tay",
+      "mappings": [
+        { "plcTag": "Order_Id", "apiField": "id", "dbColumn": "id", "type": "string", "note": "Mã đơn hàng" },
+        { "plcTag": "Order_Name", "apiField": "name", "dbColumn": "name", "type": "string" },
+        { "plcTag": "Order_ProductName", "apiField": "productName", "dbColumn": "product_name", "type": "string", "note": "Tên sản phẩm" },
+        { "plcTag": "Order_Customer", "apiField": "customer", "dbColumn": "customer", "type": "string", "note": "Tên công ty đối tác" },
+        { "plcTag": "Order_StartTime", "apiField": "startTime", "dbColumn": "start_time", "type": "timestamp" },
+        { "plcTag": "Order_EndTime", "apiField": "endTime", "dbColumn": "end_time", "type": "timestamp", "note": "Thời gian hoàn thành" },
+        { "plcTag": "Order_ProducedLength", "apiField": "producedLength", "dbColumn": "produced_length", "type": "number" },
+        { "plcTag": "Order_TargetLength", "apiField": "targetLength", "dbColumn": "target_length", "type": "number" },
+        { "plcTag": "Order_Status", "apiField": "status", "dbColumn": "status", "type": "enum", "enumValues": ["running", "completed", "interrupted", "cancelled"] }
+      ]
+    },
+
+    "maintenance": {
+      "description": "Lịch bảo trì - maintenance_plans (đề xuất)",
+      "endpoint": "POST/GET /api/maintenance",
+      "mappings": [
+        { "plcTag": "{Machine}_MaintenanceType", "apiField": "type", "dbColumn": "type", "type": "enum", "enumValues": ["PM", "CM"] },
+        { "plcTag": "{Machine}_MaintenanceScheduledAt", "apiField": "scheduledAt", "dbColumn": "scheduled_at", "type": "timestamp", "note": "Thời gian lên lịch" },
+        { "plcTag": "{Machine}_MaintenanceCompletedAt", "apiField": "completedAt", "dbColumn": "completed_at", "type": "timestamp", "note": "Thời gian hoàn thành" },
+        { "plcTag": "{Machine}_MaintenanceStatus", "apiField": "status", "dbColumn": "status", "type": "enum", "enumValues": ["scheduled", "in_progress", "completed", "cancelled", "overdue"] },
+        { "plcTag": "{Machine}_MaintenanceIntervalHours", "apiField": "intervalHours", "dbColumn": "interval_hours", "type": "number", "unit": "h" },
+        { "plcTag": "{Machine}_MaintenanceDescription", "apiField": "description", "dbColumn": "description", "type": "string" },
+        { "plcTag": "{Machine}_MaintenanceRequestBy", "apiField": "requestedBy", "dbColumn": "requested_by", "type": "string", "note": "Người yêu cầu từ shopfloor" }
+      ]
+    }
+  },
+
+  "kepserver": {
+    "description": "KepserverEX / OPC UA tag path examples",
+    "pathFormat": "Channel1.Device1.{Machine}_{Parameter}",
+    "examples": [
+      "Channel1.Device1.D01_Status",
+      "Channel1.Device1.D01_LineSpeed",
+      "Channel1.Device1.D01_Current",
+      "Channel1.Device1.S01_Status",
+      "Channel1.Device1.SH01_Power"
+    ]
+  },
+
+  "nodeRed": {
+    "description": "Node-RED flow config",
+    "machineUpdateEndpoint": "PUT /api/machines/name/:machineName",
+    "authRequired": true,
+    "payloadFormat": "camelCase"
+  }
+}

@@ -14,7 +14,9 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || '',
   max: parseInt(process.env.DB_POOL_MAX || '50'), // Maximum number of clients in the pool
   idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000'),
-  connectionTimeoutMillis: parseInt(process.env.DB_CONN_TIMEOUT_MS || '10000'),
+  // Increase default connection timeout to reduce "timeout exceeded when trying to connect"
+  // (e.g. when DB is slow to accept or pool is busy). Override with DB_CONN_TIMEOUT_MS in .env.
+  connectionTimeoutMillis: parseInt(process.env.DB_CONN_TIMEOUT_MS || '20000'),
 });
 
 // Validate database configuration
@@ -30,8 +32,8 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
-  console.error('❌ Unexpected error on idle client', err);
-  process.exit(-1);
+  console.error('❌ Unexpected error on idle PostgreSQL client', err.message);
+  // Do not process.exit(-1): one bad client should not kill the app; pool can create new connections.
 });
 
 // Helper function to execute queries
@@ -48,10 +50,25 @@ export const query = async (text, params) => {
   }
 };
 
-// Helper function to get a client from the pool
+// Helper function to get a client from the pool (caller must call client.release() in finally).
 export const getClient = async () => {
   const client = await pool.connect();
   return client;
+};
+
+/**
+ * Run a function with a pooled client. The client is always released, even on throw or early return.
+ * Use this to avoid "timeout exceeded when trying to connect" from leaked clients.
+ * @param { (client: import('pg').PoolClient) => Promise<T> } fn
+ * @returns { Promise<T> }
+ */
+export const withClient = async (fn) => {
+  const client = await pool.connect();
+  try {
+    return await fn(client);
+  } finally {
+    client.release();
+  }
 };
 
 export default pool;
