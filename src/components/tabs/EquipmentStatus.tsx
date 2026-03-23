@@ -1,4 +1,4 @@
-import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
 import { useState } from 'react';
 import { useMachines } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
@@ -154,6 +154,11 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                     const lineSpeed = machine.lineSpeed || 0;
                     const targetSpeed = machine.targetSpeed || 0;
                     const speedPercentage = targetSpeed > 0 ? (lineSpeed / targetSpeed) * 100 : 0;
+                    const producedLength = machine.producedLength || 0;
+                    const targetLength = machine.targetLength ?? 0;
+                    const lengthProgressPct =
+                      targetLength > 0 ? (producedLength / targetLength) * 100 : 0;
+                    const lengthBarWidthPct = Math.min(lengthProgressPct, 100);
                     
                     const isRunning = machine.status === 'running';
                     const isIdle = machine.status === 'idle';
@@ -242,6 +247,42 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                             >
                               {getStatusLabel(machine.status)}
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Production length — same metrics as Equipment detail, always visible */}
+                        <div className="mb-2 pb-2 border-b border-white/10">
+                          <div className="flex items-center gap-1 mb-1">
+                            <Ruler className="w-3 h-3 text-[#34E7F8]" strokeWidth={2} />
+                            <span className="text-white/50 text-[10px] tracking-wide">LENGTH</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                            <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
+                              <span
+                                className={`${isRunning ? 'text-lg font-semibold' : 'text-base'} text-[#34E7F8] tracking-tight`}
+                              >
+                                {producedLength.toLocaleString()}
+                              </span>
+                              <span className="text-white/40 text-sm">
+                                / {targetLength > 0 ? targetLength.toLocaleString() : '—'}
+                              </span>
+                              <span className="text-white/50 text-xs">m</span>
+                            </div>
+                            <span
+                              className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} text-white/60 flex-shrink-0`}
+                            >
+                              {targetLength > 0 ? `${lengthProgressPct.toFixed(0)}%` : '—'}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: targetLength > 0 ? `${lengthBarWidthPct}%` : '0%',
+                                backgroundColor: '#34E7F8',
+                                boxShadow: isRunning ? '0 0 8px rgba(52, 231, 248, 0.45)' : 'none',
+                              }}
+                            />
                           </div>
                         </div>
 
