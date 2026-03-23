@@ -1,9 +1,12 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle, Layers } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
 import { useMachineDetailTrends } from '../../hooks/useMachineDetailTrends';
+import { useBobbinCutDetector, mergeCutsForOrder } from '../../hooks/useBobbinCutRecordsFixed';
+import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 import { apiClient } from '../../services/api';
+import type { ProductionOrder } from '../../types';
 
 interface EquipmentDetailProps {
   machineId: string;
@@ -12,6 +15,38 @@ interface EquipmentDetailProps {
 
 export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
+
+  // Dev helper: auto simulate 1 bobbin on LHT-1 for UI verification.
+  // It only runs once per tab session (sessionStorage) when opening EquipmentDetail.
+  const [simProducedLengthOk, setSimProducedLengthOk] = useState<number | null>(null);
+  const machineForOkSimulation = useMemo(() => {
+    if (!machine) return machine;
+    if (simProducedLengthOk === null) return machine;
+    return { ...machine, producedLengthOk: simProducedLengthOk };
+  }, [machine, simProducedLengthOk]);
+
+  useEffect(() => {
+    if (!machine) return;
+    if (!machine.name?.includes('LHT-1')) return;
+    const key = `sim-bobbin-once:${machine.id}`;
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key)) return;
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(key, '1');
+
+    // Kick: force producedLengthOk to <= 2m then restore.
+    // This should trigger bobbin recording if EquipmentDetail bobbin detector is mounted.
+    const t1 = setTimeout(() => setSimProducedLengthOk(1), 1000);
+    const t2 = setTimeout(() => setSimProducedLengthOk(null), 2500);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [machine?.id, machine?.name]);
+
+  const { cutsVersion } = useBobbinCutDetector(
+    machineId,
+    machineForOkSimulation ?? undefined,
+    machine?.productionOrder?.bobbinCountPlanned
+  );
   const realTimeTrends = useMachineDetailTrends(machine);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -224,6 +259,22 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     return calculateDomain(maxZoneTemp || 150, 0, 300); // Max 300°C for safety
   }, [machine?.multiZoneTemperatures, machine?.area]);
 
+  // Order list for history + bobbin (must run every render — never after early return)
+  const displayOrders: ProductionOrder[] = useMemo(() => {
+    if (!machine) return [];
+    const history = [...(machine.orderHistory || [])];
+    const current = machine.productionOrder;
+    if (!current) return history;
+    if (!history.some((o) => o.id === current.id)) {
+      history.unshift({
+        ...current,
+        status: machine.status === 'running' ? 'running' : current.status || 'interrupted',
+        producedLengthOk: effectiveProducedLengthOkM(machineForOkSimulation),
+      });
+    }
+    return history;
+  }, [machine, machineForOkSimulation]);
+
   // Early return AFTER all hooks
   if (loading || !machine) {
     return (
@@ -248,7 +299,9 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const isDrawingMachine = machine.area === 'drawing';
   
   // Production metrics
-  const currentLength = machine.producedLength || 0;
+  // Use total produced length for stable display.
+  // producedLengthOk can reset/jitter when the OK counter is reset.
+  const currentLength = effectiveProducedLengthOkM(machineForOkSimulation);
   const targetLength = machine.targetLength || 0;
   
   // Backend sends m/s for Drawing machines, m/min for others
@@ -362,9 +415,6 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
   const speedPercentage = productionData.targetSpeed > 0 
     ? (productionData.speed / productionData.targetSpeed) * 100 
     : 0;
-
-  // Production order history
-  const orderHistory = machine.orderHistory || [];
 
   const getOrderStatusColor = (status: string) => {
     switch (status) {
@@ -1199,12 +1249,17 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           <History className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
           <h2 className="text-xl text-white">Production Order History - Last 24 Hours</h2>
         </div>
+        <p className="text-white/50 text-sm mb-4" data-bobbin-sync={cutsVersion}>
+          Bobbin IDs use <strong className="text-white/80">producedLengthOk</strong> (mét đạt): when OK length goes from above 2 m to ≤ 2 m on the same production order, one bobbin cut is recorded. Planned bobbin count comes from the order.
+        </p>
 
         <div className="space-y-2">
-          {orderHistory.map((order, index) => {
+          {displayOrders.map((order, index) => {
             const StatusIcon = getOrderStatusIcon(order.status);
             const statusColor = getOrderStatusColor(order.status);
-            const completionPercentage = (order.producedLength / order.targetLength) * 100;
+              const producedForDisplay = effectiveProducedLengthOkM(order);
+              const completionPercentage = (producedForDisplay / order.targetLength) * 100;
+            const bobbinCuts = mergeCutsForOrder(machine.id, order.id, order.bobbinCuts);
             
             return (
               <div 
@@ -1275,7 +1330,9 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                       <Activity className="w-3.5 h-3.5 text-[#4FFFBC]" />
                       <span className="text-white/60 text-xs">PRODUCED</span>
                     </div>
-                    <div className="text-base text-[#4FFFBC]">{order.producedLength.toLocaleString()} m</div>
+                    <div className="text-base text-[#4FFFBC]">
+                      {producedForDisplay.toLocaleString()} m
+                    </div>
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5 mb-1">
@@ -1287,7 +1344,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 </div>
 
                 {/* Progress bar */}
-                <div>
+                <div className="mb-3">
                   <div className="flex justify-between items-center mb-1.5">
                     <span className="text-white/60 text-xs">Completion</span>
                     <span className="text-white text-sm">{completionPercentage.toFixed(1)}%</span>
@@ -1301,6 +1358,54 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                       }}
                     />
                   </div>
+                </div>
+
+                {/* Bobbin cuts — ID tự động khi mét về 0 */}
+                <div className="pt-3 border-t border-white/10">
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-[#A78BFA]" strokeWidth={2.5} />
+                      <span className="text-white font-medium text-sm">Bobbin (order)</span>
+                    </div>
+                    {order.bobbinCountPlanned != null && order.bobbinCountPlanned > 0 && (
+                      <span className="text-white/60 text-xs">
+                        Planned bobbins:{' '}
+                        <span className="text-[#A78BFA] font-semibold">{order.bobbinCountPlanned}</span>
+                      </span>
+                    )}
+                  </div>
+                  {bobbinCuts.length === 0 ? (
+                    <div className="text-white/40 text-xs py-1">
+                      No bobbin cuts recorded yet (cuts appear when producedLengthOk goes to ≤ 2 m during this order).
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-white/10 bg-white/[0.03]">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="text-white/50 text-[10px] uppercase tracking-wide border-b border-white/10">
+                            <th className="py-2 px-2 font-medium">ID order bobbin</th>
+                            <th className="py-2 px-2 font-medium">Cut OK (m)</th>
+                            <th className="py-2 px-2 font-medium hidden sm:table-cell">Bobbin qty (order)</th>
+                            <th className="py-2 px-2 font-medium hidden md:table-cell">Recorded</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bobbinCuts.map((row) => (
+                            <tr key={row.id} className="border-b border-white/5 last:border-0 text-white/90">
+                              <td className="py-2 px-2 font-mono text-[#4FFFBC]">{row.id}</td>
+                              <td className="py-2 px-2">{row.cutLengthM.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                              <td className="py-2 px-2 hidden sm:table-cell text-white/70">
+                                {row.bobbinCountPlanned ?? order.bobbinCountPlanned ?? '—'}
+                              </td>
+                              <td className="py-2 px-2 hidden md:table-cell text-white/50 text-xs">
+                                {new Date(row.recordedAt).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             );

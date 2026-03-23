@@ -1,5 +1,6 @@
 import { Clock, Package, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useMachines, useProductionOrders } from '../../hooks/useProductionData';
+import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 export function ProductionSchedule() {
   const { machines } = useMachines();
@@ -74,7 +75,8 @@ export function ProductionSchedule() {
       ) : (
         <div className="space-y-3">
           {list.map(order => {
-            const producedLength = order.producedLength || 0;
+            // Use total produced length for stable display.
+            const producedLength = effectiveProducedLengthOkM(order);
             const targetLength = order.targetLength || 0;
             const progress = targetLength > 0 ? (producedLength / targetLength) * 100 : 0;
             const orderStatus = getOrderStatusStyle(order.status);

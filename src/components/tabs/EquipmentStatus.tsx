@@ -4,6 +4,7 @@ import { useMachines } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
 import type { ProductionArea, Machine } from '../../types';
+import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 interface EquipmentStatusProps {
   onMachineClick: (machineId: string) => void;
@@ -154,7 +155,9 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                     const lineSpeed = machine.lineSpeed || 0;
                     const targetSpeed = machine.targetSpeed || 0;
                     const speedPercentage = targetSpeed > 0 ? (lineSpeed / targetSpeed) * 100 : 0;
-                    const producedLength = machine.producedLength || 0;
+                    // Use total produced length for stable display.
+                    // producedLengthOk can reset/jitter when the OK counter is reset.
+                    const producedLength = effectiveProducedLengthOkM(machine);
                     const targetLength = machine.targetLength ?? 0;
                     const lengthProgressPct =
                       targetLength > 0 ? (producedLength / targetLength) * 100 : 0;

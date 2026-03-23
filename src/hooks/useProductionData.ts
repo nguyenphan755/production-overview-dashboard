@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { apiClient } from '../services/api';
+import { effectiveProducedLengthOkM } from '../utils/effectiveProducedLength';
 import type {
   GlobalKPI,
   ProductionAreaSummary,
@@ -245,7 +246,10 @@ export function useMachines(areaId?: string) {
                 return (
                   prevMachine.status !== newMachine.status ||
                   Math.abs((prevMachine.lineSpeed || 0) - (newMachine.lineSpeed || 0)) > 0.1 ||
-                  Math.abs((prevMachine.producedLength || 0) - (newMachine.producedLength || 0)) > 0.1 ||
+                  Math.abs(
+                    effectiveProducedLengthOkM(prevMachine) -
+                      effectiveProducedLengthOkM(newMachine)
+                  ) > 0.1 ||
                   Math.abs((prevMachine.current || 0) - (newMachine.current || 0)) > 0.1 ||
                   Math.abs((prevMachine.power || 0) - (newMachine.power || 0)) > 0.1 ||
                   Math.abs((prevMachine.temperature || 0) - (newMachine.temperature || 0)) > 0.1 ||
@@ -367,7 +371,10 @@ export function useMachineDetail(machineId: string | null) {
               const changed = 
                 prevMachine.status !== response.data.status ||
                 Math.abs((prevMachine.lineSpeed || 0) - (response.data.lineSpeed || 0)) > 0.1 ||
-                Math.abs((prevMachine.producedLength || 0) - (response.data.producedLength || 0)) > 0.1 ||
+                Math.abs(
+                  effectiveProducedLengthOkM(prevMachine) -
+                    effectiveProducedLengthOkM(response.data)
+                ) > 0.1 ||
                 Math.abs((prevMachine.current || 0) - (response.data.current || 0)) > 0.1 ||
                 Math.abs((prevMachine.power || 0) - (response.data.power || 0)) > 0.1 ||
                 Math.abs((prevMachine.temperature || 0) - (response.data.temperature || 0)) > 0.1 ||

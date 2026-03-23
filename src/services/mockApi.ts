@@ -10,6 +10,7 @@ import type {
   APIResponse,
   ProductionArea,
   MachineStatus,
+  OrderBobbinRecord,
 } from '../types';
 
 // Mock data storage
@@ -511,6 +512,25 @@ function initializeMockData() {
       producedLength: 3850,
       targetLength: 5000,
       status: 'running',
+      bobbinCountPlanned: 12,
+      bobbinCuts: [
+        {
+          id: 'BOB-PO-2024-156-001',
+          orderId: 'PO-2024-156',
+          sequence: 1,
+          cutLengthM: 1200,
+          recordedAt: new Date(Date.now() - 3.5 * 3600000).toISOString(),
+          bobbinCountPlanned: 12,
+        },
+        {
+          id: 'BOB-PO-2024-156-002',
+          orderId: 'PO-2024-156',
+          sequence: 2,
+          cutLengthM: 1180,
+          recordedAt: new Date(Date.now() - 2.5 * 3600000).toISOString(),
+          bobbinCountPlanned: 12,
+        },
+      ] satisfies OrderBobbinRecord[],
     },
     {
       id: 'PO-2024-157',
@@ -549,6 +569,33 @@ function initializeMockData() {
       targetLength: 4500,
       status: 'completed',
       duration: '3h 40m',
+      bobbinCountPlanned: 10,
+      bobbinCuts: [
+        {
+          id: 'BOB-PO-2024-155-001',
+          orderId: 'PO-2024-155',
+          sequence: 1,
+          cutLengthM: 1500,
+          recordedAt: new Date(Date.now() - 6.8 * 3600000).toISOString(),
+          bobbinCountPlanned: 10,
+        },
+        {
+          id: 'BOB-PO-2024-155-002',
+          orderId: 'PO-2024-155',
+          sequence: 2,
+          cutLengthM: 1480,
+          recordedAt: new Date(Date.now() - 5.2 * 3600000).toISOString(),
+          bobbinCountPlanned: 10,
+        },
+        {
+          id: 'BOB-PO-2024-155-003',
+          orderId: 'PO-2024-155',
+          sequence: 3,
+          cutLengthM: 1520,
+          recordedAt: new Date(Date.now() - 4.1 * 3600000).toISOString(),
+          bobbinCountPlanned: 10,
+        },
+      ] satisfies OrderBobbinRecord[],
     },
     {
       id: 'PO-2024-154',
@@ -566,6 +613,16 @@ function initializeMockData() {
     },
   ];
 
+  // Đồng bộ mét OK: mock dùng producedLengthOk (fallback = producedLength nếu chưa set từng máy/đơn)
+  mockMachines = mockMachines.map((m) => ({
+    ...m,
+    producedLengthOk: m.producedLengthOk ?? m.producedLength,
+  }));
+  mockOrders = mockOrders.map((o) => ({
+    ...o,
+    producedLengthOk: o.producedLengthOk ?? o.producedLength,
+  }));
+
   // Calculate global KPI
   updateGlobalKPI();
 }
@@ -574,7 +631,10 @@ function initializeMockData() {
 function updateGlobalKPI() {
   const running = mockMachines.filter((m) => m.status === 'running').length;
   const total = mockMachines.length;
-  const output = mockMachines.reduce((sum, m) => sum + m.producedLength, 0);
+  const output = mockMachines.reduce(
+    (sum, m) => sum + (m.producedLengthOk ?? m.producedLength),
+    0
+  );
   const orders = mockOrders.filter((o) => o.status === 'running').length;
   const alarms = mockMachines.reduce(
     (sum, m) => sum + (m.alarms?.filter((a) => !a.acknowledged).length || 0),
@@ -742,7 +802,10 @@ export const mockAPI = {
       const areaMachines = mockMachines.filter((m) => m.area === areaId);
       const running = areaMachines.filter((m) => m.status === 'running').length;
       const total = areaMachines.length;
-      const output = areaMachines.reduce((sum, m) => sum + m.producedLength, 0);
+      const output = areaMachines.reduce(
+        (sum, m) => sum + (m.producedLengthOk ?? m.producedLength),
+        0
+      );
       const speedAvg =
         areaMachines.filter((m) => m.status === 'running').length > 0
           ? areaMachines

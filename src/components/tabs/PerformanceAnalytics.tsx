@@ -12,6 +12,7 @@ import {
 import { useMachines, useGlobalKPIs, useProductionOrders, useProductionAreas } from '../../hooks/useProductionData';
 import { apiClient } from '../../services/api';
 import { exportToPowerPoint, exportAsPDF, ExportOptions } from '../../utils/exportAnalytics';
+import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 type TimeRange = 'shift' | 'today' | 'yesterday' | 'last7' | 'month';
 
@@ -348,7 +349,7 @@ export function PerformanceAnalytics() {
     machines.forEach(machine => {
       const ngLength = (machine as any).producedLengthNg || 0;
       const okLength = (machine as any).producedLengthOk || 0;
-      const totalProd = machine.producedLength || 0;
+      const totalProd = effectiveProducedLengthOkM(machine);
 
       totalNG += ngLength;
       totalOK += okLength || (totalProd - ngLength);
@@ -627,7 +628,10 @@ export function PerformanceAnalytics() {
     if (!orders || orders.length === 0) return { planned: 0, actual: 0, variance: 0 };
 
     const planned = orders.reduce((sum, order) => sum + (order.targetLength || 0), 0);
-    const actual = orders.reduce((sum, order) => sum + (order.producedLength || 0), 0);
+    const actual = orders.reduce(
+      (sum, order) => sum + effectiveProducedLengthOkM(order),
+      0
+    );
     const variance = planned > 0 ? ((actual - planned) / planned) * 100 : 0;
 
     return {

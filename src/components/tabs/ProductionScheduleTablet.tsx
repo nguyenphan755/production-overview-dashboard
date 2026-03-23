@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useScheduleSummary, useMachineBobbinTracking } from '../../hooks/useProductionData';
+import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 export function ProductionScheduleTablet() {
   const { rows, loading, error } = useScheduleSummary();
@@ -30,7 +31,8 @@ export function ProductionScheduleTablet() {
   const activeBobbin = bobbinSnapshot?.activeBobbin ?? null;
   const lastCompletedBobbin = history[0] ?? null;
 
-  const produced = order?.producedLength ?? 0;
+  // Use total produced length for stable display.
+  const produced = order ? effectiveProducedLengthOkM(order) : 0;
   const target = order?.targetLength ?? 0;
   const progress = target > 0 ? Math.min(100, (produced / target) * 100) : 0;
 
@@ -112,7 +114,7 @@ export function ProductionScheduleTablet() {
                 </div>
                 <div className="flex justify-between text-[11px] text-white/60 mt-1">
                   <span>
-                    {(order.producedLength ?? 0).toLocaleString()} /{' '}
+                    {produced.toLocaleString()} /{' '}
                     {(order.targetLength ?? 0).toLocaleString()} m
                   </span>
                   <span>

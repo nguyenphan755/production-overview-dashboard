@@ -11,8 +11,14 @@ import type {
   ProductionArea,
 } from '../types';
 
-// Import mockAPI at module level for subscriptions
-import { mockAPI } from './mockApi';
+let mockApiPromise: Promise<typeof import('./mockApi')> | null = null;
+
+async function getMockApi() {
+  if (!mockApiPromise) {
+    mockApiPromise = import('./mockApi');
+  }
+  return (await mockApiPromise).mockAPI;
+}
 
 // Configuration for API endpoint
 // Automatically detects hostname from current location for remote access support
@@ -76,7 +82,7 @@ function getApiBaseUrl(): string {
 const API_CONFIG = {
   // DO NOT compute baseUrl here - it must be computed dynamically at request time
   // Computing it here causes issues on remote PCs where window.location might not be ready
-  useMock: import.meta.env.VITE_USE_MOCK_DATA !== 'false', // Default to mock
+  useMock: import.meta.env.VITE_USE_MOCK_DATA === 'true', // Default to real API
   realtimeEnabled: import.meta.env.VITE_REALTIME_ENABLED === 'true',
 };
 
@@ -111,8 +117,7 @@ class APIClient {
     if (this.useMock) {
       console.warn('⚠️ Using MOCK API data - Set VITE_USE_MOCK_DATA=false to use real API');
       console.log('📦 Using MOCK API data for:', endpoint);
-      // Import mock service dynamically
-      const { mockAPI } = await import('./mockApi');
+      const mockAPI = await getMockApi();
       return await mockAPI.request<T>(endpoint, options);
     }
 
@@ -346,7 +351,13 @@ class APIClient {
   ): () => void {
     if (this.useMock) {
       // Mock real-time updates
-      return mockAPI.subscribeToMachineUpdates(machineId, callback);
+      let unsubscribe: (() => void) | null = null;
+      getMockApi().then((mockAPI) => {
+        unsubscribe = mockAPI.subscribeToMachineUpdates(machineId, callback);
+      });
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
     }
 
     // Connect WebSocket if not already connected
@@ -377,7 +388,13 @@ class APIClient {
   ): () => void {
     if (this.useMock) {
       // Mock real-time updates
-      return mockAPI.subscribeToGlobalUpdates(callback);
+      let unsubscribe: (() => void) | null = null;
+      getMockApi().then((mockAPI) => {
+        unsubscribe = mockAPI.subscribeToGlobalUpdates(callback);
+      });
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
     }
 
     // Real WebSocket/SSE implementation would go here

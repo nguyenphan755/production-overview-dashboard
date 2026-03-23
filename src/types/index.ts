@@ -11,7 +11,11 @@ export interface Machine {
   status: MachineStatus;
   lineSpeed: number; // m/min
   targetSpeed: number; // m/min
-  producedLength: number; // meters
+  producedLength: number; // meters (total / PLC raw; prefer producedLengthOk for UI)
+  /** Mét đạt / OK — dùng cho hiển thị chiều dài sản xuất khi có */
+  producedLengthOk?: number;
+  /** Mét NG — optional */
+  producedLengthNg?: number;
   targetLength?: number; // meters
   productionOrderId?: string;
   productionOrderName?: string;
@@ -85,6 +89,18 @@ export interface GlobalKPI {
   energy: number; // Energy consumption in MW
 }
 
+/** One completed bobbin when the OK-length counter reset to ~0 and restarted */
+export interface OrderBobbinRecord {
+  id: string;
+  orderId: string;
+  sequence: number;
+  /** Mét OK trên bobbin đó trước khi bộ đếm OK về ≤ ngưỡng (producedLengthOk) */
+  cutLengthM: number;
+  recordedAt: string;
+  /** Planned bobbin count for the order (snapshot when the cut was recorded) */
+  bobbinCountPlanned?: number;
+}
+
 export interface ProductionOrder {
   id: string;
   name: string;
@@ -95,10 +111,16 @@ export interface ProductionOrder {
   machineId: string;
   startTime: string; // ISO timestamp
   endTime?: string; // ISO timestamp (null if still running)
-  producedLength: number; // meters
+  producedLength: number; // meters (total)
+  /** Mét OK cho đơn — ưu tiên khi hiển thị tiến độ / sản lượng */
+  producedLengthOk?: number;
   targetLength: number; // meters
   status: 'running' | 'completed' | 'interrupted' | 'cancelled';
   duration?: string; // Human-readable duration
+  /** Planned number of bobbins for this order (from ERP / planning) */
+  bobbinCountPlanned?: number;
+  /** Bobbin cuts supplied by backend (historical) */
+  bobbinCuts?: OrderBobbinRecord[];
 }
 
 export interface MachineDetail extends Machine {

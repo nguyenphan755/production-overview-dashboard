@@ -11,6 +11,8 @@ import { ProductionSchedule } from "../components/tabs/ProductionSchedule";
 import { Activity, BarChart3, Calendar, ClipboardCheck, Settings, Shield, Wrench } from "lucide-react";
 import AccountManagement from "./AccountManagement";
 import type { AuthUser } from "../services/authApi";
+import { useMachines } from "../hooks/useProductionData";
+import { useBobbinCutDetectorForFleet } from "../hooks/useBobbinCutRecordsFixed";
 
 type DashboardProps = {
   onLogout: () => void;
@@ -22,6 +24,10 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   const [activeTab, setActiveTab] = useState("production");
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Keep bobbin detector running for all production lines globally.
+  const { machines } = useMachines();
+  useBobbinCutDetectorForFleet(machines);
 
   // Error boundary - catch any rendering errors
   useEffect(() => {

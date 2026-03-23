@@ -22,6 +22,10 @@ router.get('/', async (req, res) => {
       startTime: new Date(order.start_time).toISOString(),
       endTime: order.end_time ? new Date(order.end_time).toISOString() : undefined,
       producedLength: parseFloat(order.produced_length || 0),
+      producedLengthOk:
+        order.produced_length_ok !== undefined && order.produced_length_ok !== null
+          ? parseFloat(order.produced_length_ok)
+          : undefined,
       targetLength: parseFloat(order.target_length || 0),
       status: order.status,
       duration: order.duration,
@@ -74,6 +78,10 @@ router.get('/:orderId', async (req, res) => {
       startTime: new Date(order.start_time).toISOString(),
       endTime: order.end_time ? new Date(order.end_time).toISOString() : undefined,
       producedLength: parseFloat(order.produced_length || 0),
+      producedLengthOk:
+        order.produced_length_ok !== undefined && order.produced_length_ok !== null
+          ? parseFloat(order.produced_length_ok)
+          : undefined,
       targetLength: parseFloat(order.target_length || 0),
       status: order.status,
       duration: order.duration,
@@ -115,6 +123,7 @@ router.patch('/:orderId', async (req, res) => {
       startTime: 'start_time',
       endTime: 'end_time',
       producedLength: 'produced_length',
+      producedLengthOk: 'produced_length_ok',
       targetLength: 'target_length',
       status: 'status',
       duration: 'duration',
@@ -174,6 +183,10 @@ router.patch('/:orderId', async (req, res) => {
       startTime: new Date(order.start_time).toISOString(),
       endTime: order.end_time ? new Date(order.end_time).toISOString() : undefined,
       producedLength: parseFloat(order.produced_length || 0),
+      producedLengthOk:
+        order.produced_length_ok !== undefined && order.produced_length_ok !== null
+          ? parseFloat(order.produced_length_ok)
+          : undefined,
       targetLength: parseFloat(order.target_length || 0),
       status: order.status,
       duration: order.duration,
