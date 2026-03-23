@@ -4,6 +4,10 @@ import { effectiveProducedLengthOkM } from '../utils/effectiveProducedLength';
 
 const STORAGE_KEY = 'production-dashboard-bobbin-cuts:v1';
 const LENGTH_OK_EPS_M = 2;
+// Nếu reset xảy ra nhanh giữa 2 lần sample, ta có thể không thấy giá trị <=2m.
+// Khi đó ta suy ra reset dựa trên mức rơi lớn giữa prevOk và producedLengthOk.
+const MISSED_RESET_MIN_DROP_M = 50;
+const MISSED_RESET_RATIO = 0.2;
 
 type Store = Record<string, Record<string, OrderBobbinRecord[]>>;
 
@@ -78,6 +82,16 @@ function appendCutToStore(
   return true;
 }
 
+function resolveProductionOrderId(machine: Machine): string | undefined {
+  const id = machine.productionOrderId?.trim();
+  if (id) return id;
+
+  const name = machine.productionOrderName?.trim();
+  if (name && /^PO[-\w./]+/i.test(name)) return name;
+
+  return undefined;
+}
+
 export function useBobbinCutDetector(
   machineId: string | undefined,
   machine: Machine | null | undefined,
@@ -95,7 +109,7 @@ export function useBobbinCutDetector(
   const [cutsVersion, setCutsVersion] = useState(0);
 
   const producedLengthOk = machine ? effectiveProducedLengthOkM(machine) : 0;
-  const activeOrderId = machine?.productionOrderId;
+  const activeOrderId = machine ? resolveProductionOrderId(machine) : undefined;
   const machineStatus = machine?.status;
 
   const appendCut = useCallback(
@@ -140,6 +154,16 @@ export function useBobbinCutDetector(
     const crossedToReset =
       prevOk > LENGTH_OK_EPS_M && producedLengthOk <= LENGTH_OK_EPS_M;
 
+    const looksLikeMissedReset =
+      // có trước reset
+      prevOk > LENGTH_OK_EPS_M &&
+      // rơi đủ lớn
+      prevOk - producedLengthOk >= MISSED_RESET_MIN_DROP_M &&
+      // rơi đủ tương đối để tránh nhiễu
+      producedLengthOk <= prevOk * (1 - MISSED_RESET_RATIO) &&
+      // hiện tại đã lên lại > ngưỡng (nên không thoả crossedToReset)
+      producedLengthOk > LENGTH_OK_EPS_M;
+
     if (producedLengthOk > LENGTH_OK_EPS_M) {
       peakOkLengthInCycleRef.current = Math.max(
         peakOkLengthInCycleRef.current,
@@ -147,7 +171,7 @@ export function useBobbinCutDetector(
       );
     }
 
-    if (crossedToReset) {
+    if (crossedToReset || looksLikeMissedReset) {
       const orderIdToRecord = prevOrderId || activeOrderId;
       const cutLengthOkM = Math.max(peakOkLengthInCycleRef.current, prevOk);
       if (cutLengthOkM > LENGTH_OK_EPS_M) {
@@ -158,6 +182,12 @@ export function useBobbinCutDetector(
       pendingStopCutRef.current = false;
       pendingStopOrderIdRef.current = undefined;
       pendingStopPeakRef.current = 0;
+
+      // Nếu là missed reset và hiện tại vẫn > ngưỡng,
+      // cycle mới vừa bắt đầu nên seed peak bằng giá trị hiện tại.
+      if (looksLikeMissedReset && producedLengthOk > LENGTH_OK_EPS_M) {
+        peakOkLengthInCycleRef.current = producedLengthOk;
+      }
     } else if (prevStatus === 'running' && machineStatus !== 'running') {
       pendingStopCutRef.current = peakOkLengthInCycleRef.current > LENGTH_OK_EPS_M;
       pendingStopOrderIdRef.current = activeOrderId;
@@ -214,7 +244,7 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
 
     for (const machine of machines) {
       const machineId = machine.id;
-      const activeOrderId = machine.productionOrderId;
+      const activeOrderId = resolveProductionOrderId(machine);
       const producedLengthOk = effectiveProducedLengthOkM(machine);
       const nextMachineStatus = machine.status;
 
@@ -252,6 +282,16 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
       const crossedToReset =
         prevOk > LENGTH_OK_EPS_M && producedLengthOk <= LENGTH_OK_EPS_M;
 
+      const looksLikeMissedReset =
+        // có trước reset
+        prevOk > LENGTH_OK_EPS_M &&
+        // rơi đủ lớn
+        prevOk - producedLengthOk >= MISSED_RESET_MIN_DROP_M &&
+        // rơi đủ tương đối
+        producedLengthOk <= prevOk * (1 - MISSED_RESET_RATIO) &&
+        // hiện tại đã lên lại > ngưỡng
+        producedLengthOk > LENGTH_OK_EPS_M;
+
       let nextPeak = prevState.peakOkLengthInCycle;
       if (producedLengthOk > LENGTH_OK_EPS_M) {
         nextPeak = Math.max(nextPeak, producedLengthOk);
@@ -261,7 +301,7 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
       let nextPendingStopOrderId = prevState.pendingStopOrderId;
       let nextPendingStopPeak = prevState.pendingStopPeak;
 
-      if (crossedToReset) {
+      if (crossedToReset || looksLikeMissedReset) {
         const orderIdToRecord = prevOrderId || activeOrderId;
         const cutLengthOkM = Math.max(nextPeak, prevOk);
         if (cutLengthOkM > LENGTH_OK_EPS_M) {
@@ -271,6 +311,10 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
         nextPendingStopCut = false;
         nextPendingStopOrderId = undefined;
         nextPendingStopPeak = 0;
+
+        if (looksLikeMissedReset && producedLengthOk > LENGTH_OK_EPS_M) {
+          nextPeak = producedLengthOk;
+        }
       } else if (prevStatus === 'running' && nextMachineStatus !== 'running') {
         nextPendingStopCut = nextPeak > LENGTH_OK_EPS_M;
         nextPendingStopOrderId = activeOrderId;

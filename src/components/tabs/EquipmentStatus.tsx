@@ -1,9 +1,9 @@
 import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
-import { useState } from 'react';
-import { useMachines } from '../../hooks/useProductionData';
+import { useMemo, useState } from 'react';
+import { useMachines, useProductionOrders } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
-import type { ProductionArea, Machine } from '../../types';
+import type { ProductionArea, Machine, ProductionOrder } from '../../types';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 interface EquipmentStatusProps {
@@ -21,6 +21,39 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
   const { machines, loading } = useMachines();
   const trends = useMachineTrends(machines);
   const [expandedMachines, setExpandedMachines] = useState<Set<string>>(new Set());
+  const { orders } = useProductionOrders();
+
+  const activeOrderByMachineId = useMemo(() => {
+    const map = new Map<string, ProductionOrder>();
+    for (const order of orders) {
+      const keyById = order.machineId?.trim();
+      const keyByName = order.machineName?.trim();
+      if (!keyById && !keyByName) continue;
+
+      const prev = keyById ? map.get(keyById) : keyByName ? map.get(keyByName) : undefined;
+      if (!prev) {
+        if (keyById) map.set(keyById, order);
+        if (keyByName) map.set(keyByName, order);
+        continue;
+      }
+
+      // Prefer running order for a machine; otherwise keep the latest by startTime.
+      const prevRunning = prev.status === 'running';
+      const nextRunning = order.status === 'running';
+      if (nextRunning && !prevRunning) {
+        map.set(order.machineId, order);
+        continue;
+      }
+
+      const prevT = prev.startTime ? new Date(prev.startTime).getTime() : 0;
+      const nextT = order.startTime ? new Date(order.startTime).getTime() : 0;
+      if (nextT > prevT) {
+        if (keyById) map.set(keyById, order);
+        if (keyByName) map.set(keyByName, order);
+      }
+    }
+    return map;
+  }, [orders]);
 
   // Group machines by area
   const productionAreas = (['drawing', 'stranding', 'armoring', 'sheathing'] as ProductionArea[]).map((areaId) => {
@@ -201,9 +234,22 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                         <div className="flex items-start justify-between mb-2" style={{ minHeight: '45px' }}>
                           <div className="flex-1 min-w-0">
                             <div className={`${isRunning ? 'text-xl' : 'text-lg'} ${isRunning ? 'text-white font-semibold' : 'text-white'} tracking-tight mb-0.5`}>{machine.name}</div>
-                            <div className="text-white/60 text-xs leading-tight">
+                          <div className="text-white/60 text-xs leading-tight">
                               {(() => {
-                                const productName = machine.productName?.trim();
+                                const order =
+                                  activeOrderByMachineId.get(machine.id) ??
+                                  activeOrderByMachineId.get(machine.name);
+                                const poText =
+                                  machine.productionOrderId ??
+                                  machine.productionOrderName ??
+                                  order?.id;
+
+                                const productName =
+                                  (order?.productNameCurrent ??
+                                    order?.productName ??
+                                    machine.productionOrderProductName ??
+                                    machine.productName)?.trim();
+
                                 if (!productName) {
                                   const isInvalid = !!machine.materialCode;
                                   const message = isInvalid ? 'Invalid production name' : 'Not entered yet';
@@ -212,15 +258,15 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                                     : 'text-[#F59E0B] font-semibold text-sm';
                                   return (
                                     <>
-                                      {machine.productionOrderId && <span>{machine.productionOrderId} • </span>}
+                                      {poText && <span>{poText} • </span>}
                                       <span className={className}>{message}</span>
                                     </>
                                   );
                                 }
                                 return (
                                   <>
-                                    {machine.productionOrderId && <span>{machine.productionOrderId} • </span>}
-                                    <span className="text-[#22C55E] font-semibold text-sm">{machine.productName}</span>
+                                    {poText && <span>{poText} • </span>}
+                                    <span className="text-[#22C55E] font-semibold text-sm">{productName}</span>
                                   </>
                                 );
                               })()}

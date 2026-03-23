@@ -1379,25 +1379,32 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                       No bobbin cuts recorded yet (cuts appear when producedLengthOk goes to ≤ 2 m during this order).
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-white/10 bg-white/[0.03]">
-                      <table className="w-full text-left text-sm">
+                    <div className="overflow-x-auto rounded-lg border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02]">
+                      <table className="w-full text-left text-sm border-separate border-spacing-0">
                         <thead>
-                          <tr className="text-white/50 text-[10px] uppercase tracking-wide border-b border-white/10">
-                            <th className="py-2 px-2 font-medium">ID order bobbin</th>
-                            <th className="py-2 px-2 font-medium">Cut OK (m)</th>
-                            <th className="py-2 px-2 font-medium hidden sm:table-cell">Bobbin qty (order)</th>
-                            <th className="py-2 px-2 font-medium hidden md:table-cell">Recorded</th>
+                          <tr className="text-white/60 text-[11px] uppercase tracking-wider border-b border-white/10">
+                            <th className="py-2 px-2 font-semibold">ID order bobbin</th>
+                            <th className="py-2 px-2 font-semibold text-right">Cut OK (m)</th>
+                            <th className="py-2 px-2 font-semibold hidden sm:table-cell text-right">Bobbin qty (order)</th>
+                            <th className="py-2 px-2 font-semibold hidden md:table-cell text-left whitespace-nowrap">Recorded</th>
                           </tr>
                         </thead>
                         <tbody>
                           {bobbinCuts.map((row) => (
-                            <tr key={row.id} className="border-b border-white/5 last:border-0 text-white/90">
-                              <td className="py-2 px-2 font-mono text-[#4FFFBC]">{row.id}</td>
-                              <td className="py-2 px-2">{row.cutLengthM.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
-                              <td className="py-2 px-2 hidden sm:table-cell text-white/70">
+                            <tr
+                              key={row.id}
+                              className="border-b border-white/10 last:border-0 text-white/90 hover:bg-white/[0.03] transition-colors"
+                            >
+                              <td className="py-2 px-2 font-mono text-[#4FFFBC] whitespace-nowrap max-w-[260px] overflow-hidden text-ellipsis align-middle">
+                                {row.id}
+                              </td>
+                              <td className="py-2 px-2 text-right tabular-nums text-[#34E7F8] font-medium align-middle">
+                                {row.cutLengthM.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                              </td>
+                              <td className="py-2 px-2 hidden sm:table-cell text-right tabular-nums text-white/70 font-medium align-middle">
                                 {row.bobbinCountPlanned ?? order.bobbinCountPlanned ?? '—'}
                               </td>
-                              <td className="py-2 px-2 hidden md:table-cell text-white/50 text-xs">
+                              <td className="py-2 px-2 hidden md:table-cell text-white/50 text-xs whitespace-nowrap align-middle">
                                 {new Date(row.recordedAt).toLocaleString()}
                               </td>
                             </tr>
