@@ -57,11 +57,61 @@ export function ProductionSchedule() {
     }
   };
 
-  const runningOrders = orders.filter(order => order.status === 'running');
-  const completedOrders = orders.filter(order => order.status === 'completed');
-  const interruptedOrders = orders.filter(order => order.status === 'interrupted');
-  const otherOrders = orders.filter(
-    order => !['running', 'completed', 'interrupted'].includes(order.status)
+  // Schedule should show 1 execution card per configured machine.
+  // If production_orders is missing for a machine, we create a placeholder (display-only).
+  const effectiveOrders = machines.map((machine) => {
+    const matchingOrders = orders.filter((o) => o.machineId === machine.id);
+    const existingRunningOrder = matchingOrders.find(
+      (o) => o.status === 'running'
+    );
+
+    // Prefer real running order if exists, otherwise the latest order for that machine.
+    if (existingRunningOrder) return existingRunningOrder;
+    if (matchingOrders.length > 0) return matchingOrders[0];
+
+    // Fallback display:
+    // - If machines already has production_order_id/name (after DB sync), use it directly
+    //   so Schedule updates immediately even when /orders endpoint state is stale.
+    // - Otherwise show a NO_ORDER placeholder.
+    const displayOrderId =
+      machine.productionOrderId && String(machine.productionOrderId).trim()
+        ? machine.productionOrderId
+        : `NO_ORDER-${machine.id}`;
+    const displayOrderName =
+      machine.productionOrderName && String(machine.productionOrderName).trim()
+        ? machine.productionOrderName
+        : displayOrderId;
+
+    return {
+      id: displayOrderId,
+      name: displayOrderName,
+      productName: machine.productName || 'No product',
+      productNameCurrent: machine.productName || 'No product',
+      customer: '—',
+      machineName: machine.name,
+      machineId: machine.id,
+      startTime: '',
+      endTime: undefined,
+      producedLength: machine.producedLength || 0,
+      producedLengthOk: machine.producedLengthOk ?? undefined,
+      targetLength: machine.targetLength ?? 0,
+      // Use machine status for display purposes (TS union doesn't include all machine_status values).
+      status: machine.status as any,
+      duration: undefined,
+    };
+  });
+
+  const runningOrders = effectiveOrders.filter(
+    (order) => order.status === 'running'
+  );
+  const completedOrders = effectiveOrders.filter(
+    (order) => order.status === 'completed'
+  );
+  const interruptedOrders = effectiveOrders.filter(
+    (order) => order.status === 'interrupted'
+  );
+  const otherOrders = effectiveOrders.filter(
+    (order) => !['running', 'completed', 'interrupted'].includes(order.status)
   );
 
   const renderOrders = (list: typeof orders, title: string, icon: JSX.Element) => (
@@ -274,7 +324,7 @@ export function ProductionSchedule() {
             </div>
             <span className="text-white/60 text-xs tracking-wider">TOTAL</span>
           </div>
-          <div className="text-3xl text-[#6366F1]">{orders.length}</div>
+          <div className="text-3xl text-[#6366F1]">{effectiveOrders.length}</div>
           <div className="text-white/40 text-xs mt-1">Executions</div>
         </div>
       </div>

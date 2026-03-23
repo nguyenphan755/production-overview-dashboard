@@ -1,10 +1,33 @@
 -- Production Overview Dashboard Database Schema
 
 -- Create enum types
-CREATE TYPE machine_status AS ENUM ('running', 'idle', 'warning', 'error', 'stopped', 'setup');
-CREATE TYPE production_area AS ENUM ('drawing', 'stranding', 'armoring', 'sheathing');
-CREATE TYPE alarm_severity AS ENUM ('info', 'warning', 'error', 'critical');
-CREATE TYPE order_status AS ENUM ('running', 'completed', 'interrupted', 'cancelled');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'machine_status') THEN
+        CREATE TYPE machine_status AS ENUM ('running', 'idle', 'warning', 'error', 'stopped', 'setup');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'production_area') THEN
+        CREATE TYPE production_area AS ENUM ('drawing', 'stranding', 'armoring', 'sheathing');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'alarm_severity') THEN
+        CREATE TYPE alarm_severity AS ENUM ('info', 'warning', 'error', 'critical');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+        CREATE TYPE order_status AS ENUM ('running', 'completed', 'interrupted', 'cancelled');
+    END IF;
+END$$;
 
 -- Material Master table
 CREATE TABLE IF NOT EXISTS material_master (
@@ -150,9 +173,11 @@ END;
 $$ language 'plpgsql';
 
 -- Create triggers for updated_at
+DROP TRIGGER IF EXISTS update_machines_updated_at ON machines;
 CREATE TRIGGER update_machines_updated_at BEFORE UPDATE ON machines
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_production_orders_updated_at ON production_orders;
 CREATE TRIGGER update_production_orders_updated_at BEFORE UPDATE ON production_orders
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

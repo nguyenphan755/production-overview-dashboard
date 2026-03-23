@@ -83,11 +83,33 @@ function appendCutToStore(
 }
 
 function resolveProductionOrderId(machine: Machine): string | undefined {
+  const maybeDetail = machine as any;
+
+  // If the backend returns full productionOrder in machine detail,
+  // use the true order.id first.
+  const detailOrderId: unknown = maybeDetail?.productionOrder?.id;
+  if (typeof detailOrderId === 'string' && detailOrderId.trim()) return detailOrderId.trim();
+
+  const detailOrderName: unknown = maybeDetail?.productionOrder?.name;
+  if (typeof detailOrderName === 'string' && detailOrderName.trim()) return detailOrderName.trim();
+
+  // If machine.productionOrderId/name are missing but orderHistory exists,
+  // use the first matching order id from history so bobbin cuts can be attached
+  // to the same order rows shown in EquipmentDetail.
+  const orderHistory: any[] | undefined = maybeDetail?.orderHistory;
+  if (Array.isArray(orderHistory) && orderHistory.length > 0) {
+    const running = orderHistory.find((o) => o?.status === 'running');
+    const chosen = running ?? orderHistory[0];
+    const chosenId: unknown = chosen?.id;
+    if (typeof chosenId === 'string' && chosenId.trim()) return chosenId.trim();
+  }
+
   const id = machine.productionOrderId?.trim();
   if (id) return id;
 
+  // productionOrderName (Production_order_name) is sometimes the only stable key available.
   const name = machine.productionOrderName?.trim();
-  if (name && /^PO[-\w./]+/i.test(name)) return name;
+  if (name) return name;
 
   return undefined;
 }
