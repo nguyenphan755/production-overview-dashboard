@@ -56,18 +56,47 @@ export const getClient = async () => {
   return client;
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** True when pool.connect() failed due to overload / network / DB briefly unavailable (safe to retry). */
+function isTransientConnectError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  if (msg.includes('timeout exceeded when trying to connect')) return true;
+  const transient = ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EHOSTUNREACH', 'EPIPE'];
+  return transient.includes(err.code);
+}
+
 /**
  * Run a function with a pooled client. The client is always released, even on throw or early return.
- * Use this to avoid "timeout exceeded when trying to connect" from leaked clients.
+ * Retries acquiring a client when the failure looks transient (pool busy, slow DB, short network blip).
+ * Tune with DB_CONNECT_RETRIES (default 3) and DB_CONNECT_RETRY_MS base delay (default 150).
  * @param { (client: import('pg').PoolClient) => Promise<T> } fn
  * @returns { Promise<T> }
  */
 export const withClient = async (fn) => {
-  const client = await pool.connect();
-  try {
-    return await fn(client);
-  } finally {
-    client.release();
+  const maxAttempts = Math.max(1, parseInt(process.env.DB_CONNECT_RETRIES || '3', 10));
+  const baseDelayMs = parseInt(process.env.DB_CONNECT_RETRY_MS || '150', 10);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let client;
+    try {
+      client = await pool.connect();
+    } catch (e) {
+      if (attempt < maxAttempts && isTransientConnectError(e)) {
+        console.warn(
+          `⚠️  DB connect attempt ${attempt}/${maxAttempts} failed: ${e.message}. Retrying in ${baseDelayMs * attempt}ms...`
+        );
+        await sleep(baseDelayMs * attempt);
+        continue;
+      }
+      throw e;
+    }
+    try {
+      return await fn(client);
+    } finally {
+      client.release();
+    }
   }
 };
 

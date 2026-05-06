@@ -370,6 +370,14 @@ export function useMachineDetail(machineId: string | null) {
               // Compare key fields that matter
               const changed = 
                 prevMachine.status !== response.data.status ||
+                (prevMachine.productionOrderId || null) !==
+                  (response.data.productionOrderId || null) ||
+                (prevMachine.productionOrderName || null) !==
+                  (response.data.productionOrderName || null) ||
+                (prevMachine.productionOrderProductName || null) !==
+                  (response.data.productionOrderProductName || null) ||
+                (prevMachine.productName || null) !==
+                  (response.data.productName || null) ||
                 Math.abs((prevMachine.lineSpeed || 0) - (response.data.lineSpeed || 0)) > 0.1 ||
                 Math.abs(
                   effectiveProducedLengthOkM(prevMachine) -
