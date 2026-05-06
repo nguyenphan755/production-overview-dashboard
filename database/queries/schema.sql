@@ -1,0 +1,183 @@
+-- Production Overview Dashboard Database Schema
+
+-- Create enum types
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'machine_status') THEN
+        CREATE TYPE machine_status AS ENUM ('running', 'idle', 'warning', 'error', 'stopped', 'setup');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'production_area') THEN
+        CREATE TYPE production_area AS ENUM ('drawing', 'stranding', 'armoring', 'sheathing');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'alarm_severity') THEN
+        CREATE TYPE alarm_severity AS ENUM ('info', 'warning', 'error', 'critical');
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+        CREATE TYPE order_status AS ENUM ('running', 'completed', 'interrupted', 'cancelled');
+    END IF;
+END$$;
+
+-- Material Master table
+CREATE TABLE IF NOT EXISTS material_master (
+    material_code VARCHAR(50) PRIMARY KEY,
+    material_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Machines table
+CREATE TABLE IF NOT EXISTS machines (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    area production_area NOT NULL,
+    status machine_status NOT NULL DEFAULT 'idle',
+    line_speed DECIMAL(10, 2) DEFAULT 0,
+    target_speed DECIMAL(10, 2) DEFAULT 0,
+    produced_length DECIMAL(12, 2) DEFAULT 0,
+    length_counter DECIMAL(12, 2) DEFAULT 0,
+    length_counter_last DECIMAL(12, 2) DEFAULT 0,
+    length_counter_last_at TIMESTAMP,
+    current_shift_id VARCHAR(50),
+    current_shift_start TIMESTAMP,
+    current_shift_end TIMESTAMP,
+    target_length DECIMAL(12, 2),
+    production_order_id VARCHAR(100),
+    production_order_name VARCHAR(255),
+    material_code VARCHAR(50),
+    product_name VARCHAR(255),
+    operator_name VARCHAR(255),
+    oee DECIMAL(5, 2),
+    availability DECIMAL(5, 2),
+    performance DECIMAL(5, 2),
+    quality DECIMAL(5, 2),
+    current DECIMAL(10, 2),
+    power DECIMAL(10, 2),
+    temperature DECIMAL(10, 2),
+    multi_zone_temperatures JSONB,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production length event log (delta-based)
+CREATE TABLE IF NOT EXISTS production_length_events (
+    id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    area production_area NOT NULL,
+    production_order_id VARCHAR(100),
+    shift_id VARCHAR(50) NOT NULL,
+    shift_date DATE NOT NULL,
+    status machine_status NOT NULL,
+    counter_value DECIMAL(12, 2) NOT NULL,
+    last_counter_value DECIMAL(12, 2),
+    delta_length DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    is_running BOOLEAN NOT NULL DEFAULT FALSE,
+    reset_detected BOOLEAN NOT NULL DEFAULT FALSE,
+    event_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production Orders table
+CREATE TABLE IF NOT EXISTS production_orders (
+    id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    product_name_current VARCHAR(255),
+    customer VARCHAR(255) NOT NULL,
+    machine_id VARCHAR(50) REFERENCES machines(id),
+    machine_name VARCHAR(255),
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP,
+    produced_length DECIMAL(12, 2) DEFAULT 0,
+    target_length DECIMAL(12, 2) NOT NULL,
+    status order_status NOT NULL DEFAULT 'running',
+    duration VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Alarms table
+CREATE TABLE IF NOT EXISTS alarms (
+    id VARCHAR(100) PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    severity alarm_severity NOT NULL,
+    message TEXT NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    acknowledged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Machine Metrics (Time Series Data)
+CREATE TABLE IF NOT EXISTS machine_metrics (
+    id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    metric_type VARCHAR(50) NOT NULL, -- 'speed', 'temperature', 'current', 'power', 'multi_zone_temp'
+    value DECIMAL(10, 2),
+    zone_number INTEGER, -- For multi-zone temperatures (1-4)
+    target_value DECIMAL(10, 2),
+    product_name VARCHAR(255),
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Energy Consumption table
+CREATE TABLE IF NOT EXISTS energy_consumption (
+    id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    energy_kwh DECIMAL(10, 2) NOT NULL,
+    hour TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_machines_area ON machines(area);
+CREATE INDEX IF NOT EXISTS idx_machines_status ON machines(status);
+CREATE INDEX IF NOT EXISTS idx_machines_last_updated ON machines(last_updated);
+CREATE INDEX IF NOT EXISTS idx_machines_material_code ON machines(material_code);
+CREATE INDEX IF NOT EXISTS idx_machines_length_counter ON machines(length_counter);
+CREATE INDEX IF NOT EXISTS idx_material_master_code ON material_master(material_code);
+CREATE INDEX IF NOT EXISTS idx_production_orders_machine_id ON production_orders(machine_id);
+CREATE INDEX IF NOT EXISTS idx_production_orders_status ON production_orders(status);
+CREATE INDEX IF NOT EXISTS idx_alarms_machine_id ON alarms(machine_id);
+CREATE INDEX IF NOT EXISTS idx_alarms_acknowledged ON alarms(acknowledged);
+CREATE INDEX IF NOT EXISTS idx_machine_metrics_machine_id ON machine_metrics(machine_id);
+CREATE INDEX IF NOT EXISTS idx_machine_metrics_timestamp ON machine_metrics(timestamp);
+CREATE INDEX IF NOT EXISTS idx_machine_metrics_type ON machine_metrics(metric_type);
+CREATE INDEX IF NOT EXISTS idx_energy_consumption_machine_id ON energy_consumption(machine_id);
+CREATE INDEX IF NOT EXISTS idx_energy_consumption_hour ON energy_consumption(hour);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_machine ON production_length_events(machine_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_area ON production_length_events(area);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_shift ON production_length_events(shift_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_order ON production_length_events(production_order_id);
+CREATE INDEX IF NOT EXISTS idx_prod_len_events_time ON production_length_events(event_time);
+
+-- Create function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers for updated_at
+DROP TRIGGER IF EXISTS update_machines_updated_at ON machines;
+CREATE TRIGGER update_machines_updated_at BEFORE UPDATE ON machines
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_production_orders_updated_at ON production_orders;
+CREATE TRIGGER update_production_orders_updated_at BEFORE UPDATE ON production_orders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+

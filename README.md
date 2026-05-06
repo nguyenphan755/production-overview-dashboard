@@ -1,13 +1,32 @@
 
-  # Production Overview Dashboard Mockup
+# Production Overview Dashboard
 
-  This is a code bundle for Production Overview Dashboard Mockup. The original project is available at https://www.figma.com/design/RQ8JqaP46YI74iCHLOuxQL/Production-Overview-Dashboard-Mockup.
+This repository is structured as a multi-part project:
 
-  ## Running the code
+- `frontend/` for the web UI
+- `backend/` for API and business logic
+- `database/` for schema/migrations/queries
+- `docs/` for technical documentation
 
-  Run `npm i` to install the dependencies.
+## Running the code
 
-  Run `npm run dev` to start the development server.
-  
-The application will be available at `http://localhost:5173`
+### Frontend
+
+```bash
+cd frontend
+npm i
+npm run dev
+```
+
+Frontend runs at `http://localhost:5173`.
+
+### Backend
+
+```bash
+cd backend
+npm i
+npm start
+```
+
+Backend runs at `http://localhost:3001`.
   

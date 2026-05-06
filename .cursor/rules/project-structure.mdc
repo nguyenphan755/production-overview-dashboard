@@ -1,0 +1,71 @@
+---
+description: Project structure and naming conventions for this repository.
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Project Structure & Naming Conventions
+
+Apply these conventions when creating or editing files in this repository.
+
+## 1) Repository Shape (Current)
+- Frontend is at repository root using `src/` (Vite app), not `frontend/`.
+- Backend API is under `backend/` with its own runtime and dependencies.
+- Database SQL/migrations currently live under `backend/database/`.
+- Project docs are markdown files at root and optionally under `docs/`.
+- Utility/maintenance scripts can live in `backend/scripts/` or root `scripts/`.
+
+## 2) Backend Layering
+- Prefer separation: `routes` -> `controllers` -> `services` -> `repositories/models`.
+- Keep business logic in services, not routes.
+- Keep DB query logic in repositories/models.
+- Put cross-cutting logic in middlewares (auth, validation, logging).
+- For this repo, keep backend changes inside `backend/` unless explicitly shared.
+
+## 3) Frontend Organization
+- Keep reusable UI in `src/components`.
+- Keep API calls/client wrappers in `src/services` (or existing equivalent).
+- Keep reusable data/state logic in `src/hooks`.
+- Keep constants/types in dedicated files/folders under `src/`.
+- Align with existing folder names first; avoid creating parallel patterns.
+
+## 4) Naming Rules
+- Files: kebab-case (example: `user-profile.ts`, `auth-middleware.ts`).
+- React components: PascalCase (example: `UserCard.tsx`).
+- Functions/variables: camelCase.
+- Constants: UPPER_SNAKE_CASE.
+- Classes/interfaces/types: PascalCase.
+
+## 5) Common File Patterns
+- Backend: `*.controller.*`, `*.service.*`, `*.model.*`, `*.routes.*`, `*.middleware.*`
+- Tests: `*.test.*` (unit/integration/e2e by folder if possible).
+- DB migrations: timestamp/sequence prefixes (example: `20240101_001_create_users_table.sql`).
+- Keep script filenames descriptive and action-oriented (example: `auto-assign-missing-production-orders.mjs`).
+
+## 6) Imports & Modules
+- Prefer clear module boundaries between frontend and backend.
+- If FE/BE both need a contract, place it in shared modules instead of cross-importing app code.
+- Prefer named exports over default exports unless framework convention requires otherwise.
+
+## 7) Environment & Secrets
+- Never commit real secrets.
+- Keep sample values in `.env.example`.
+- Use uppercase snake case for env keys.
+- Frontend public env keys must use `VITE_*` in this repository.
+- Backend env should stay in `backend/.env` and must not leak to frontend.
+
+## 8) API Conventions
+- Prefer plural resource names in REST paths.
+- Avoid verbs in endpoint URLs.
+- Keep response shapes consistent (`success`, `data`, `message`, optional `meta`).
+- Keep error shapes consistent (`success: false`, `error.code`, `error.message`, optional `details`).
+
+## 9) Git Conventions
+- Branch names: `feature/*`, `fix/*`, `chore/*`, `hotfix/*`.
+- Commit messages: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
+
+## 10) Practical Priority
+- Follow existing local patterns first when the repository already has a clear convention.
+- For new modules, use the conventions above.
+- Do not refactor folder structure unless explicitly requested.
