@@ -1,5 +1,7 @@
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from '../utils/equipmentOeeDisplay';
 import { equipmentOeeModeLabelVi } from '../utils/equipmentOeeDisplay';
+import type { LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, Clock3, History, Radio, TimerReset } from 'lucide-react';
 
 type EquipmentOeeToolbarProps = {
   mode: EquipmentOeeMode;
@@ -26,6 +28,19 @@ const modes: EquipmentOeeMode[] = [
   'calendar_day',
   'past_shift',
 ];
+
+const modeIcons: Record<EquipmentOeeMode, LucideIcon> = {
+  realtime: Radio,
+  shift_live: TimerReset,
+  shift_1: Clock3,
+  shift_2: Clock3,
+  shift_3: Clock3,
+  day: Activity,
+  yesterday: History,
+  week: BarChart3,
+  calendar_day: CalendarDays,
+  past_shift: CalendarDays,
+};
 
 function formatTodayYmd(): string {
   const d = new Date();
@@ -106,44 +121,104 @@ export function EquipmentOeeToolbar({
           : 'rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 px-4 py-3 mb-6'
       }
     >
-      <div className="flex flex-col gap-y-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-white/90 text-sm font-medium tracking-wide">
-          Overall Equipment Effectiveness (OEE){' '}
-          <span className="text-white/50 font-normal">— chọn khung thời gian</span>
+      <div className="flex flex-col items-center gap-y-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+        <div className="flex flex-nowrap items-center justify-center gap-2 sm:justify-start overflow-x-auto">
+          <span
+            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs sm:text-sm font-semibold tracking-wide shadow-sm"
+            style={{
+              color: '#E0F7FF',
+              background: 'rgba(14, 165, 233, 0.28)',
+              border: '1px solid rgba(125, 211, 252, 0.85)',
+              boxShadow: '0 0 0 1px rgba(14,165,233,0.18) inset',
+            }}
+          >
+            Overall Equipment Effectiveness (OEE)
+          </span>
+          <span
+            className="inline-flex items-center px-2 py-1 text-[11px] sm:text-xs font-medium tracking-wide whitespace-nowrap shrink-0"
+            style={{
+              color: '#9FD6FF',
+            }}
+          >
+            Chọn khung thời gian
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 max-w-full">
-          {modes.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onModeChange(m)}
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold tracking-wide border transition-all ${
-                mode === m
-                  ? 'bg-[#34E7F8]/25 border-[#34E7F8]/60 text-[#34E7F8]'
-                  : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              {equipmentOeeModeLabelVi(m)}
-            </button>
-          ))}
+        <div className="flex items-start sm:items-center justify-center gap-2 w-full sm:w-auto">
+          <span className="px-1 text-sm font-semibold select-none" style={{ color: '#8FA7C2' }}>
+            |
+          </span>
+          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto pb-1 flex-1 sm:flex-none">
+            {modes.map((m) => {
+              const isActive = mode === m;
+              const Icon = modeIcons[m];
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onModeChange(m)}
+                  className="inline-flex items-center justify-start gap-2 w-[128px] h-9 rounded-lg text-[11px] sm:text-xs font-semibold tracking-wide border transition-all hover:brightness-110 whitespace-nowrap px-3 shrink-0 leading-none"
+                  style={
+                    isActive
+                      ? {
+                          color: '#EAFEFF',
+                          background: 'rgba(34, 211, 238, 0.34)',
+                          borderColor: 'rgba(103, 232, 249, 0.95)',
+                          boxShadow: '0 0 0 1px rgba(34,211,238,0.25) inset',
+                        }
+                      : {
+                          color: '#E2ECFA',
+                          background: 'rgba(15, 27, 43, 0.92)',
+                          borderColor: 'rgba(76, 103, 131, 0.95)',
+                        }
+                  }
+                >
+                  <Icon
+                    size={13}
+                    strokeWidth={2.2}
+                    style={{
+                      opacity: isActive ? 1 : 0.82,
+                      flexShrink: 0,
+                      color: isActive ? '#EAFEFF' : '#D9E8FB',
+                    }}
+                  />
+                  <span
+                    className="truncate"
+                    style={{
+                      color: isActive ? '#EAFEFF' : '#E2ECFA',
+                      textShadow: isActive
+                        ? '0 0 8px rgba(125, 211, 252, 0.35)'
+                        : '0 0 6px rgba(148, 163, 184, 0.25)',
+                    }}
+                  >
+                    {equipmentOeeModeLabelVi(m)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {loading && mode !== 'realtime' ? (
-            <span className="text-white/40 text-xs ml-1">Đang tải…</span>
+            <span className="text-xs ml-1" style={{ color: '#B8C8DA' }}>
+              Đang tải…
+            </span>
           ) : null}
         </div>
       </div>
 
       {showDatePicker ? (
         <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-white/10 pt-3">
-          <label className="flex flex-wrap items-center gap-2 text-white/70 text-xs">
-            <span className="text-white/55 shrink-0">Chọn ngày</span>
+          <label className="flex flex-wrap items-center gap-2 text-sm" style={{ color: '#CFE8FF' }}>
+            <span className="font-medium shrink-0" style={{ color: '#C7E2FF' }}>
+              Chọn ngày
+            </span>
             <input
               type="date"
               value={referenceDate}
               onChange={(e) => onReferenceDateChange(e.target.value)}
-              className="rounded-md bg-white/10 border border-white/20 px-2 py-1 text-white text-xs min-w-0"
+              className="rounded-md bg-white/10 border border-white/30 px-2.5 py-1.5 text-[#EAF4FF] text-sm min-w-0"
+              style={{ colorScheme: 'dark', color: '#EAF4FF' }}
             />
-            <span className="text-white/40 text-[10px] max-w-[220px] leading-snug">
-              Dùng cho Ca 1–3, &quot;Cả ngày&quot;, và Ca đã qua (ISO).
+            <span className="text-xs max-w-[260px] leading-snug" style={{ color: '#AFC5DE' }}>
+              Dùng cho Ca 1–3, &quot;OEE theo ngày&quot;, và Ca đã qua (ISO).
             </span>
           </label>
         </div>
@@ -151,17 +226,29 @@ export function EquipmentOeeToolbar({
 
       {mode === 'past_shift' ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-white/50 text-xs">Ca (ISO):</span>
+          <span className="text-xs font-medium" style={{ color: '#CBE3FF' }}>
+            Ca (ISO):
+          </span>
           {([1, 2, 3] as const).map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => onPastIsoShiftNumberChange(n)}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${
+              className="inline-flex items-center justify-center min-w-[42px] h-8 px-3 rounded-md text-xs font-semibold border hover:brightness-110"
+              style={
                 pastIsoShiftNumber === n
-                  ? 'bg-[#34E7F8]/20 border-[#34E7F8]/50 text-[#34E7F8]'
-                  : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
-              }`}
+                  ? {
+                      color: '#EAFEFF',
+                      background: 'rgba(34, 211, 238, 0.34)',
+                      borderColor: 'rgba(103, 232, 249, 0.95)',
+                      boxShadow: '0 0 0 1px rgba(34,211,238,0.25) inset',
+                    }
+                  : {
+                      color: '#E2ECFA',
+                      background: 'rgba(15, 27, 43, 0.92)',
+                      borderColor: 'rgba(76, 103, 131, 0.95)',
+                    }
+              }
             >
               {n}
             </button>
@@ -170,12 +257,14 @@ export function EquipmentOeeToolbar({
       ) : null}
 
       {hint ? (
-        <div className="mt-2 text-white/45 text-xs">
+        <div className="mt-2 text-sm font-medium" style={{ color: '#CAE0F6' }}>
           {mode === 'past_shift' ? 'Báo cáo ca đã khóa:' : 'Cửa sổ analytics:'} {hint}
         </div>
       ) : null}
       {error ? (
-        <div className="mt-2 text-amber-300/90 text-xs">{error}</div>
+        <div className="mt-2 text-xs font-medium" style={{ color: '#FCD34D' }}>
+          {error}
+        </div>
       ) : null}
 
       {mode === 'past_shift' ? (

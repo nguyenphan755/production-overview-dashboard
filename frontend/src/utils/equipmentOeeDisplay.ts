@@ -99,7 +99,7 @@ export function equipmentOeeModeLabelVi(mode: EquipmentOeeMode): string {
     case 'week':
       return '7 ngày';
     case 'calendar_day':
-      return 'Cả ngày';
+      return 'OEE theo ngày';
     case 'past_shift':
       return 'Ca đã qua (ISO)';
     default:
