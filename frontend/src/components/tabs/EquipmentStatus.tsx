@@ -3,11 +3,27 @@ import { useMemo, useState } from 'react';
 import { useMachines, useProductionOrders } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
+import { EquipmentOeeToolbar } from '../EquipmentOeeToolbar';
 import type { ProductionArea, Machine, ProductionOrder } from '../../types';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
-
+import {
+  pickMachineOee,
+  type EquipmentOeeAnalyticsScope,
+  type EquipmentOeeMode,
+  type MachineOeeRollupRow,
+} from '../../utils/equipmentOeeDisplay';
 interface EquipmentStatusProps {
   onMachineClick: (machineId: string) => void;
+  equipmentOeeMode: EquipmentOeeMode;
+  onEquipmentOeeModeChange: (mode: EquipmentOeeMode) => void;
+  equipmentOeeRollupByMachine: Record<string, MachineOeeRollupRow>;
+  equipmentOeeScope: EquipmentOeeAnalyticsScope;
+  equipmentOeeRollupLoading: boolean;
+  equipmentOeeRollupError: string | null;
+  referenceDate: string;
+  onReferenceDateChange: (isoDate: string) => void;
+  pastIsoShiftNumber: 1 | 2 | 3;
+  onPastIsoShiftNumberChange: (n: 1 | 2 | 3) => void;
 }
 
 const areaConfig: Record<ProductionArea, { name: string; icon: any }> = {
@@ -17,7 +33,19 @@ const areaConfig: Record<ProductionArea, { name: string; icon: any }> = {
   sheathing: { name: 'SHEATHING / EXTRUSION MACHINES', icon: Zap },
 };
 
-export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
+export function EquipmentStatus({
+  onMachineClick,
+  equipmentOeeMode,
+  onEquipmentOeeModeChange,
+  equipmentOeeRollupByMachine,
+  equipmentOeeScope,
+  equipmentOeeRollupLoading,
+  equipmentOeeRollupError,
+  referenceDate,
+  onReferenceDateChange,
+  pastIsoShiftNumber,
+  onPastIsoShiftNumberChange,
+}: EquipmentStatusProps) {
   const { machines, loading } = useMachines();
   const trends = useMachineTrends(machines);
   const [expandedMachines, setExpandedMachines] = useState<Set<string>>(new Set());
@@ -150,6 +178,18 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
           <div className="text-white/40 text-sm mt-1">{((errorCount / totalMachines) * 100).toFixed(1)}%</div>
         </div>
       </div>
+
+      <EquipmentOeeToolbar
+        mode={equipmentOeeMode}
+        onModeChange={onEquipmentOeeModeChange}
+        scope={equipmentOeeScope}
+        loading={equipmentOeeRollupLoading}
+        error={equipmentOeeRollupError}
+        referenceDate={referenceDate}
+        onReferenceDateChange={onReferenceDateChange}
+        pastIsoShiftNumber={pastIsoShiftNumber}
+        onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
+      />
 
       {/* Production Areas */}
       <div className="space-y-6">
@@ -439,22 +479,29 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                               <Target className="w-2.5 h-2.5 text-[#34E7F8]" strokeWidth={2} />
                               <div className="text-white/50 text-[9px] tracking-wide">OEE</div>
                             </div>
+                            {(() => {
+                              const oeeDisp = pickMachineOee(machine, equipmentOeeMode, equipmentOeeRollupByMachine);
+                              const oeeVal = Math.round(oeeDisp.oee);
+                              const aVal = Math.round(oeeDisp.availability);
+                              const pVal = Math.round(oeeDisp.performance);
+                              const qVal = Math.round(oeeDisp.quality);
+                              return (
                             <div className="grid gap-1 responsive-grid-4">
                               {/* OEE */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                                 <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">OEE</div>
                                 <div 
                                   className={`${isRunning ? 'text-base' : 'text-sm'} tracking-tight mb-0.5`}
-                                  style={{ color: getOEEColor(machine.oee || 0) }}
+                                  style={{ color: getOEEColor(oeeVal) }}
                                 >
-                                  {Math.round(machine.oee || 0)}%
+                                  {oeeVal}%
                                 </div>
                                 <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
                                   <div 
                                     className="h-full rounded-full"
                                     style={{
-                                      width: `${Math.min(machine.oee || 0, 100)}%`,
-                                      backgroundColor: getOEEColor(machine.oee || 0)
+                                      width: `${Math.min(oeeVal, 100)}%`,
+                                      backgroundColor: getOEEColor(oeeVal)
                                     }}
                                   />
                                 </div>
@@ -464,12 +511,12 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                                 <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">A</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#4FFFBC] tracking-tight mb-0.5`}>
-                                  {Math.round(machine.availability || 0)}%
+                                  {aVal}%
                                 </div>
                                 <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
                                   <div 
                                     className="h-full rounded-full bg-[#4FFFBC]"
-                                    style={{ width: `${Math.min(machine.availability || 0, 100)}%` }}
+                                    style={{ width: `${Math.min(aVal, 100)}%` }}
                                   />
                                 </div>
                               </div>
@@ -478,12 +525,12 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                                 <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">P</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#FFB86C] tracking-tight mb-0.5`}>
-                                  {Math.round(machine.performance || 0)}%
+                                  {pVal}%
                                 </div>
                                 <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
                                   <div 
                                     className="h-full rounded-full bg-[#FFB86C]"
-                                    style={{ width: `${Math.min(machine.performance || 0, 100)}%` }}
+                                    style={{ width: `${Math.min(pVal, 100)}%` }}
                                   />
                                 </div>
                               </div>
@@ -492,16 +539,18 @@ export function EquipmentStatus({ onMachineClick }: EquipmentStatusProps) {
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                                 <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">Q</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#34E7F8] tracking-tight mb-0.5`}>
-                                  {Math.round(machine.quality || 0)}%
+                                  {qVal}%
                                 </div>
                                 <div className="h-0.5 bg-white/10 rounded-full overflow-hidden">
                                   <div 
                                     className="h-full rounded-full bg-[#34E7F8]"
-                                    style={{ width: `${Math.min(machine.quality || 0, 100)}%` }}
+                                    style={{ width: `${Math.min(qVal, 100)}%` }}
                                   />
                                 </div>
                               </div>
                             </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>

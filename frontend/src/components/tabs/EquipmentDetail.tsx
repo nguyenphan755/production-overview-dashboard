@@ -7,13 +7,43 @@ import { useBobbinCutDetector, mergeCutsForOrder } from '../../hooks/useBobbinCu
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 import { apiClient } from '../../services/api';
 import type { ProductionOrder } from '../../types';
-
+import { EquipmentOeeToolbar } from '../EquipmentOeeToolbar';
+import {
+  equipmentOeeModeLabelVi,
+  pickMachineOee,
+  type EquipmentOeeAnalyticsScope,
+  type EquipmentOeeMode,
+  type MachineOeeRollupRow,
+} from '../../utils/equipmentOeeDisplay';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
+  equipmentOeeMode: EquipmentOeeMode;
+  onEquipmentOeeModeChange: (mode: EquipmentOeeMode) => void;
+  equipmentOeeRollupByMachine: Record<string, MachineOeeRollupRow>;
+  equipmentOeeScope: EquipmentOeeAnalyticsScope;
+  equipmentOeeRollupLoading: boolean;
+  equipmentOeeRollupError: string | null;
+  referenceDate: string;
+  onReferenceDateChange: (isoDate: string) => void;
+  pastIsoShiftNumber: 1 | 2 | 3;
+  onPastIsoShiftNumberChange: (n: 1 | 2 | 3) => void;
 }
 
-export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
+export function EquipmentDetail({
+  machineId,
+  onBack,
+  equipmentOeeMode,
+  onEquipmentOeeModeChange,
+  equipmentOeeRollupByMachine,
+  equipmentOeeScope,
+  equipmentOeeRollupLoading,
+  equipmentOeeRollupError,
+  referenceDate,
+  onReferenceDateChange,
+  pastIsoShiftNumber,
+  onPastIsoShiftNumberChange,
+}: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
 
   // Dev helper: auto simulate 1 bobbin on LHT-1 for UI verification.
@@ -381,14 +411,49 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
     estimatedCompletion: estimatedCompletionFormatted
   };
 
-  // OEE metrics
+  const resolvedOee = pickMachineOee(machine, equipmentOeeMode, equipmentOeeRollupByMachine);
   const oeeMetrics = {
-    availability: machine.availability || 0,
-    performance: machine.performance || 0,
-    quality: machine.quality || 0,
-    oee: machine.oee || 0
+    availability: resolvedOee.availability,
+    performance: resolvedOee.performance,
+    quality: resolvedOee.quality,
+    oee: resolvedOee.oee,
   };
-  const availabilityLabel = machine.availabilityIsPreliminary ? 'AVAILABILITY (PREV SHIFT)' : 'AVAILABILITY';
+  const availabilityLabel =
+    resolvedOee.source === 'settled'
+      ? 'AVAILABILITY (SNAPSHOT CA)'
+      : resolvedOee.source === 'rollup' && equipmentOeeMode === 'past_shift'
+        ? 'AVAILABILITY (ROLLUP CA)'
+        : resolvedOee.source === 'rollup'
+          ? 'AVAILABILITY (ROLLUP)'
+          : machine.availabilityIsPreliminary
+            ? 'AVAILABILITY (PREV SHIFT)'
+            : 'AVAILABILITY';
+  const performanceLabel =
+    resolvedOee.source === 'settled'
+      ? 'PERFORMANCE (SNAPSHOT CA)'
+      : resolvedOee.source === 'rollup' && equipmentOeeMode === 'past_shift'
+        ? 'PERFORMANCE (ROLLUP CA)'
+        : resolvedOee.source === 'rollup'
+          ? 'PERFORMANCE (ROLLUP)'
+          : machine.performanceDataQuality === 'MISSING_TARGET_DEFAULT_100'
+            ? 'PERFORMANCE (NO TARGET)'
+            : 'PERFORMANCE';
+  const qualityFootnote =
+    resolvedOee.source === 'realtime'
+      ? machine.qualityDataQuality === 'ASSUMED_100_PENDING_NG_INTEGRATION'
+        ? 'Giả định 100% — chưa trừ NG'
+        : machine.qualityDataQuality === 'NO_PRODUCTION'
+          ? 'Chưa có sản lượng trong ca'
+          : null
+      : null;
+  const rollupModeFootnote =
+    resolvedOee.source === 'settled'
+      ? 'Snapshot immutable trong oee_shift_settlements (rollup_v1). OEE = A×P×Q — định nghĩa báo cáo TPM / ISO 22400.'
+      : resolvedOee.source === 'rollup' && equipmentOeeMode === 'past_shift'
+        ? 'Rollup ca đã đóng — cùng công thức settlement nhưng chưa có POST settle hoặc snapshot chưa đủ máy.'
+        : resolvedOee.source === 'rollup'
+          ? `Số liệu rollup Analytics — ${equipmentOeeModeLabelVi(equipmentOeeMode)} (theo máy này trong cửa sổ phía trên).`
+          : null;
 
   const getOEEColor = (value: number) => {
     if (value >= 85) return '#22C55E';
@@ -616,7 +681,21 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
       </div>
 
       {/* OEE Metrics */}
-      <div className="desktop-only mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+      <div className="mb-4 space-y-3">
+        <EquipmentOeeToolbar
+          mode={equipmentOeeMode}
+          onModeChange={onEquipmentOeeModeChange}
+          scope={equipmentOeeScope}
+          loading={equipmentOeeRollupLoading}
+          error={equipmentOeeRollupError}
+          compact
+          referenceDate={referenceDate}
+          onReferenceDateChange={onReferenceDateChange}
+          pastIsoShiftNumber={pastIsoShiftNumber}
+          onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
+        />
+
+      <div className="desktop-only rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
           <h3 className="text-base text-white">Overall Equipment Effectiveness (OEE)</h3>
@@ -656,7 +735,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
 
           {/* Performance */}
           <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-            <div className="text-white/60 text-xs mb-1.5 tracking-wider">PERFORMANCE</div>
+            <div className="text-white/60 text-xs mb-1.5 tracking-wider">{performanceLabel}</div>
             <div className="text-3xl text-[#FFB86C] tracking-tight mb-2">{oeeMetrics.performance}%</div>
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
@@ -670,6 +749,9 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
           <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
             <div className="text-white/60 text-xs mb-1.5 tracking-wider">QUALITY</div>
             <div className="text-3xl text-[#34E7F8] tracking-tight mb-2">{oeeMetrics.quality}%</div>
+            {qualityFootnote ? (
+              <p className="text-[10px] text-amber-200/90 mb-2 leading-snug">{qualityFootnote}</p>
+            ) : null}
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full rounded-full bg-[#34E7F8]"
@@ -678,9 +760,12 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
             </div>
           </div>
         </div>
+        {rollupModeFootnote ? (
+          <p className="text-[11px] text-white/45 mt-2 leading-snug">{rollupModeFootnote}</p>
+        ) : null}
       </div>
 
-      <div className="mobile-only mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
+      <div className="mobile-only rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
         <details className="mobile-accordion">
           <summary className="flex items-center justify-between gap-2 text-white">
             <div className="flex items-center gap-2">
@@ -714,7 +799,7 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                <div className="text-white/60 text-xs mb-1.5 tracking-wider">PERFORMANCE</div>
+                <div className="text-white/60 text-xs mb-1.5 tracking-wider">{performanceLabel}</div>
                 <div className="text-2xl text-[#FFB86C] tracking-tight mb-2">{oeeMetrics.performance}%</div>
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                   <div className="h-full rounded-full bg-[#FFB86C]" style={{ width: `${oeeMetrics.performance}%` }} />
@@ -723,13 +808,20 @@ export function EquipmentDetail({ machineId, onBack }: EquipmentDetailProps) {
               <div className="p-3 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
                 <div className="text-white/60 text-xs mb-1.5 tracking-wider">QUALITY</div>
                 <div className="text-2xl text-[#34E7F8] tracking-tight mb-2">{oeeMetrics.quality}%</div>
+                {qualityFootnote ? (
+                  <p className="text-[10px] text-amber-200/90 mb-2 leading-snug">{qualityFootnote}</p>
+                ) : null}
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                   <div className="h-full rounded-full bg-[#34E7F8]" style={{ width: `${oeeMetrics.quality}%` }} />
                 </div>
               </div>
             </div>
+            {rollupModeFootnote ? (
+              <p className="text-[11px] text-white/45 mt-2 leading-snug">{rollupModeFootnote}</p>
+            ) : null}
           </div>
         </details>
+      </div>
       </div>
 
       {/* Real-time Charts */}

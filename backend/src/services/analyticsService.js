@@ -5,6 +5,11 @@
 
 import { query } from '../../database/connection.js';
 import { getCurrentShiftWindow, getShiftId, getShiftWindow } from '../utils/shiftCalculator.js';
+import {
+  buildRollupQualityPercentByMachine,
+  computeRollupOeeRows,
+  getWeightedOeeSnapshotMetrics,
+} from './oeeRollupService.js';
 
 const CACHE_TTL_SECONDS = parseInt(process.env.ANALYTICS_CACHE_TTL || '60', 10);
 
@@ -14,6 +19,20 @@ const floorToMinute = (date) => new Date(Math.floor(date.getTime() / 60000) * 60
 
 const getRangeWindow = (range, now = new Date(), options = {}) => {
   const normalizedEnd = floorToMinute(now);
+  if (range === 'calendar_day' && options.dayDate) {
+    const [year, month, day] = String(options.dayDate).split('-').map(Number);
+    const start = new Date(year, (month || 1) - 1, day || 1, 0, 0, 0, 0);
+    const endExclusive = new Date(year, (month || 1) - 1, (day || 1) + 1, 0, 0, 0, 0);
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = start.getTime() === todayStart.getTime() ? normalizedEnd : endExclusive;
+    return {
+      range: 'calendar_day',
+      start,
+      end,
+      dayDate: options.dayDate,
+    };
+  }
+
   if (range === 'shift') {
     if (options.shiftDate && options.shiftNumber) {
       const [year, month, day] = options.shiftDate.split('-').map(Number);
@@ -236,27 +255,6 @@ const getOrders = async (machineIds) => {
   return result.rows;
 };
 
-const getHistoricalOeeMetrics = async (machineIds, start, end) => {
-  if (!machineIds.length) return [];
-  const result = await query(
-    `SELECT 
-       machine_id,
-       AVG(availability) as availability,
-       AVG(performance) as performance,
-       AVG(quality) as quality,
-       AVG(oee) as oee,
-       AVG(actual_speed) as actual_speed,
-       AVG(target_speed) as target_speed
-     FROM oee_calculations
-     WHERE calculation_timestamp >= $1
-       AND calculation_timestamp <= $2
-       AND machine_id = ANY($3)
-     GROUP BY machine_id`,
-    [start, end, machineIds]
-  );
-  return result.rows;
-};
-
 const getHistoricalQuality = async (machineIds, start, end) => {
   if (!machineIds.length) return [];
   const result = await query(
@@ -294,16 +292,23 @@ const getPreviousShiftAvailability = async (machineIds, now) => {
   }, {});
 };
 
+const W_OEE = 'COALESCE(NULLIF(running_time_seconds, 0), 1)::numeric';
+
 const getOeeTrend = async (machineIds, start, end) => {
   if (!machineIds.length) return [];
   const result = await query(
     `SELECT 
        date_trunc('minute', calculation_timestamp) 
          - ((EXTRACT(MINUTE FROM calculation_timestamp)::int % 10) * INTERVAL '1 minute') as bucket,
-       AVG(availability) as availability,
-       AVG(performance) as performance,
-       AVG(quality) as quality,
-       AVG(oee) as oee
+       CASE WHEN SUM(${W_OEE}) > 0 THEN
+         SUM(availability * ${W_OEE}) / SUM(${W_OEE})
+       ELSE AVG(availability) END as availability,
+       CASE WHEN SUM(${W_OEE}) > 0 THEN
+         SUM(performance * ${W_OEE}) / SUM(${W_OEE})
+       ELSE AVG(performance) END as performance,
+       CASE WHEN SUM(${W_OEE}) > 0 THEN
+         SUM(quality * ${W_OEE}) / SUM(${W_OEE})
+       ELSE AVG(quality) END as quality
      FROM oee_calculations
      WHERE calculation_timestamp >= $1
        AND calculation_timestamp <= $2
@@ -312,13 +317,19 @@ const getOeeTrend = async (machineIds, start, end) => {
      ORDER BY bucket ASC`,
     [start, end, machineIds]
   );
-  return result.rows.map((row) => ({
-    time: new Date(row.bucket).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    availability: parseFloat(row.availability || 0),
-    performance: parseFloat(row.performance || 0),
-    quality: parseFloat(row.quality || 0),
-    oee: parseFloat(row.oee || 0),
-  }));
+  return result.rows.map((row) => {
+    const availability = parseFloat(row.availability || 0);
+    const performance = parseFloat(row.performance || 0);
+    const quality = parseFloat(row.quality || 0);
+    const oee = (availability * performance * quality) / 10000;
+    return {
+      time: new Date(row.bucket).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      availability,
+      performance,
+      quality,
+      oee,
+    };
+  });
 };
 
 const getProductionRateTrend = async (machineIds, start, end) => {
@@ -587,9 +598,16 @@ const buildInsightSummary = (sixBigLosses, machineLossProfiles, paretoByShift) =
     `${topShift ? `Losses are concentrated in ${topShift}.` : ''}`.trim();
 };
 
-export async function computeAnalytics({ range = 'today', area = 'all', machineId = null, shiftDate, shiftNumber }) {
+export async function computeAnalytics({
+  range = 'today',
+  area = 'all',
+  machineId = null,
+  shiftDate,
+  shiftNumber,
+  dayDate,
+}) {
   const now = new Date();
-  const window = getRangeWindow(range, now, { shiftDate, shiftNumber });
+  const window = getRangeWindow(range, now, { shiftDate, shiftNumber, dayDate });
   const scopeStart = window.start;
   const scopeEnd = window.end;
   const isLiveShiftRange =
@@ -616,7 +634,7 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     statusHistory,
     alarms,
     orders,
-    historicalOee,
+    weightedOeeSnapshots,
     historicalQuality,
     oeeTrend,
     productionRateTrend,
@@ -630,7 +648,7 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     getMachineStatusHistory(machineIds, scopeStart, scopeEnd),
     getAlarmHistory(machineIds, scopeStart),
     getOrders(machineIds),
-    getHistoricalOeeMetrics(machineIds, scopeStart, scopeEnd),
+    getWeightedOeeSnapshotMetrics(machineIds, scopeStart, scopeEnd),
     getHistoricalQuality(machineIds, scopeStart, scopeEnd),
     getOeeTrend(machineIds, scopeStart, scopeEnd),
     getProductionRateTrend(machineIds, scopeStart, scopeEnd),
@@ -641,6 +659,17 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
     getTemperatureStability(machineIds, scopeStart, scopeEnd),
     isLiveShiftRange ? getPreviousShiftAvailability(machineIds, now) : Promise.resolve({}),
   ]);
+
+  const qualityPctByMachine = buildRollupQualityPercentByMachine(machines, historicalQuality);
+  const machinesById = Object.fromEntries(machines.map((m) => [m.id, m]));
+  const historicalOee = await computeRollupOeeRows(
+    machineIds,
+    scopeStart,
+    scopeEnd,
+    qualityPctByMachine,
+    weightedOeeSnapshots,
+    machinesById
+  );
 
   const alarmsByMachine = alarms.reduce((acc, alarm) => {
     acc[alarm.machine_id] = acc[alarm.machine_id] || [];
@@ -902,14 +931,31 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
 
   const insightSummary = buildInsightSummary(sixBigLosses, machineLossProfiles, paretoByShift);
 
+  const machineOeeRollup = machineLossProfiles.map((p) => ({
+    machineId: p.machineId,
+    machineName: p.machineName,
+    area: p.area,
+    oee: Math.round(p.oee * 10) / 10,
+    availability: Math.round(p.availability * 10) / 10,
+    performance: Math.round(p.performance * 10) / 10,
+    quality: Math.round(p.quality * 10) / 10,
+  }));
+
   return {
     scope: {
       range: window.range,
       start: scopeStart.toISOString(),
       end: scopeEnd.toISOString(),
       shiftId: window.shiftId || null,
+      dayDate: window.dayDate || null,
       area: area || 'all',
       machineId: machineId || null,
+    },
+    oeeMethodology: {
+      historicalRollup:
+        'Availability from machine_status_history over scope; Performance weighted by running_time in oee_calculations (fallback: machines.performance); Quality from summed OK/NG with 100% when no split (pending NG policy). OEE = A×P×Q.',
+      trendBuckets:
+        '10-minute buckets: weighted A/P/Q from oee_calculations snapshots; OEE = A×P×Q/10000.',
     },
     oeeSummary: {
       oee: Math.round(avgOee * 10) / 10,
@@ -918,6 +964,7 @@ export async function computeAnalytics({ range = 'today', area = 'all', machineI
       quality: Math.round(avgQuality * 10) / 10,
       totalGap: Math.round(totalGap * 10) / 10,
     },
+    machineOeeRollup,
     sixBigLosses,
     pareto: {
       byCategory: paretoByCategory,
@@ -1078,6 +1125,7 @@ export async function getAnalyticsWithCache(params, { force = false } = {}) {
   const window = getRangeWindow(params.range || 'today', new Date(), {
     shiftDate: params.shiftDate,
     shiftNumber: params.shiftNumber,
+    dayDate: params.dayDate,
   });
   const scope = {
     range: window.range,
@@ -1104,6 +1152,7 @@ export async function getAnalyticsWithCache(params, { force = false } = {}) {
     machineId: scope.machineId,
     shiftDate: params.shiftDate,
     shiftNumber: params.shiftNumber,
+    dayDate: params.dayDate,
   });
   const history = await getAnalyticsHistory(scope);
   payload.lossTrend = buildLossTrend(history);

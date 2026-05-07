@@ -62,6 +62,8 @@ const formatMachine = (row) => {
     availability: row.availability ? parseFloat(row.availability) : undefined,
     performance: row.performance ? parseFloat(row.performance) : undefined,
     quality: row.quality ? parseFloat(row.quality) : undefined,
+    performanceDataQuality: row.performance_data_quality || undefined,
+    qualityDataQuality: row.quality_data_quality || undefined,
     current: row.current ? parseFloat(row.current) : undefined,
     power: row.power ? parseFloat(row.power) : undefined,
     temperature: row.temperature ? parseFloat(row.temperature) : undefined,
@@ -251,8 +253,8 @@ router.get('/:machineId', async (req, res) => {
           lineSpeed: machine.lineSpeed,
           targetSpeed: machine.targetSpeed,
           producedLength: machine.producedLength,
-          producedLengthOk: row.produced_length_ok !== undefined && row.produced_length_ok !== null ? parseFloat(row.produced_length_ok) : undefined,
-          producedLengthNg: row.produced_length_ng !== undefined && row.produced_length_ng !== null ? parseFloat(row.produced_length_ng) : undefined,
+          producedLengthOk: machine.producedLengthOk,
+          producedLengthNg: machine.producedLengthNg,
           status: machine.status
         },
         machine.productionOrderId || null
@@ -264,13 +266,24 @@ router.get('/:machineId', async (req, res) => {
       machine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
       machine.performance = oeeResult.performance;
       machine.quality = oeeResult.quality;
+      machine.performanceDataQuality = oeeResult.performanceDataQuality;
+      machine.qualityDataQuality = oeeResult.qualityDataQuality;
 
       // Update OEE in database
       await query(
         `UPDATE machines 
-         SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
-         WHERE id = $5`,
-        [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+         SET oee = $1, availability = $2, performance = $3, quality = $4,
+             performance_data_quality = $5, quality_data_quality = $6, last_updated = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          oeeResult.oee,
+          oeeResult.availability,
+          oeeResult.performance,
+          oeeResult.quality,
+          oeeResult.performanceDataQuality,
+          oeeResult.qualityDataQuality,
+          machineId,
+        ]
       );
     } catch (error) {
       console.error(`Error calculating OEE for ${machineId}:`, error);
@@ -690,7 +703,7 @@ router.patch('/:machineId', async (req, res) => {
 
     // Calculate real-time OEE if relevant fields were updated
     // Note: statusChanged indicates if status was in the original updates and changed
-    const oeeRelevantFields = ['lineSpeed', 'targetSpeed', 'producedLength', 'status', 'productionOrderId'];
+    const oeeRelevantFields = ['lineSpeed', 'targetSpeed', 'producedLength', 'producedLengthOk', 'producedLengthNg', 'status', 'productionOrderId'];
     const shouldRecalculateOEE = oeeRelevantFields.some(field => 
       (field === 'status' && statusChanged) || (field !== 'status' && updates[field] !== undefined)
     );
@@ -702,8 +715,10 @@ router.patch('/:machineId', async (req, res) => {
           lineSpeed: updatedMachine.lineSpeed || 0,
           targetSpeed: updatedMachine.targetSpeed || 0,
           producedLength: updatedMachine.producedLength || 0,
-          producedLengthOk: updates.producedLengthOk !== undefined ? updates.producedLengthOk : undefined,
-          producedLengthNg: updates.producedLengthNg !== undefined ? updates.producedLengthNg : undefined,
+          producedLengthOk:
+            updates.producedLengthOk !== undefined ? updates.producedLengthOk : updatedMachine.producedLengthOk,
+          producedLengthNg:
+            updates.producedLengthNg !== undefined ? updates.producedLengthNg : updatedMachine.producedLengthNg,
           status: updatedMachine.status
         };
 
@@ -716,9 +731,18 @@ router.patch('/:machineId', async (req, res) => {
         // Update OEE values in database
         await query(
           `UPDATE machines 
-           SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
-           WHERE id = $5`,
-          [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+           SET oee = $1, availability = $2, performance = $3, quality = $4,
+               performance_data_quality = $5, quality_data_quality = $6, last_updated = CURRENT_TIMESTAMP
+           WHERE id = $7`,
+          [
+            oeeResult.oee,
+            oeeResult.availability,
+            oeeResult.performance,
+            oeeResult.quality,
+            oeeResult.performanceDataQuality,
+            oeeResult.qualityDataQuality,
+            machineId,
+          ]
         );
 
         // Update machine object with OEE values
@@ -727,6 +751,8 @@ router.patch('/:machineId', async (req, res) => {
         updatedMachine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
         updatedMachine.performance = oeeResult.performance;
         updatedMachine.quality = oeeResult.quality;
+        updatedMachine.performanceDataQuality = oeeResult.performanceDataQuality;
+        updatedMachine.qualityDataQuality = oeeResult.qualityDataQuality;
       } catch (error) {
         console.error(`Error calculating OEE for ${machineId}:`, error);
         // Continue without OEE update if calculation fails
@@ -972,8 +998,10 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
           lineSpeed: updatedMachine.lineSpeed || 0,
           targetSpeed: updatedMachine.targetSpeed || 0,
           producedLength: updatedMachine.producedLength || 0,
-          producedLengthOk: updates.producedLengthOk !== undefined ? updates.producedLengthOk : undefined,
-          producedLengthNg: updates.producedLengthNg !== undefined ? updates.producedLengthNg : undefined,
+          producedLengthOk:
+            updates.producedLengthOk !== undefined ? updates.producedLengthOk : updatedMachine.producedLengthOk,
+          producedLengthNg:
+            updates.producedLengthNg !== undefined ? updates.producedLengthNg : updatedMachine.producedLengthNg,
           status: updatedMachine.status
         };
 
@@ -986,9 +1014,18 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
         // Update OEE values in database
         await query(
           `UPDATE machines 
-           SET oee = $1, availability = $2, performance = $3, quality = $4, last_updated = CURRENT_TIMESTAMP
-           WHERE id = $5`,
-          [oeeResult.oee, oeeResult.availability, oeeResult.performance, oeeResult.quality, machineId]
+           SET oee = $1, availability = $2, performance = $3, quality = $4,
+               performance_data_quality = $5, quality_data_quality = $6, last_updated = CURRENT_TIMESTAMP
+           WHERE id = $7`,
+          [
+            oeeResult.oee,
+            oeeResult.availability,
+            oeeResult.performance,
+            oeeResult.quality,
+            oeeResult.performanceDataQuality,
+            oeeResult.qualityDataQuality,
+            machineId,
+          ]
         );
 
         // Update machine object with OEE values
@@ -997,6 +1034,8 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
         updatedMachine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
         updatedMachine.performance = oeeResult.performance;
         updatedMachine.quality = oeeResult.quality;
+        updatedMachine.performanceDataQuality = oeeResult.performanceDataQuality;
+        updatedMachine.qualityDataQuality = oeeResult.qualityDataQuality;
       } catch (error) {
         console.error(`Error calculating OEE for ${machineId}:`, error);
         // Continue without OEE update if calculation fails

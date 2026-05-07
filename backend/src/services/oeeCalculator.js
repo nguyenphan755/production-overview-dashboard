@@ -10,6 +10,7 @@
  */
 
 import { query } from '../../database/connection.js';
+import { QualityDataQuality, PerformanceDataQuality } from '../constants/oee-data-quality.js';
 
 /**
  * Calculate Availability component
@@ -228,73 +229,116 @@ export async function calculateAvailability(machineId, productionOrderId, period
 }
 
 /**
- * Calculate Performance component
- * 
- * TEMPORARY RULE: Due to incomplete targetSpeed data availability:
- * - If targetSpeed > 0 (valid): Calculate normally as (actualSpeed / targetSpeed) × 100
- * - If targetSpeed = 0 or missing: Default Performance to 100%
- * 
- * TODO: Once complete targetSpeed data is available, this function will always use:
- *   Performance = (actualSpeed / targetSpeed) × 100
- * 
- * TEMPORARY CHANGE: If targetSpeed is 0 or missing, performance defaults to 100%.
- * This is because targetSpeed values are not fully available yet.
- * TODO: Once complete targetSpeed data is available, remove the default 100% logic.
- * 
- * @param {number} actualSpeed - Current line speed (m/min)
- * @param {number} targetSpeed - Target/rated speed (m/min)
- * @returns {number} Performance percentage (0-100)
+ * Availability for an arbitrary closed window [periodStart, periodEnd] (e.g. analytics rollup).
+ * Caps open-ended status segments at periodEnd (not CURRENT_TIMESTAMP).
+ */
+export async function calculateAvailabilityForPeriod(machineId, periodStart, periodEnd) {
+  try {
+    const plannedTimeSeconds = Math.max((periodEnd.getTime() - periodStart.getTime()) / 1000, 1);
+
+    const statusDurationsResult = await query(
+      `SELECT 
+        status,
+        COALESCE(SUM(
+          CASE 
+            WHEN status_end_time IS NOT NULL THEN 
+              EXTRACT(EPOCH FROM (
+                LEAST(status_end_time, $3::timestamp) - 
+                GREATEST(status_start_time, $2::timestamp)
+              ))
+            ELSE 
+              EXTRACT(EPOCH FROM (
+                LEAST($3::timestamp, $3::timestamp) - 
+                GREATEST(status_start_time, $2::timestamp)
+              ))
+          END
+        ), 0) as duration_seconds
+       FROM machine_status_history
+       WHERE machine_id = $1
+         AND status_start_time < $3
+         AND (status_end_time IS NULL OR status_end_time > $2)
+       GROUP BY status`,
+      [machineId, periodStart, periodEnd]
+    );
+
+    let runningTimeSeconds = 0;
+    let downtimeSeconds = 0;
+
+    statusDurationsResult.rows.forEach((row) => {
+      const duration = parseFloat(row.duration_seconds || 0);
+      if (row.status === 'running') {
+        runningTimeSeconds = duration;
+      } else {
+        downtimeSeconds += duration;
+      }
+    });
+
+    const calculatedRunningTime = Math.max(0, plannedTimeSeconds - downtimeSeconds);
+    const finalRunningTime = runningTimeSeconds > 0 ? runningTimeSeconds : calculatedRunningTime;
+    const availability = Math.max(0, Math.min(100, (finalRunningTime / plannedTimeSeconds) * 100));
+
+    return {
+      availability,
+      hasData: statusDurationsResult.rows.length > 0,
+    };
+  } catch (error) {
+    console.error(`Error calculating availability for period ${machineId}:`, error);
+    return { availability: 0, hasData: false };
+  }
+}
+
+/**
+ * TEMPORARY: missing targetSpeed → performance 100% + MISSING_TARGET_DEFAULT_100 flag.
+ * @returns {{ performance: number, performanceDataQuality: string }}
  */
 export function calculatePerformance(actualSpeed, targetSpeed) {
-
-  // TEMPORARY: If targetSpeed is 0 or missing, default performance to 100%
-  // TODO: Remove this when complete targetSpeed data is available
-// 822e5bc (update performance with targetSpeed)
   if (!targetSpeed || targetSpeed <= 0) {
-    return 100;
+    return {
+      performance: 100,
+      performanceDataQuality: PerformanceDataQuality.MISSING_TARGET_DEFAULT_100,
+    };
   }
-  
 
-  // Standard formula: Performance = (Actual Speed / Target Speed) × 100
-  // Performance cannot exceed 100% (machine cannot run faster than rated speed)
-// 822e5bc (update performance with targetSpeed)
   const performance = (actualSpeed / targetSpeed) * 100;
-  
-  // Performance cannot exceed 100% (machine cannot run faster than rated speed)
-  return Math.max(0, Math.min(100, performance));
+  return {
+    performance: Math.max(0, Math.min(100, performance)),
+    performanceDataQuality: PerformanceDataQuality.OK,
+  };
 }
 
 /**
  * Calculate Quality component
  * Quality = (OK Length / Total Produced Length) × 100
- * 
- * @param {string} machineId - Machine ID
- * @param {string} productionOrderId - Current production order ID (optional)
- * @param {number} producedLengthOk - OK length from real-time data (optional)
- * @param {number} producedLengthNg - NG length from real-time data (optional)
- * @param {number} producedLength - Total produced length (fallback)
- * @param {Date} periodStart - Start of calculation period
- * @param {Date} periodEnd - End of calculation period
- * @returns {Promise<number>} Quality percentage (0-100)
+ *
+ * @returns {Promise<{ quality: number, qualityDataQuality: string }>}
  */
-export async function calculateQuality(machineId, productionOrderId, producedLengthOk, producedLengthNg, producedLength, periodStart, periodEnd) {
+export async function calculateQuality(
+  machineId,
+  productionOrderId,
+  producedLengthOk,
+  producedLengthNg,
+  producedLength,
+  periodStart,
+  periodEnd
+) {
   try {
     let okLength = 0;
     let ngLength = 0;
     let totalLength = 0;
+    let source = 'none';
 
     // Use real-time OK/NG data if provided
     if (producedLengthOk !== undefined && producedLengthNg !== undefined) {
       okLength = parseFloat(producedLengthOk || 0);
       ngLength = parseFloat(producedLengthNg || 0);
       totalLength = okLength + ngLength;
+      source = 'realtime_ok_ng';
     } else if (producedLength !== undefined) {
-      // Fallback: Use total produced length (assume all is OK if no NG data)
       totalLength = parseFloat(producedLength || 0);
       okLength = totalLength;
       ngLength = 0;
+      source = 'total_only';
     } else {
-      // Try to get from production_quality table
       if (productionOrderId) {
         const qualityResult = await query(
           `SELECT 
@@ -313,33 +357,73 @@ export async function calculateQuality(machineId, productionOrderId, producedLen
           okLength = parseFloat(qualityResult.rows[0].total_ok || 0);
           ngLength = parseFloat(qualityResult.rows[0].total_ng || 0);
           totalLength = parseFloat(qualityResult.rows[0].total_length || 0);
+          source = 'production_quality';
+          if (totalLength <= 0 && okLength + ngLength > 0) {
+            totalLength = okLength + ngLength;
+          }
         }
       }
 
-      // Final fallback: Use produced_length from machines table
       if (totalLength === 0) {
         const machineResult = await query(
-          `SELECT produced_length FROM machines WHERE id = $1`,
+          `SELECT produced_length, produced_length_ok, produced_length_ng FROM machines WHERE id = $1`,
           [machineId]
         );
         if (machineResult.rows.length > 0) {
-          totalLength = parseFloat(machineResult.rows[0].produced_length || 0);
-          okLength = totalLength; // Assume all is OK if no quality data
-          ngLength = 0;
+          const mr = machineResult.rows[0];
+          const mo = mr.produced_length_ok != null ? parseFloat(mr.produced_length_ok) : null;
+          const mn = mr.produced_length_ng != null ? parseFloat(mr.produced_length_ng) : null;
+          if (mo != null && mn != null) {
+            okLength = mo;
+            ngLength = mn;
+            totalLength = okLength + ngLength;
+            source = 'machines_ok_ng';
+          } else {
+            totalLength = parseFloat(mr.produced_length || 0);
+            okLength = totalLength;
+            ngLength = 0;
+            source = 'machines_total_only';
+          }
         }
       }
     }
 
-    // Calculate quality
     if (totalLength === 0) {
-      return 100; // No production yet, assume 100% quality
+      return {
+        quality: 100,
+        qualityDataQuality: QualityDataQuality.NO_PRODUCTION,
+      };
     }
 
     const quality = (okLength / totalLength) * 100;
-    return Math.max(0, Math.min(100, quality));
+    const clamped = Math.max(0, Math.min(100, quality));
+
+    if (source === 'realtime_ok_ng' || source === 'machines_ok_ng') {
+      const dq =
+        ngLength > 0 ? QualityDataQuality.OK : QualityDataQuality.ASSUMED_100_PENDING_NG_INTEGRATION;
+      return { quality: clamped, qualityDataQuality: dq };
+    }
+
+    if (
+      source === 'production_quality' ||
+      source === 'total_only' ||
+      source === 'machines_total_only'
+    ) {
+      const dq =
+        ngLength > 0 ? QualityDataQuality.OK : QualityDataQuality.ASSUMED_100_PENDING_NG_INTEGRATION;
+      return { quality: clamped, qualityDataQuality: dq };
+    }
+
+    return {
+      quality: clamped,
+      qualityDataQuality: QualityDataQuality.ASSUMED_100_PENDING_NG_INTEGRATION,
+    };
   } catch (error) {
     console.error(`Error calculating quality for ${machineId}:`, error);
-    return 100; // Default to 100% if error
+    return {
+      quality: 100,
+      qualityDataQuality: QualityDataQuality.ERROR_DEFAULT,
+    };
   }
 }
 
@@ -386,14 +470,13 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
     );
     const availability = availabilityResult.availability;
 
-    // Calculate Performance: Current speed / Target speed (real-time)
-    const performance = calculatePerformance(
+    const performanceResult = calculatePerformance(
       machineData.lineSpeed || 0,
       machineData.targetSpeed || 0
     );
+    const performance = performanceResult.performance;
 
-    // Calculate Quality: OK length / Total length (real-time)
-    const quality = await calculateQuality(
+    const qualityResult = await calculateQuality(
       machineId,
       productionOrderId,
       machineData.producedLengthOk,
@@ -402,6 +485,7 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       calcPeriodStart,
       calcPeriodEnd
     );
+    const quality = qualityResult.quality;
 
     // Calculate OEE: (Availability × Performance × Quality) / 10000
     const oee = (availability * performance * quality) / 10000;
@@ -425,6 +509,8 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       quality: Math.round(quality * 100) / 100,
       oee: Math.round(oee * 100) / 100,
       availabilityIsPreliminary: availabilityResult.isPreliminary,
+      performanceDataQuality: performanceResult.performanceDataQuality,
+      qualityDataQuality: qualityResult.qualityDataQuality,
       calculatedAt: now.toISOString(),
       periodStart: calcPeriodStart.toISOString(),
       periodEnd: now.toISOString()
@@ -437,6 +523,8 @@ export async function calculateOEE(machineId, machineData, productionOrderId = n
       quality: 0,
       oee: 0,
       availabilityIsPreliminary: false,
+      performanceDataQuality: PerformanceDataQuality.MISSING_TARGET_DEFAULT_100,
+      qualityDataQuality: QualityDataQuality.ERROR_DEFAULT,
       calculatedAt: new Date().toISOString(),
       error: error.message
     };

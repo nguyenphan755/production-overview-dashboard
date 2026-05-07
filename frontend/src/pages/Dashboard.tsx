@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CompanyHeader } from "../components/CompanyHeader";
 import { TabNavigation } from "../components/TabNavigation";
 import { ProductionOverview } from "../components/tabs/ProductionOverview";
@@ -13,6 +13,10 @@ import AccountManagement from "./AccountManagement";
 import type { AuthUser } from "../services/authApi";
 import { useMachines } from "../hooks/useProductionData";
 import { useBobbinCutDetectorForFleet } from "../hooks/useBobbinCutRecordsFixed";
+import { useEquipmentOeeRollup } from "../hooks/useEquipmentOeeRollup";
+import { usePastShiftReportOee } from "../hooks/usePastShiftReportOee";
+import type { EquipmentOeeMode } from "../utils/equipmentOeeDisplay";
+import { getLastCompletedShiftSelection } from "../utils/shiftCalculator";
 
 type DashboardProps = {
   onLogout: () => void;
@@ -53,6 +57,36 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   }, []);
 
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
+  const [equipmentOeeMode, setEquipmentOeeMode] = useState<EquipmentOeeMode>("realtime");
+  const initCompletedShift = useMemo(() => getLastCompletedShiftSelection(), []);
+  const [referenceDate, setReferenceDate] = useState(initCompletedShift.shiftDate);
+  const [pastIsoShiftNumber, setPastIsoShiftNumber] = useState<1 | 2 | 3>(initCompletedShift.shiftNumber);
+
+  const pastShiftHookSelection = useMemo(
+    () => ({ shiftDate: referenceDate, shiftNumber: pastIsoShiftNumber }),
+    [referenceDate, pastIsoShiftNumber]
+  );
+
+  const analyticsRollup = useEquipmentOeeRollup(
+    equipmentOeeMode === "past_shift" ? "realtime" : equipmentOeeMode,
+    activeTab === "equipment" && equipmentOeeMode !== "past_shift",
+    referenceDate
+  );
+
+  const pastShiftReport = usePastShiftReportOee(
+    activeTab === "equipment" && equipmentOeeMode === "past_shift",
+    pastShiftHookSelection,
+    token
+  );
+
+  const equipmentOeeRollupByMachine =
+    equipmentOeeMode === "past_shift" ? pastShiftReport.byMachineId : analyticsRollup.byMachineId;
+  const equipmentOeeScope =
+    equipmentOeeMode === "past_shift" ? pastShiftReport.scope : analyticsRollup.scope;
+  const equipmentOeeRollupLoading =
+    equipmentOeeMode === "past_shift" ? pastShiftReport.loading : analyticsRollup.loading;
+  const equipmentOeeRollupError =
+    equipmentOeeMode === "past_shift" ? pastShiftReport.error : analyticsRollup.error;
 
   const handleMachineClick = (machineId: string) => {
     setSelectedMachineId(machineId);
@@ -73,10 +107,39 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
       case "equipment":
         // If a machine is selected, show detail page
         if (selectedMachineId) {
-          return <EquipmentDetail machineId={selectedMachineId} onBack={handleBackToEquipment} />;
+          return (
+            <EquipmentDetail
+              machineId={selectedMachineId}
+              onBack={handleBackToEquipment}
+              equipmentOeeMode={equipmentOeeMode}
+              onEquipmentOeeModeChange={setEquipmentOeeMode}
+              equipmentOeeRollupByMachine={equipmentOeeRollupByMachine}
+              equipmentOeeScope={equipmentOeeScope}
+              equipmentOeeRollupLoading={equipmentOeeRollupLoading}
+              equipmentOeeRollupError={equipmentOeeRollupError}
+              referenceDate={referenceDate}
+              onReferenceDateChange={setReferenceDate}
+              pastIsoShiftNumber={pastIsoShiftNumber}
+              onPastIsoShiftNumberChange={setPastIsoShiftNumber}
+            />
+          );
         }
         // Otherwise show equipment overview
-        return <EquipmentStatus onMachineClick={handleMachineClick} />;
+        return (
+          <EquipmentStatus
+            onMachineClick={handleMachineClick}
+            equipmentOeeMode={equipmentOeeMode}
+            onEquipmentOeeModeChange={setEquipmentOeeMode}
+            equipmentOeeRollupByMachine={equipmentOeeRollupByMachine}
+            equipmentOeeScope={equipmentOeeScope}
+            equipmentOeeRollupLoading={equipmentOeeRollupLoading}
+            equipmentOeeRollupError={equipmentOeeRollupError}
+            referenceDate={referenceDate}
+            onReferenceDateChange={setReferenceDate}
+            pastIsoShiftNumber={pastIsoShiftNumber}
+            onPastIsoShiftNumberChange={setPastIsoShiftNumber}
+          />
+        );
       case "analytics":
         return <PerformanceAnalytics />;
       case "maintenance":

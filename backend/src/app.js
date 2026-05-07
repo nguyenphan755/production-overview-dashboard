@@ -11,6 +11,7 @@ import alarmsRouter from './routes/alarms.js';
 import authRouter from './routes/auth.js';
 import availabilityRouter from './routes/availability.js';
 import analyticsRouter from './routes/analytics.js';
+import oeeSettledRouter from './routes/oee-settled.js';
 import usersRouter from './routes/users.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
@@ -123,6 +124,7 @@ app.get('/', (req, res) => {
           alarms: '/api/alarms',
           availability: '/api/availability',
           analytics: '/api/analytics',
+          oeeSettled: '/api/oee-settled',
         },
       },
       websocket: '/ws',
@@ -145,6 +147,7 @@ app.use('/api/orders', ordersRouter);
 app.use('/api/alarms', alarmsRouter);
 app.use('/api/availability', availabilityRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/oee-settled', oeeSettledRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

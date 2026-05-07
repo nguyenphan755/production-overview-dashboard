@@ -250,7 +250,8 @@ class APIClient {
     area: string = 'all',
     machineId?: string,
     shiftDate?: string,
-    shiftNumber?: string
+    shiftNumber?: string,
+    dayDate?: string
   ): Promise<APIResponse<any>> {
     const params = new URLSearchParams();
     params.set('range', range);
@@ -264,7 +265,92 @@ class APIClient {
     if (shiftNumber) {
       params.set('shiftNumber', shiftNumber);
     }
+    if (dayDate) {
+      params.set('dayDate', dayDate);
+    }
     return this.request<any>(`/analytics?${params.toString()}`);
+  }
+
+  /** JWT required — immutable settled OEE per machine for a completed shift */
+  async getOeeSettledShift(
+    shiftDate: string,
+    shiftNumber: number,
+    authToken: string
+  ): Promise<
+    APIResponse<{
+      shiftId: string;
+      periodStart: string;
+      periodEnd: string;
+      settlements: Record<string, unknown>[];
+    }>
+  > {
+    if (this.useMock) {
+      return {
+        success: false,
+        data: { shiftId: '', periodStart: '', periodEnd: '', settlements: [] },
+        timestamp: new Date().toISOString(),
+        message: 'OEE settled API not available in mock mode',
+      };
+    }
+
+    const params = new URLSearchParams({
+      shiftDate,
+      shiftNumber: String(shiftNumber),
+    });
+    const currentBaseUrl = this.getBaseUrl();
+    const url = `${currentBaseUrl}/oee-settled/shift?${params.toString()}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      const jsonData = await response.json().catch(() => ({}));
+      const actualData =
+        jsonData.data !== undefined ? jsonData.data : jsonData;
+
+      if (!response.ok) {
+        return {
+          success: false,
+          data: {
+            shiftId: '',
+            periodStart: '',
+            periodEnd: '',
+            settlements: [],
+          },
+          timestamp: jsonData.timestamp || new Date().toISOString(),
+          message:
+            jsonData.message ||
+            `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+
+      return {
+        data: actualData as {
+          shiftId: string;
+          periodStart: string;
+          periodEnd: string;
+          settlements: Record<string, unknown>[];
+        },
+        timestamp: jsonData.timestamp || new Date().toISOString(),
+        success: jsonData.success !== undefined ? jsonData.success : true,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: {
+          shiftId: '',
+          periodStart: '',
+          periodEnd: '',
+          settlements: [],
+        },
+        timestamp: new Date().toISOString(),
+        message: error instanceof Error ? error.message : 'Network error',
+      };
+    }
   }
 
   async recalculateAnalytics(
@@ -272,11 +358,12 @@ class APIClient {
     area: string = 'all',
     machineId?: string,
     shiftDate?: string,
-    shiftNumber?: string
+    shiftNumber?: string,
+    dayDate?: string
   ): Promise<APIResponse<any>> {
     return this.request<any>('/analytics/recalculate', {
       method: 'POST',
-      body: JSON.stringify({ range, area, machineId, shiftDate, shiftNumber }),
+      body: JSON.stringify({ range, area, machineId, shiftDate, shiftNumber, dayDate }),
     });
   }
 

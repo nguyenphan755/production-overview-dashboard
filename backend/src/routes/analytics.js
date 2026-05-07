@@ -6,9 +6,17 @@ const router = express.Router();
 // GET /api/analytics?range=today|week|month|shift&area=all&machineId=
 router.get('/', async (req, res) => {
   try {
-    const { range = 'today', area = 'all', machineId = null, force = 'false', shiftDate, shiftNumber } = req.query;
+    const {
+      range = 'today',
+      area = 'all',
+      machineId = null,
+      force = 'false',
+      shiftDate,
+      shiftNumber,
+      dayDate,
+    } = req.query;
     const { payload, cached, computedAt } = await getAnalyticsWithCache(
-      { range, area, machineId, shiftDate, shiftNumber },
+      { range, area, machineId, shiftDate, shiftNumber, dayDate },
       { force: force === 'true' }
     );
 
@@ -32,8 +40,16 @@ router.get('/', async (req, res) => {
 // POST /api/analytics/recalculate
 router.post('/recalculate', async (req, res) => {
   try {
-    const { range = 'today', area = 'all', machineId = null, shiftDate, shiftNumber } = req.body || {};
-    const payload = await computeAndCacheAnalytics({ range, area, machineId, shiftDate, shiftNumber });
+    const { range = 'today', area = 'all', machineId = null, shiftDate, shiftNumber, dayDate } =
+      req.body || {};
+    const payload = await computeAndCacheAnalytics({
+      range,
+      area,
+      machineId,
+      shiftDate,
+      shiftNumber,
+      dayDate,
+    });
 
     res.json({
       data: payload,

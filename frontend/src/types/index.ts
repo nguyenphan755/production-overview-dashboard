@@ -27,7 +27,15 @@ export interface Machine {
   availability?: number; // A in OEE (0-100)
   availabilityIsPreliminary?: boolean; // True when showing prior shift value during active shift
   performance?: number; // P in OEE (0-100)
+  /** When target speed missing, backend may still report P=100 with this flag */
+  performanceDataQuality?: 'OK' | 'MISSING_TARGET_DEFAULT_100';
   quality?: number; // Q in OEE (0-100)
+  /** Quality measurement confidence (see docs/reference/oee-rulebook-realtime-vs-settled.md) */
+  qualityDataQuality?:
+    | 'OK'
+    | 'ASSUMED_100_PENDING_NG_INTEGRATION'
+    | 'NO_PRODUCTION'
+    | 'ERROR_DEFAULT';
   current?: number; // Amperes
   power?: number; // kW
   temperature?: number; // Celsius
