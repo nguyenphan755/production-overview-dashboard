@@ -52,6 +52,7 @@
     build: {
       target: 'esnext',
       outDir: 'build',
+      sourcemap: false,
     },
     server: {
       port: 5173,
