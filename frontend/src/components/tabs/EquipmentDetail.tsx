@@ -85,9 +85,16 @@ export function EquipmentDetail({
   const realTimeTrends = useMachineDetailTrends(machine);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const isInitialLoadRef = useRef(true);
   const hasDataRef = useRef(false);
   const statusFetchKeyRef = useRef<string>('');
+  const statusHistoryAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setStatusHistory([]);
+    hasDataRef.current = false;
+    statusFetchKeyRef.current = '';
+    statusHistoryAbortRef.current?.abort();
+  }, [machineId]);
 
   const rollingTimelineModes =
     equipmentOeeMode === 'realtime' || equipmentOeeMode === 'shift_live';
@@ -135,44 +142,57 @@ export function EquipmentDetail({
     const fetchKey = `${machineId}|${statusHistoryRangeKey}`;
     if (statusFetchKeyRef.current !== fetchKey) {
       statusFetchKeyRef.current = fetchKey;
-      isInitialLoadRef.current = true;
-      hasDataRef.current = false;
     }
 
+    statusHistoryAbortRef.current?.abort();
+    const ac = new AbortController();
+    statusHistoryAbortRef.current = ac;
+
     const fetchStatusHistory = async () => {
-      if (isInitialLoadRef.current) {
+      const blockingLoader = !hasDataRef.current;
+      if (blockingLoader) {
         setLoadingHistory(true);
       }
 
       try {
-        const response = await apiClient.getMachineStatusHistory(machineId, {
-          start: operationalTimeline.queryStart.toISOString(),
-          end: operationalTimeline.queryEnd.toISOString(),
-        });
+        const response = await apiClient.getMachineStatusHistory(
+          machineId,
+          {
+            start: operationalTimeline.queryStart.toISOString(),
+            end: operationalTimeline.queryEnd.toISOString(),
+          },
+          { signal: ac.signal }
+        );
+        if (ac.signal.aborted) return;
         if (response.success && response.data) {
-          if (response.data.length > 0 || !hasDataRef.current) {
-            setStatusHistory(response.data);
-          }
+          setStatusHistory(response.data);
           if (response.data.length > 0) {
             hasDataRef.current = true;
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return;
+        }
         console.error('Error fetching status history:', error);
       } finally {
-        if (isInitialLoadRef.current) {
+        if (!ac.signal.aborted && blockingLoader) {
           setLoadingHistory(false);
-          isInitialLoadRef.current = false;
         }
       }
     };
 
     fetchStatusHistory();
     if (operationalTimeline.pollMs == null) {
-      return;
+      return () => {
+        ac.abort();
+      };
     }
     const interval = setInterval(fetchStatusHistory, operationalTimeline.pollMs);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      ac.abort();
+    };
   }, [machineId, statusHistoryRangeKey, operationalTimeline.pollMs]);
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS

@@ -182,6 +182,9 @@ class APIClient {
         success: jsonData.success !== undefined ? jsonData.success : true,
       };
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
       console.error(`❌ API Error (${endpoint}):`, error);
       console.error(`   URL: ${url}`);
       console.error(`   Base URL: ${this.baseUrl}`);
@@ -232,14 +235,19 @@ class APIClient {
    */
   async getMachineStatusHistory(
     machineId: string,
-    options: { hours: number } | { start: string; end: string }
+    options: { hours: number } | { start: string; end: string },
+    init?: { signal?: AbortSignal }
   ): Promise<APIResponse<any[]>> {
     if ('start' in options && 'end' in options) {
       const q = new URLSearchParams({ start: options.start, end: options.end });
-      return this.request<any[]>(`/machines/${machineId}/status-history?${q.toString()}`);
+      return this.request<any[]>(`/machines/${machineId}/status-history?${q.toString()}`, {
+        signal: init?.signal,
+      });
     }
     const hours = options.hours ?? 8;
-    return this.request<any[]>(`/machines/${machineId}/status-history?hours=${hours}`);
+    return this.request<any[]>(`/machines/${machineId}/status-history?hours=${hours}`, {
+      signal: init?.signal,
+    });
   }
 
   // Production Orders

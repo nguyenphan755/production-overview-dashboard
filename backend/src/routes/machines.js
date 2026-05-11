@@ -498,24 +498,59 @@ router.get('/:machineId/status-history', async (req, res) => {
       rangeEnd = new Date();
     }
 
-    // Overlap with [rangeStart, rangeEnd]: segment not entirely before or after the window
-    const statusHistoryResult = await query(
-      `SELECT 
-        id,
-        machine_id,
-        status,
-        previous_status,
-        status_start_time,
-        status_end_time,
-        duration_seconds,
-        is_production_time
-      FROM machine_status_history
-      WHERE machine_id = $1
-        AND status_start_time <= $3
-        AND (status_end_time IS NULL OR status_end_time >= $2)
-      ORDER BY status_start_time ASC`,
-      [machineId, rangeStart, rangeEnd]
+    // Lower bound on status_start_time for *closed* segments: any row overlapping [rangeStart, rangeEnd]
+    // must have start >= rangeStart - lookback, with lookback capped (avoids full history scan).
+    // Open segments (status_end_time IS NULL) are fetched separately (typically very few rows).
+    const rangeSpanMs = rangeEnd.getTime() - rangeStart.getTime();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const maxLookbackMs = 400 * DAY_MS;
+    const minLookbackMs = 14 * DAY_MS;
+    const lookbackMs = Math.min(
+      maxLookbackMs,
+      Math.max(minLookbackMs, rangeSpanMs * 3)
     );
+    const lowerBoundStart = new Date(rangeStart.getTime() - lookbackMs);
+
+    const statusSql = `
+      SELECT * FROM (
+        SELECT
+          id,
+          machine_id,
+          status,
+          previous_status,
+          status_start_time,
+          status_end_time,
+          duration_seconds,
+          is_production_time
+        FROM machine_status_history
+        WHERE machine_id = $1
+          AND status_end_time IS NOT NULL
+          AND status_start_time <= $3
+          AND status_start_time >= $4
+          AND status_end_time >= $2
+        UNION ALL
+        SELECT
+          id,
+          machine_id,
+          status,
+          previous_status,
+          status_start_time,
+          status_end_time,
+          duration_seconds,
+          is_production_time
+        FROM machine_status_history
+        WHERE machine_id = $1
+          AND status_end_time IS NULL
+          AND status_start_time <= $3
+      ) AS msh
+      ORDER BY msh.status_start_time ASC`;
+
+    const statusHistoryResult = await query(statusSql, [
+      machineId,
+      rangeStart,
+      rangeEnd,
+      lowerBoundStart,
+    ]);
     
     // Format the data for frontend
     const statusHistory = statusHistoryResult.rows.map(row => ({
