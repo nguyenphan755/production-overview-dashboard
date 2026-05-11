@@ -16,6 +16,10 @@ import {
   type MachineOeeRollupRow,
 } from '../../utils/equipmentOeeDisplay';
 import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../../utils/productNameDisplay';
+import {
+  buildOperationalStatesTimeline,
+  type OperationalStatesGanttRow,
+} from '../../utils/equipment-operational-states-timeline';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -83,21 +87,68 @@ export function EquipmentDetail({
   const [loadingHistory, setLoadingHistory] = useState(false);
   const isInitialLoadRef = useRef(true);
   const hasDataRef = useRef(false);
-  const shiftHours = 8;
-  const shiftWindowHours = shiftHours * 3;
+  const statusFetchKeyRef = useRef<string>('');
 
-  // Fetch status history for Gantt chart (8-hour shift)
+  const rollingTimelineModes =
+    equipmentOeeMode === 'realtime' || equipmentOeeMode === 'shift_live';
+  const [timelineMinuteKey, setTimelineMinuteKey] = useState(() =>
+    Math.floor(Date.now() / 60_000)
+  );
+  useEffect(() => {
+    if (!rollingTimelineModes) return;
+    const id = setInterval(() => setTimelineMinuteKey(Math.floor(Date.now() / 60_000)), 60_000);
+    return () => clearInterval(id);
+  }, [rollingTimelineModes]);
+
+  const operationalTimeline = useMemo(() => {
+    const anchorNow = rollingTimelineModes
+      ? new Date(timelineMinuteKey * 60_000)
+      : new Date();
+    return buildOperationalStatesTimeline(
+      equipmentOeeMode,
+      referenceDate,
+      pastIsoShiftNumber,
+      equipmentOeeScope,
+      anchorNow
+    );
+  }, [
+    equipmentOeeMode,
+    referenceDate,
+    pastIsoShiftNumber,
+    equipmentOeeScope?.start,
+    equipmentOeeScope?.end,
+    equipmentOeeScope?.dayDate,
+    rollingTimelineModes,
+    timelineMinuteKey,
+  ]);
+
+  const statusHistoryRangeKey = useMemo(
+    () =>
+      `${operationalTimeline.queryStart.toISOString()}|${operationalTimeline.queryEnd.toISOString()}`,
+    [operationalTimeline.queryStart, operationalTimeline.queryEnd]
+  );
+
+  // Status history for Gantt — range follows OEE filter; polling only while window touches "now"
   useEffect(() => {
     if (!machineId) return;
-    
+
+    const fetchKey = `${machineId}|${statusHistoryRangeKey}`;
+    if (statusFetchKeyRef.current !== fetchKey) {
+      statusFetchKeyRef.current = fetchKey;
+      isInitialLoadRef.current = true;
+      hasDataRef.current = false;
+    }
+
     const fetchStatusHistory = async () => {
-      // Only show loading state on initial load, not on subsequent updates
       if (isInitialLoadRef.current) {
         setLoadingHistory(true);
       }
-      
+
       try {
-        const response = await apiClient.getMachineStatusHistory(machineId, shiftWindowHours);
+        const response = await apiClient.getMachineStatusHistory(machineId, {
+          start: operationalTimeline.queryStart.toISOString(),
+          end: operationalTimeline.queryEnd.toISOString(),
+        });
         if (response.success && response.data) {
           if (response.data.length > 0 || !hasDataRef.current) {
             setStatusHistory(response.data);
@@ -117,10 +168,12 @@ export function EquipmentDetail({
     };
 
     fetchStatusHistory();
-    // Refresh every 30 seconds - updates data without showing loading state
-    const interval = setInterval(fetchStatusHistory, 30000);
+    if (operationalTimeline.pollMs == null) {
+      return;
+    }
+    const interval = setInterval(fetchStatusHistory, operationalTimeline.pollMs);
     return () => clearInterval(interval);
-  }, [machineId]);
+  }, [machineId, statusHistoryRangeKey, operationalTimeline.pollMs]);
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   // Memoize chart data to prevent unnecessary re-renders
@@ -592,9 +645,14 @@ export function EquipmentDetail({
 
       {/* Gantt Chart: Operational States */}
       <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Activity className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-          <h2 className="text-xl text-white">Operational States by Shift</h2>
+        <div className="flex items-start gap-2 mb-4 flex-wrap">
+          <Activity className="w-5 h-5 text-[#34E7F8] shrink-0 mt-0.5" strokeWidth={2.5} />
+          <div className="min-w-0">
+            <h2 className="text-xl text-white">Operational States by Shift</h2>
+            {operationalTimeline.sectionSubtitle ? (
+              <p className="text-sm text-white/55 mt-1">{operationalTimeline.sectionSubtitle}</p>
+            ) : null}
+          </div>
         </div>
         
         {/* Keep Gantt chart mounted to prevent flicker - only show loading on initial load */}
@@ -607,7 +665,7 @@ export function EquipmentDetail({
             No status history available
           </div>
         ) : (
-          <ShiftGanttChart data={statusHistory.length > 0 ? statusHistory : []} />
+          <ShiftGanttChart data={statusHistory.length > 0 ? statusHistory : []} rows={operationalTimeline.rows} />
         )}
       </div>
 
@@ -1594,9 +1652,16 @@ interface GanttChartProps {
     endTime: string | null;
     durationSeconds: number | null;
   }>;
+  rows: OperationalStatesGanttRow[];
 }
 
-function ShiftGanttChart({ data }: GanttChartProps) {
+function ShiftGanttChart({ data, rows }: GanttChartProps) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'running': return '#22C55E';
@@ -1610,103 +1675,65 @@ function ShiftGanttChart({ data }: GanttChartProps) {
     }
   };
 
-  const now = new Date();
-  const totalMinutes = 8 * 60;
+  const buildSegments = useMemo(
+    () => (windowStart: Date, windowEnd: Date) => {
+      if (!data || data.length === 0) return [];
 
-  const formatTimeRange = (start: Date, end: Date) => (
-    `${start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+      const windowMs = windowEnd.getTime() - windowStart.getTime();
+      if (windowMs <= 0) return [];
+
+      const windowMinutes = windowMs / (1000 * 60);
+
+      return data.reduce((segments, item) => {
+        const itemStart = new Date(item.startTime);
+        const itemEnd = item.endTime ? new Date(item.endTime) : now;
+        if (itemEnd <= windowStart || itemStart >= windowEnd) {
+          return segments;
+        }
+
+        const actualStart = itemStart < windowStart ? windowStart : itemStart;
+        const actualEnd = itemEnd > windowEnd ? windowEnd : itemEnd;
+        if (actualEnd <= actualStart) {
+          return segments;
+        }
+
+        const startMinutes = Math.max(0, (actualStart.getTime() - windowStart.getTime()) / (1000 * 60));
+        const endMinutes = Math.min(windowMinutes, (actualEnd.getTime() - windowStart.getTime()) / (1000 * 60));
+        if (endMinutes > startMinutes) {
+          segments.push({
+            status: item.status,
+            startPercent: ((actualStart.getTime() - windowStart.getTime()) / windowMs) * 100,
+            endPercent: ((actualEnd.getTime() - windowStart.getTime()) / windowMs) * 100,
+            duration: endMinutes - startMinutes,
+            startTime: actualStart,
+            endTime: actualEnd,
+          });
+        }
+        return segments;
+      }, [] as Array<{
+        status: string;
+        startPercent: number;
+        endPercent: number;
+        duration: number;
+        startTime: Date;
+        endTime: Date;
+      }>).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    },
+    [data, now]
   );
 
-  const shiftWindows = useMemo(() => {
-    const current = new Date(now);
-    const currentShiftStart = new Date(current);
-
-    if (current.getHours() >= 6 && current.getHours() < 14) {
-      currentShiftStart.setHours(6, 0, 0, 0);
-    } else if (current.getHours() >= 14 && current.getHours() < 22) {
-      currentShiftStart.setHours(14, 0, 0, 0);
-    } else {
-      if (current.getHours() < 6) {
-        currentShiftStart.setDate(currentShiftStart.getDate() - 1);
-      }
-      currentShiftStart.setHours(22, 0, 0, 0);
-    }
-
-    const buildShiftWindow = (start: Date) => {
-      const end = new Date(start.getTime() + 8 * 60 * 60 * 1000);
-      const startHour = start.getHours();
-      const shiftKey = startHour === 6 ? 'shift1' : startHour === 14 ? 'shift2' : 'shift3';
-      const shiftLabel = startHour === 6 ? 'Shift 1' : startHour === 14 ? 'Shift 2' : 'Shift 3';
-      return {
-        key: shiftKey,
-        label: `${shiftLabel} (${formatTimeRange(start, end)})`,
-        start,
-        end,
-      };
-    };
-
-    const shifts = [];
-    for (let i = 2; i >= 0; i -= 1) {
-      const shiftStart = new Date(currentShiftStart.getTime() - i * 8 * 60 * 60 * 1000);
-      shifts.push(buildShiftWindow(shiftStart));
-    }
-    const shiftsByKey = shifts.reduce<Record<string, typeof shifts[number]>>((acc, shift) => {
-      acc[shift.key] = shift;
-      return acc;
-    }, {});
-    return ['shift1', 'shift2', 'shift3']
-      .map((key) => shiftsByKey[key])
-      .filter((shift): shift is typeof shifts[number] => Boolean(shift));
-  }, [now]);
-  
-  const buildSegments = (windowStart: Date, windowEnd: Date) => {
-    if (!data || data.length === 0) return [];
-
-    const windowMs = windowEnd.getTime() - windowStart.getTime();
-    return data.reduce((segments, item) => {
-      const itemStart = new Date(item.startTime);
-      const itemEnd = item.endTime ? new Date(item.endTime) : now;
-      if (itemEnd <= windowStart || itemStart >= windowEnd) {
-        return segments;
-      }
-
-      const actualStart = itemStart < windowStart ? windowStart : itemStart;
-      const actualEnd = itemEnd > windowEnd ? windowEnd : itemEnd;
-      if (actualEnd <= actualStart) {
-        return segments;
-      }
-
-      const startMinutes = Math.max(0, (actualStart.getTime() - windowStart.getTime()) / (1000 * 60));
-      const endMinutes = Math.min(totalMinutes, (actualEnd.getTime() - windowStart.getTime()) / (1000 * 60));
-      if (endMinutes > startMinutes) {
-        segments.push({
-          status: item.status,
-          startPercent: ((actualStart.getTime() - windowStart.getTime()) / windowMs) * 100,
-          endPercent: ((actualEnd.getTime() - windowStart.getTime()) / windowMs) * 100,
-          duration: endMinutes - startMinutes,
-          startTime: actualStart,
-          endTime: actualEnd,
-        });
-      }
-      return segments;
-    }, [] as Array<{
-      status: string;
-      startPercent: number;
-      endPercent: number;
-      duration: number;
-      startTime: Date;
-      endTime: Date;
-    }>).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-  };
-
-  const getTimeLabels = (windowStart: Date) => {
+  const getTimeLabels = (windowStart: Date, windowEnd: Date) => {
+    const totalMs = windowEnd.getTime() - windowStart.getTime();
+    if (totalMs <= 0) return [];
+    const count = 4;
+    const longSpan = totalMs > 36 * 3600 * 1000;
     const labels: Array<{ time: string; percent: number }> = [];
-    for (let i = 0; i <= 4; i++) {
-      const time = new Date(windowStart.getTime() + i * 2 * 60 * 60 * 1000);
-      labels.push({
-        time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        percent: (i / 4) * 100,
-      });
+    for (let i = 0; i <= count; i++) {
+      const t = new Date(windowStart.getTime() + (totalMs * i) / count);
+      const time = longSpan
+        ? t.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      labels.push({ time, percent: (i / count) * 100 });
     }
     return labels;
   };
@@ -1715,7 +1742,7 @@ function ShiftGanttChart({ data }: GanttChartProps) {
 
   const statusGroups = useMemo(() => {
     const groups: Record<string, Array<{ duration: number }>> = {};
-    shiftWindows.forEach((shift) => {
+    rows.forEach((shift) => {
       buildSegments(shift.start, shift.end).forEach((segment) => {
         const statusKey = segment.status.toLowerCase();
         if (!groups[statusKey]) {
@@ -1725,7 +1752,7 @@ function ShiftGanttChart({ data }: GanttChartProps) {
       });
     });
     return groups;
-  }, [data, shiftWindows]);
+  }, [rows, buildSegments]);
 
   const formatDuration = (minutesTotal: number) => {
     const hours = Math.floor(minutesTotal / 60);
@@ -1743,11 +1770,16 @@ function ShiftGanttChart({ data }: GanttChartProps) {
       .reduce((sum, segment) => sum + segment.duration, 0);
     return { runningMinutes, idleMinutes };
   };
-  
-  const currentShiftKey = useMemo(() => {
-    const activeShift = shiftWindows.find((shift) => now >= shift.start && now < shift.end);
-    return activeShift?.key ?? null;
-  }, [now, shiftWindows]);
+
+  const anyRowContainsNow = useMemo(
+    () => rows.some((shift) => now >= shift.start && now < shift.end),
+    [rows, now]
+  );
+
+  const currentRowKey = useMemo(() => {
+    const active = rows.find((shift) => now >= shift.start && now < shift.end);
+    return active?.key ?? null;
+  }, [rows, now]);
 
   return (
     <div className="space-y-6">
@@ -1774,22 +1806,24 @@ function ShiftGanttChart({ data }: GanttChartProps) {
       </div>
 
       {/* Shift Gantt Rows */}
-      {shiftWindows.map((shift) => {
+      {rows.map((shift) => {
         const timelineSegments = buildSegments(shift.start, shift.end);
-        const timeLabels = getTimeLabels(shift.start);
-        const currentTimePercent = ((now.getTime() - shift.start.getTime()) / (shift.end.getTime() - shift.start.getTime())) * 100;
-        const isActiveShift = shift.key === currentShiftKey;
+        const timeLabels = getTimeLabels(shift.start, shift.end);
+        const spanMs = shift.end.getTime() - shift.start.getTime();
+        const currentTimePercent =
+          spanMs > 0 ? ((now.getTime() - shift.start.getTime()) / spanMs) * 100 : 0;
+        const isActiveRow = anyRowContainsNow ? shift.key === currentRowKey : true;
         const { runningMinutes, idleMinutes } = getShiftStatusSummary(shift.start, shift.end);
 
         return (
           <div
             key={shift.key}
             className="space-y-2 transition-opacity"
-            style={{ opacity: isActiveShift ? 1 : 0.6 }}
+            style={{ opacity: isActiveRow ? 1 : 0.6 }}
           >
-            <div className="flex items-center justify-between gap-4 text-white/80 font-semibold">
-              <div>{shift.label}</div>
-              <div className="flex items-center gap-3 text-sm text-white/70">
+            <div className="flex items-center justify-between gap-4 text-white/80 font-semibold flex-wrap">
+              <div className="min-w-0 text-sm sm:text-base leading-snug">{shift.label}</div>
+              <div className="flex items-center gap-3 text-sm text-white/70 shrink-0">
                 <span>Running ({formatDuration(runningMinutes)})</span>
                 <span>Idle ({formatDuration(idleMinutes)})</span>
               </div>
@@ -1836,7 +1870,7 @@ function ShiftGanttChart({ data }: GanttChartProps) {
               </div>
 
               {/* Current time indicator */}
-              {currentTimePercent > 0 && currentTimePercent < 100 && (
+              {currentTimePercent > 0 && currentTimePercent < 100 && now >= shift.start && now < shift.end && (
                 <div
                   className="absolute top-0 bottom-0 w-0.5 bg-[#34E7F8] z-20 pointer-events-none"
                   style={{ left: `${currentTimePercent}%` }}
@@ -1847,7 +1881,7 @@ function ShiftGanttChart({ data }: GanttChartProps) {
               )}
             </div>
 
-            <div className="flex justify-between text-xs text-white/50">
+            <div className="flex justify-between text-xs text-white/50 gap-1 flex-wrap">
               {timeLabels.map((label, index) => (
                 <span key={index}>{label.time}</span>
               ))}

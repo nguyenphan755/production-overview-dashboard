@@ -459,13 +459,46 @@ router.get('/:machineId', async (req, res) => {
 router.get('/:machineId/status-history', async (req, res) => {
   try {
     const { machineId } = req.params;
-    const { hours = 8 } = req.query; // Default to 8 hours (shift length)
-    
-    // Calculate start time (8 hours ago)
-    const hoursAgo = parseInt(hours, 10);
-    const startTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
-    
-    // Fetch status history for the last 8 hours
+    const { hours = 8, start: startQ, end: endQ } = req.query;
+
+    let rangeStart;
+    let rangeEnd;
+    const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+
+    if (startQ != null && String(startQ).trim() !== '' && endQ != null && String(endQ).trim() !== '') {
+      rangeStart = new Date(String(startQ));
+      rangeEnd = new Date(String(endQ));
+      if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+        return res.status(400).json({
+          data: null,
+          timestamp: new Date().toISOString(),
+          success: false,
+          message: 'Invalid start or end (expected ISO 8601)',
+        });
+      }
+      if (rangeStart >= rangeEnd) {
+        return res.status(400).json({
+          data: null,
+          timestamp: new Date().toISOString(),
+          success: false,
+          message: 'start must be before end',
+        });
+      }
+      if (rangeEnd.getTime() - rangeStart.getTime() > MAX_RANGE_MS) {
+        return res.status(400).json({
+          data: null,
+          timestamp: new Date().toISOString(),
+          success: false,
+          message: 'Requested time range exceeds 31 days',
+        });
+      }
+    } else {
+      const hoursAgo = Math.min(Math.max(parseInt(String(hours), 10) || 8, 1), 24 * 31);
+      rangeStart = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+      rangeEnd = new Date();
+    }
+
+    // Overlap with [rangeStart, rangeEnd]: segment not entirely before or after the window
     const statusHistoryResult = await query(
       `SELECT 
         id,
@@ -478,13 +511,10 @@ router.get('/:machineId/status-history', async (req, res) => {
         is_production_time
       FROM machine_status_history
       WHERE machine_id = $1
-        AND (
-          (status_start_time >= $2 AND status_start_time <= NOW())
-          OR (status_end_time >= $2 AND status_end_time <= NOW())
-          OR (status_start_time <= $2 AND (status_end_time IS NULL OR status_end_time >= $2))
-        )
+        AND status_start_time <= $3
+        AND (status_end_time IS NULL OR status_end_time >= $2)
       ORDER BY status_start_time ASC`,
-      [machineId, startTime]
+      [machineId, rangeStart, rangeEnd]
     );
     
     // Format the data for frontend

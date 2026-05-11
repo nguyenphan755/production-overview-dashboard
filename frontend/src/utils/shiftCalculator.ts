@@ -127,3 +127,53 @@ export function isShiftEnded(
   const win = getShiftWindow(shiftNumber, anchor);
   return win.end.getTime() <= now.getTime();
 }
+
+/** One factory shift row for Gantt (6/14/22 pattern). */
+export type FactoryShiftWindowRow = {
+  key: string;
+  shiftNumber: 1 | 2 | 3;
+  start: Date;
+  end: Date;
+};
+
+/** Ca 1–3 on the calendar day `ymd` (YYYY-MM-DD), local factory time. */
+export function getFactoryShiftWindowsForCalendarDay(ymd: string): FactoryShiftWindowRow[] {
+  const anchor = parseShiftDateToAnchor(ymd);
+  return ([1, 2, 3] as const).map((n) => {
+    const w = getShiftWindow(n, anchor);
+    return { key: `shift${n}`, shiftNumber: n, start: w.start, end: w.end };
+  });
+}
+
+/**
+ * Last three consecutive 8h shift windows ending at the current shift’s start
+ * (same layout as legacy EquipmentDetail Gantt).
+ */
+export function getRollingFactoryShiftWindows(now: Date = new Date()): FactoryShiftWindowRow[] {
+  const currentShiftStart = new Date(now);
+  if (now.getHours() >= 6 && now.getHours() < 14) {
+    currentShiftStart.setHours(6, 0, 0, 0);
+  } else if (now.getHours() >= 14 && now.getHours() < 22) {
+    currentShiftStart.setHours(14, 0, 0, 0);
+  } else {
+    if (now.getHours() < 6) {
+      currentShiftStart.setDate(currentShiftStart.getDate() - 1);
+    }
+    currentShiftStart.setHours(22, 0, 0, 0);
+  }
+
+  const rows: FactoryShiftWindowRow[] = [];
+  for (let i = 2; i >= 0; i -= 1) {
+    const start = new Date(currentShiftStart.getTime() - i * 8 * 60 * 60 * 1000);
+    const end = new Date(start.getTime() + 8 * 60 * 60 * 1000);
+    const h = start.getHours();
+    const shiftNumber = (h === 6 ? 1 : h === 14 ? 2 : 3) as 1 | 2 | 3;
+    rows.push({
+      key: `rolling-${start.getTime()}`,
+      shiftNumber,
+      start,
+      end,
+    });
+  }
+  return rows;
+}

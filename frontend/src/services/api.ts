@@ -227,7 +227,18 @@ class APIClient {
     return this.request<MachineDetail>(`/machines/${machineId}`);
   }
 
-  async getMachineStatusHistory(machineId: string, hours: number = 8): Promise<APIResponse<any[]>> {
+  /**
+   * Status segments for Gantt: either rolling `hours` from now, or fixed overlap range `start`–`end` (ISO).
+   */
+  async getMachineStatusHistory(
+    machineId: string,
+    options: { hours: number } | { start: string; end: string }
+  ): Promise<APIResponse<any[]>> {
+    if ('start' in options && 'end' in options) {
+      const q = new URLSearchParams({ start: options.start, end: options.end });
+      return this.request<any[]>(`/machines/${machineId}/status-history?${q.toString()}`);
+    }
+    const hours = options.hours ?? 8;
     return this.request<any[]>(`/machines/${machineId}/status-history?hours=${hours}`);
   }
 
