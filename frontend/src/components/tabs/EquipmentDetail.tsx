@@ -22,8 +22,7 @@ import {
 } from '../../utils/equipment-operational-states-timeline';
 import {
   allocateEnergyByOrderOverlap,
-  buildEnergyBarChartData,
-  enrichHourlyEnergyBarsWithPowerEstimate,
+  buildMeterDeltaBarChartFromTrend,
   resolveEnergyChartContext,
 } from '../../utils/equipment-energy-chart';
 interface EquipmentDetailProps {
@@ -273,45 +272,30 @@ export function EquipmentDetail({
 
   const energyBarDisplay = useMemo(() => {
     if (!machine || !energyChartContext) {
-      return { rows: [], source: 'empty' as const, powerFill: 'none' as const };
+      return {
+        rows: [] as { label: string; energy: number; bucketStart: string; bucketEnd: string }[],
+        source: 'empty' as const,
+        powerFill: 'none' as const,
+        meterStatus: 'no_points' as const,
+      };
     }
-    const preferPower =
-      String(import.meta.env.VITE_ENERGY_SOURCE ?? 'meter').toLowerCase() === 'power';
-    const raw =
-      realTimeTrends.energy.length > 0 ? realTimeTrends.energy : machine.energyConsumption;
-    const built = preferPower
-      ? buildEnergyBarChartData([], energyChartContext)
-      : buildEnergyBarChartData(raw as unknown[], energyChartContext);
-
-    const pd =
-      realTimeTrends.power.length > 0 ? realTimeTrends.power : machine.powerTrend || [];
-    let avgKw = 0;
-    let n = 0;
-    for (const p of pd as Array<{ power?: number }>) {
-      const w = Number(p.power);
-      if (Number.isFinite(w) && w > 0) {
-        avgKw += w;
-        n += 1;
-      }
-    }
-    if (n > 0) avgKw /= n;
-    else avgKw = Number(machine.power) || 0;
-
-    return enrichHourlyEnergyBarsWithPowerEstimate(
-      built,
+    const tk =
+      machine.energyMeterKwh != null && Number.isFinite(machine.energyMeterKwh)
+        ? machine.energyMeterKwh
+        : undefined;
+    const built = buildMeterDeltaBarChartFromTrend(
+      machine.energyMeterTrend as unknown[] | undefined,
       energyChartContext,
-      avgKw > 0 ? avgKw : undefined,
-      { preferPowerOverMeter: preferPower }
+      { terminalKwh: tk, terminalAtMs: Date.now() }
     );
-  }, [
-    machine,
-    energyChartContext,
-    realTimeTrends.energy,
-    realTimeTrends.power,
-    machine?.energyConsumption,
-    machine?.powerTrend,
-    machine?.power,
-  ]);
+    const source = built.status === 'no_points' ? ('empty' as const) : ('meter_delta' as const);
+    return {
+      rows: built.rows,
+      source,
+      powerFill: 'none' as const,
+      meterStatus: built.status,
+    };
+  }, [machine, energyChartContext, machine?.energyMeterTrend, machine?.energyMeterKwh]);
 
   const energyBarRows = energyBarDisplay.rows;
 
@@ -1339,9 +1323,9 @@ export function EquipmentDetail({
         </div>
       </div>
 
-      {/* Power and Energy Analytics */}
+      {/* Công suất (kW) | chỉ số đồng hồ (energyMeterKwh) | kWh theo bucket đồng hồ */}
       <div className="mt-4 grid gap-4 responsive-grid-2">
-        {/* Real-time Power Consumption */}
+        {/* Real-time Power + cumulative meter reading (energyMeterKwh) */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <Zap className="w-4 h-4 text-[#FFB86C]" strokeWidth={2.5} />
@@ -1351,9 +1335,10 @@ export function EquipmentDetail({
             <div className="text-3xl text-[#FFB86C] tracking-tight">
               {machine.power ? `${machine.power.toFixed(1)} kW` : 'N/A'}
             </div>
-            <div className="text-white/60 text-xs">Current</div>
+            <div className="text-white/60 text-xs">Công suất hiện tại</div>
             <div className="mt-2 text-white/55 text-xs">
-              Chỉ số đồng hồ (tích lũy){' '}
+              Đồng hồ tích lũy{' '}
+              <span className="text-white/45">(energyMeterKwh)</span>{' '}
               <span className="text-[#FFB86C]/90 font-medium tabular-nums">
                 {machine.energyMeterKwh != null && Number.isFinite(machine.energyMeterKwh)
                   ? `${machine.energyMeterKwh.toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`
@@ -1361,9 +1346,10 @@ export function EquipmentDetail({
               </span>
             </div>
             <div className="text-white/40 text-[10px] mt-0.5 leading-snug">
-              Gửi chỉ số qua PATCH <span className="text-white/55">energyMeterKwh</span> hoặc POST metrics{' '}
-              <span className="text-white/55">metricType = energy_meter_kwh</span>. kWh theo ca ≈ chỉ số cuối
-              trừ đầu ca.
+              Khác với biểu đồ kWh theo bucket (delta đồng hồ). Gửi chỉ số qua PATCH{' '}
+              <span className="text-white/55">energyMeterKwh</span> hoặc POST metrics{' '}
+              <span className="text-white/55">metricType = energy_meter_kwh</span>. kWh/ca ≈ chỉ số cuối trừ
+              đầu ca.
             </div>
           </div>
           <div className="h-40">
@@ -1411,11 +1397,18 @@ export function EquipmentDetail({
           </div>
         </div>
 
-        {/* Energy Consumption per Interval */}
+        {/* kWh theo bucket — delta từ lịch sử đồng hồ (machine_metrics energy_meter_kwh + snapshot) */}
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <Battery className="w-4 h-4 text-[#4FFFBC]" strokeWidth={2.5} />
-            <h3 className="text-base text-white">Energy Consumption per Interval</h3>
+            <div>
+              <h3 className="text-base text-white">kWh theo bucket (đồng hồ)</h3>
+              <p className="text-white/45 text-[10px] mt-0.5">
+                Theo cửa sổ ca/ngày/phạm vi OEE — tổng kWh = chỉ số tích lũy trong khung; cột chia theo thời gian
+                giữa các mẫu <span className="text-white/55">energy_meter_kwh</span> và{' '}
+                <span className="text-white/55">energyMeterKwh</span> hiện tại (PLC thưa vẫn hiển thị).
+              </p>
+            </div>
           </div>
           
           <div className="mb-3">
@@ -1425,23 +1418,16 @@ export function EquipmentDetail({
             <div className="text-white/60 text-xs leading-snug">
               {energyChartContext?.kpiSubtitle ?? '—'}
             </div>
-            {energyBarDisplay.source === 'power_estimate' &&
-              energyBarDisplay.powerFill === 'policy' && (
-                <p className="text-sky-200/90 text-xs mt-1.5 leading-snug">
-                  Chế độ <span className="font-medium">VITE_ENERGY_SOURCE=power</span>: kWh mỗi cột = công suất
-                  trung bình (kW) × độ dài bucket — chấp nhận sai số; không dùng bảng energy_consumption.
-                </p>
-              )}
-            {energyBarDisplay.source === 'power_estimate' &&
-              energyBarDisplay.powerFill === 'fallback' && (
-                <p className="text-amber-200/90 text-xs mt-1.5 leading-snug">
-                  Chưa có kWh trong khung này trên CSDL (bảng energy_consumption hoặc mốc giờ không trùng ca).
-                  Các cột là ước lượng từ công suất trung bình (kW) × thời gian mỗi bucket — không thay cho công tơ.
-                </p>
-              )}
-            {energyBarDisplay.source === 'empty' && energyBarRows.length > 0 && (
-              <p className="text-white/50 text-xs mt-1.5">
-                Không có dữ liệu kWh và không có công suất để ước lượng.
+            {energyBarDisplay.meterStatus === 'no_points' && (
+              <p className="text-white/50 text-xs mt-1.5 leading-snug">
+                Chưa đủ dữ liệu đồng hồ trong khung (cần ít nhất hai mốc: lịch sử{' '}
+                <span className="text-white/55">energy_meter_kwh</span> hoặc cùng snapshot{' '}
+                <span className="text-white/55">energyMeterKwh</span>).
+              </p>
+            )}
+            {energyBarDisplay.meterStatus === 'outside_window' && (
+              <p className="text-amber-200/90 text-xs mt-1.5 leading-snug">
+                Có lịch sử đồng hồ nhưng không trùng cửa sổ đang chọn — kiểm tra mốc thời gian hoặc chọn ca/ngày khác.
               </p>
             )}
           </div>
@@ -1479,7 +1465,7 @@ export function EquipmentDetail({
                 <YAxis 
                   stroke="#ffffff40" 
                   tick={{ fill: '#ffffff60', fontSize: 10 }}
-                  label={{ value: 'Energy (kWh)', angle: -90, position: 'insideLeft', fill: '#ffffff60', fontSize: 10, style: { textAnchor: 'middle' } }}
+                  label={{ value: 'kWh / bucket (đồng hồ)', angle: -90, position: 'insideLeft', fill: '#ffffff60', fontSize: 10, style: { textAnchor: 'middle' } }}
                   domain={[0, 'auto']}
                   width={50}
                   tickFormatter={(value) => value.toFixed(1)}
@@ -1495,7 +1481,7 @@ export function EquipmentDetail({
                   }}
                   formatter={(value: any) => {
                     const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-                    return [`${numValue.toFixed(2)} kWh`, 'Energy'];
+                    return [`${numValue.toFixed(2)} kWh`, 'Bucket (đồng hồ)'];
                   }}
                   labelFormatter={(label) => `Bucket: ${label}`}
                 />
@@ -1517,10 +1503,10 @@ export function EquipmentDetail({
         <div className="mt-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Layers className="w-4 h-4 text-[#7DD3FC]" strokeWidth={2.5} />
-            <h3 className="text-base text-white">Estimated energy by production order</h3>
+            <h3 className="text-base text-white">kWh theo đơn (ước lượng)</h3>
           </div>
           <p className="text-white/50 text-xs mb-3">
-            kWh allocated by overlap of each order with the same time window as the chart above (EnMS-style split for reporting; not a substitute for sub-metering).
+            Phân bổ kWh của biểu đồ “theo bucket (đồng hồ)” theo thời gian chồng lấn từng đơn — cùng tổng kWh trong cửa sổ ca/ngày đã chọn.
           </p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">

@@ -922,6 +922,23 @@ export const mockAPI = {
       };
     });
 
+    const baseMeter =
+      typeof machine.energyMeterKwh === 'number' && Number.isFinite(machine.energyMeterKwh)
+        ? machine.energyMeterKwh
+        : 182_000;
+    const energyMeterTrend = Array.from({ length: 17 }, (_, i) => {
+      const ts = new Date(Date.now() - (16 - i) * 30 * 60000);
+      return {
+        time: ts.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
+        timestamp: ts.toISOString(),
+        meterKwh: baseMeter - (16 - i) * 4.25,
+      };
+    });
+
     // Energy consumption: hourly buckets with explicit ISO window (aligned with real API)
     const energyConsumption = Array.from({ length: 24 }, (_, i) => {
       const start = new Date(Date.now() - (23 - i) * 3600000);
@@ -949,6 +966,7 @@ export const mockAPI = {
       currentTrend,
       multiZoneTemperatureTrend,
       powerTrend,
+      energyMeterTrend,
       energyConsumption,
       orderHistory,
     };

@@ -12,7 +12,9 @@
     "rename-entities": "node scripts/rename-entities.js",
     "export-machines": "node scripts/export-machines-data.js",
     "sync-machines": "node scripts/sync-machines-from-db.js",
-    "create-user": "node scripts/create-user.js"
+    "create-user": "node scripts/create-user.js",
+    "apply-energy-meter": "node scripts/apply-energy-meter-migration.mjs",
+    "apply-energy-telemetry": "node scripts/apply-energy-telemetry-migration.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

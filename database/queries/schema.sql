@@ -138,8 +138,31 @@ CREATE TABLE IF NOT EXISTS machine_metrics (
 CREATE TABLE IF NOT EXISTS energy_consumption (
     id SERIAL PRIMARY KEY,
     machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
-    energy_kwh DECIMAL(10, 2) NOT NULL,
+    energy_kwh DECIMAL(14, 3) NOT NULL,
+    power_kw DECIMAL(10, 3),
+    material_code VARCHAR(50),
+    product_name VARCHAR(255),
+    machine_status machine_status,
+    produced_length_m DECIMAL(14, 3),
+    kwh_per_100m DECIMAL(14, 4),
+    sample_count INTEGER NOT NULL DEFAULT 0,
     hour TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Raw 5-second telemetry for machine energy and context
+CREATE TABLE IF NOT EXISTS machine_energy_samples (
+    id BIGSERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) REFERENCES machines(id) ON DELETE CASCADE,
+    sampled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    machine_status machine_status NOT NULL DEFAULT 'idle',
+    power_kw DECIMAL(10, 3),
+    energy_meter_kwh DECIMAL(14, 3),
+    material_code VARCHAR(50),
+    product_name VARCHAR(255),
+    produced_length_m DECIMAL(14, 3),
+    produced_length_ok_m DECIMAL(14, 3),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -159,6 +182,9 @@ CREATE INDEX IF NOT EXISTS idx_machine_metrics_timestamp ON machine_metrics(time
 CREATE INDEX IF NOT EXISTS idx_machine_metrics_type ON machine_metrics(metric_type);
 CREATE INDEX IF NOT EXISTS idx_energy_consumption_machine_id ON energy_consumption(machine_id);
 CREATE INDEX IF NOT EXISTS idx_energy_consumption_hour ON energy_consumption(hour);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_energy_consumption_machine_hour ON energy_consumption(machine_id, hour);
+CREATE INDEX IF NOT EXISTS idx_machine_energy_samples_machine_time ON machine_energy_samples(machine_id, sampled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_energy_samples_status ON machine_energy_samples(machine_status);
 CREATE INDEX IF NOT EXISTS idx_prod_len_events_machine ON production_length_events(machine_id);
 CREATE INDEX IF NOT EXISTS idx_prod_len_events_area ON production_length_events(area);
 CREATE INDEX IF NOT EXISTS idx_prod_len_events_shift ON production_length_events(shift_id);

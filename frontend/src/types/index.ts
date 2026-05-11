@@ -38,8 +38,8 @@ export interface Machine {
     | 'ERROR_DEFAULT';
   current?: number; // Amperes
   power?: number; // kW
-  /** Cumulative energy meter register (kWh) — delta per period = end reading − start reading */
-  energyMeterKwh?: number;
+  /** Cumulative energy meter register (kWh) — delta per period = end reading − start reading; API returns null when unset. */
+  energyMeterKwh?: number | null;
   temperature?: number; // Celsius
   multiZoneTemperatures?: {
     zone1?: number;
@@ -171,6 +171,12 @@ export interface MachineDetail extends Machine {
     minRange: number;
     maxRange: number;
   }>;
+  /** Samples from machine_metrics metric_type energy_meter_kwh — used for delta kWh per bucket */
+  energyMeterTrend?: Array<{
+    time: string;
+    timestamp: string;
+    meterKwh: number;
+  }>;
   /** Hourly (or bucketed) energy from DB — prefer bucketStart/bucketEnd ISO */
   energyConsumption?: MachineEnergyBucket[];
   orderHistory?: ProductionOrder[];
@@ -183,6 +189,13 @@ export interface MachineEnergyBucket {
   /** ISO 8601 end of bucket (exclusive) */
   bucketEnd: string;
   energy: number; // kWh
+  powerKw?: number | null; // average kW in bucket
+  materialCode?: string;
+  productName?: string;
+  machineStatus?: MachineStatus;
+  producedLengthM?: number | null;
+  kwhPer100m?: number | null;
+  sampleCount?: number;
   /** Optional display label (e.g. local time); UI may derive from bucketStart */
   hour?: string;
 }

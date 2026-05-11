@@ -269,7 +269,132 @@ export function buildEnergyBarChartData(
   return rows;
 }
 
-export type EnergyBarDataSource = 'db' | 'power_estimate' | 'empty';
+type MeterTrendPt = { t: number; v: number };
+
+function parseMeterTrendToPoints(trend: unknown[] | undefined): MeterTrendPt[] {
+  const out: MeterTrendPt[] = [];
+  for (const item of trend || []) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const iso = typeof o.timestamp === 'string' ? o.timestamp : null;
+    if (!iso) continue;
+    const t = new Date(iso).getTime();
+    const v = Number(o.meterKwh ?? o.value);
+    if (!Number.isFinite(t) || Number.isNaN(t) || !Number.isFinite(v)) continue;
+    out.push({ t, v });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+export type MeterDeltaChartOpts = {
+  /** Latest cumulative reading (machines.energy_meter_kwh) to close the window */
+  terminalKwh?: number;
+  terminalAtMs?: number;
+};
+
+function emptyEnergyBars(ctx: EnergyChartContext): EnergyBarRow[] {
+  const rows: EnergyBarRow[] = [];
+  const useHourLabels =
+    ctx.aggregation === 'hour' || Math.abs(ctx.bucketDurationMs - HOUR_MS) < 1;
+  const aggLabel: 'hour' | 'day' = useHourLabels ? 'hour' : 'day';
+  for (let i = 0; i < ctx.bucketCount; i++) {
+    const b0 = new Date(ctx.windowStart.getTime() + i * ctx.bucketDurationMs);
+    const b1 = new Date(Math.min(ctx.windowEnd.getTime(), b0.getTime() + ctx.bucketDurationMs));
+    if (b0.getTime() >= ctx.windowEnd.getTime()) break;
+    rows.push({
+      label: formatBucketLabel(b0, aggLabel),
+      energy: 0,
+      bucketStart: b0.toISOString(),
+      bucketEnd: b1.toISOString(),
+    });
+  }
+  return rows;
+}
+
+/**
+ * kWh per bucket from cumulative meter (machine_metrics energy_meter_kwh + snapshot energyMeterKwh).
+ * For each consecutive pair of readings, the segment is clipped to [windowStart, windowEnd) and the
+ * meter is linearly interpolated between samples; that window delta is split across buckets by time
+ * overlap (ca / ngày / scope từ resolveEnergyChartContext). Works with sparse PLC data.
+ */
+export function buildMeterDeltaBarChartFromTrend(
+  trend: unknown[] | undefined,
+  ctx: EnergyChartContext,
+  opts?: MeterDeltaChartOpts
+): { rows: EnergyBarRow[]; status: 'ok' | 'no_points' | 'outside_window' } {
+  const w0 = ctx.windowStart.getTime();
+  const w1 = ctx.windowEnd.getTime();
+  const pts = parseMeterTrendToPoints(trend);
+
+  const tk = opts?.terminalKwh;
+  const tAt = opts?.terminalAtMs ?? Date.now();
+  const chain: MeterTrendPt[] = [...pts];
+  if (tk != null && Number.isFinite(tk)) {
+    const tEdge = Math.min(Math.max(tAt, w0), w1 - 1);
+    chain.push({ t: tEdge, v: tk });
+  }
+  chain.sort((a, b) => a.t - b.t);
+  const dedup: MeterTrendPt[] = [];
+  for (const p of chain) {
+    const last = dedup[dedup.length - 1];
+    if (last && last.t === p.t) dedup[dedup.length - 1] = p;
+    else dedup.push(p);
+  }
+
+  if (dedup.length === 0) {
+    return { rows: emptyEnergyBars(ctx), status: 'no_points' };
+  }
+
+  const inWin =
+    dedup.some((p) => p.t >= w0 && p.t < w1) ||
+    (tk != null && Number.isFinite(tk) && tAt >= w0 && tAt < w1);
+
+  const lerpMeter = (a: MeterTrendPt, b: MeterTrendPt, t: number): number => {
+    if (Math.abs(b.t - a.t) < 1) return b.v;
+    return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t);
+  };
+
+  const overlapMs = (a0: number, a1: number, b0: number, b1: number) =>
+    Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+
+  const rows = emptyEnergyBars(ctx);
+
+  for (let i = 0; i < dedup.length - 1; i++) {
+    const pA = dedup[i];
+    const pB = dedup[i + 1];
+    const segDur = pB.t - pA.t;
+    if (segDur <= 0) continue;
+
+    const tSeg0 = Math.max(pA.t, w0);
+    const tSeg1 = Math.min(pB.t, w1);
+    if (tSeg1 <= tSeg0) continue;
+
+    const v0 = lerpMeter(pA, pB, tSeg0);
+    const v1 = lerpMeter(pA, pB, tSeg1);
+    const deltaWin = v1 - v0;
+    if (!Number.isFinite(deltaWin) || deltaWin <= 0) continue;
+
+    const winDur = tSeg1 - tSeg0;
+    rows.forEach((row, bi) => {
+      const b0 = ctx.windowStart.getTime() + bi * ctx.bucketDurationMs;
+      const b1 = Math.min(ctx.windowEnd.getTime(), b0 + ctx.bucketDurationMs);
+      if (b0 >= ctx.windowEnd.getTime()) return;
+      const om = overlapMs(tSeg0, tSeg1, b0, b1);
+      if (om <= 0) return;
+      row.energy += (deltaWin * om) / winDur;
+    });
+  }
+
+  const sum = rows.reduce((s, r) => s + r.energy, 0);
+  if (dedup.length < 2 && sum < 0.001) {
+    return { rows, status: 'no_points' };
+  }
+  const status: 'ok' | 'outside_window' | 'no_points' =
+    !inWin && sum < 0.001 ? 'outside_window' : 'ok';
+  return { rows, status };
+}
+
+export type EnergyBarDataSource = 'db' | 'power_estimate' | 'empty' | 'meter_delta';
 
 /** How hourly kWh bars were filled from kW */
 export type EnergyPowerFill = 'none' | 'fallback' | 'policy';
