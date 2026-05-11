@@ -1,6 +1,6 @@
 import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useMachines, useProductionOrders } from '../../hooks/useProductionData';
+import { useProductionOrders } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
 import { EquipmentOeeToolbar } from '../EquipmentOeeToolbar';
@@ -14,6 +14,8 @@ import {
 } from '../../utils/equipmentOeeDisplay';
 import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../../utils/productNameDisplay';
 interface EquipmentStatusProps {
+  machines: Machine[];
+  machinesLoading?: boolean;
   onMachineClick: (machineId: string) => void;
   equipmentOeeMode: EquipmentOeeMode;
   onEquipmentOeeModeChange: (mode: EquipmentOeeMode) => void;
@@ -35,6 +37,8 @@ const areaConfig: Record<ProductionArea, { name: string; icon: any }> = {
 };
 
 export function EquipmentStatus({
+  machines,
+  machinesLoading = false,
   onMachineClick,
   equipmentOeeMode,
   onEquipmentOeeModeChange,
@@ -47,7 +51,7 @@ export function EquipmentStatus({
   pastIsoShiftNumber,
   onPastIsoShiftNumberChange,
 }: EquipmentStatusProps) {
-  const { machines, loading } = useMachines();
+  const loading = machinesLoading;
   const trends = useMachineTrends(machines);
   const [expandedMachines, setExpandedMachines] = useState<Set<string>>(new Set());
   const { orders } = useProductionOrders();

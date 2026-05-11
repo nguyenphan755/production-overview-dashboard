@@ -9,16 +9,22 @@ import {
   Tooltip, Legend, ComposedChart, Area, AreaChart, PieChart as RechartsPieChart, 
   Cell, CartesianGrid, ReferenceLine
 } from 'recharts';
-import { useMachines, useGlobalKPIs, useProductionOrders, useProductionAreas } from '../../hooks/useProductionData';
+import { useGlobalKPIs, useProductionOrders, useProductionAreas } from '../../hooks/useProductionData';
 import { apiClient } from '../../services/api';
 import { exportToPowerPoint, exportAsPDF, ExportOptions } from '../../utils/exportAnalytics';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
 type TimeRange = 'shift' | 'today' | 'yesterday' | 'last7' | 'month';
 
+interface PerformanceAnalyticsProps {
+  machines: Machine[];
+  machinesLoading?: boolean;
+}
 
-export function PerformanceAnalytics() {
-  const { machines, loading: machinesLoading } = useMachines();
+export function PerformanceAnalytics({
+  machines,
+  machinesLoading = false,
+}: PerformanceAnalyticsProps) {
   const { kpis, loading: kpisLoading } = useGlobalKPIs();
   const { orders } = useProductionOrders();
   const { areas } = useProductionAreas();

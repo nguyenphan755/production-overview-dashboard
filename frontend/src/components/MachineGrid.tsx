@@ -1,5 +1,5 @@
-import { useMachines } from '../hooks/useProductionData';
-import type { ProductionArea } from '../types';
+import { memo } from 'react';
+import type { Machine, ProductionArea } from '../types';
 
 const areaNames: Record<ProductionArea, string> = {
   drawing: 'KÉO',
@@ -10,17 +10,16 @@ const areaNames: Record<ProductionArea, string> = {
 
 interface MachineGridProps {
   onMachineClick?: (machineId: string) => void;
+  machines: Machine[];
+  loading?: boolean;
 }
 
-export function MachineGrid({ onMachineClick }: MachineGridProps) {
-  const { machines, loading, error } = useMachines();
-  
-  // Ensure machines is always an array
+export const MachineGrid = memo(function MachineGrid({
+  onMachineClick,
+  machines,
+  loading = false,
+}: MachineGridProps) {
   const machinesArray = Array.isArray(machines) ? machines : [];
-  
-  if (error) {
-    console.error('MachineGrid error:', error);
-  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -172,4 +171,4 @@ export function MachineGrid({ onMachineClick }: MachineGridProps) {
       </div>
     </div>
   );
-}
+});

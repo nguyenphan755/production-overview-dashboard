@@ -9,6 +9,7 @@ interface ProductionOverviewProps {
   onMachineClick?: (machineId: string) => void;
   /** Live machine rows (same source as Equipment); used to show product on area cards */
   machines?: Machine[];
+  machinesLoading?: boolean;
 }
 
 function mergeProductNamesIntoAreas(
@@ -33,7 +34,11 @@ function mergeProductNamesIntoAreas(
   }));
 }
 
-export function ProductionOverview({ onMachineClick, machines = [] }: ProductionOverviewProps) {
+export function ProductionOverview({
+  onMachineClick,
+  machines = [],
+  machinesLoading = false,
+}: ProductionOverviewProps) {
   const { areas, loading, error } = useProductionAreas();
   const areasForCards = useMemo(
     () => mergeProductNamesIntoAreas(areas, machines),
@@ -72,7 +77,11 @@ export function ProductionOverview({ onMachineClick, machines = [] }: Production
       </div>
 
       {/* Machine Grid */}
-      <MachineGrid onMachineClick={onMachineClick} />
+      <MachineGrid
+        onMachineClick={onMachineClick}
+        machines={machines}
+        loading={machinesLoading}
+      />
     </>
   );
 }

@@ -1,15 +1,75 @@
 // React hooks for fetching production data from API
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { apiClient } from '../services/api';
 import { effectiveProducedLengthOkM } from '../utils/effectiveProducedLength';
+import { getFleetPollIntervalMs, parseMachineDetailPollBaseMs } from '../utils/poll-config';
 import type {
   GlobalKPI,
   ProductionAreaSummary,
   Machine,
   MachineDetail,
   ProductionOrder,
+  ProductionArea,
 } from '../types';
+import { machineDetailCoreChanged } from '../utils/machine-detail-snapshot';
+
+/** Meaningful row diff for fleet cards (order-independent compare uses this). */
+function machineFleetRowChanged(a: Machine, b: Machine): boolean {
+  return (
+    a.status !== b.status ||
+    (a.productName || '') !== (b.productName || '') ||
+    (a.productionOrderProductName || '') !== (b.productionOrderProductName || '') ||
+    Math.abs((a.lineSpeed || 0) - (b.lineSpeed || 0)) > 0.1 ||
+    Math.abs(effectiveProducedLengthOkM(a) - effectiveProducedLengthOkM(b)) > 0.1 ||
+    Math.abs((a.current || 0) - (b.current || 0)) > 0.1 ||
+    Math.abs((a.power || 0) - (b.power || 0)) > 0.1 ||
+    Math.abs((a.temperature || 0) - (b.temperature || 0)) > 0.1 ||
+    Math.abs((a.oee || 0) - (b.oee || 0)) > 0.1
+  );
+}
+
+function isMachineFleetDataChanged(prev: Machine[], next: Machine[]): boolean {
+  if (prev.length !== next.length) return true;
+  const nextById = new Map(next.map((m) => [m.id, m]));
+  if (nextById.size !== next.length) return true;
+  for (const p of prev) {
+    const n = nextById.get(p.id);
+    if (!n) return true;
+    if (machineFleetRowChanged(p, n)) return true;
+  }
+  for (const n of next) {
+    if (!prev.some((p) => p.id === n.id)) return true;
+  }
+  return false;
+}
+
+function productionAreaSummaryChanged(a: ProductionAreaSummary, b: ProductionAreaSummary): boolean {
+  return (
+    a.running !== b.running ||
+    a.total !== b.total ||
+    a.output !== b.output ||
+    Math.abs((a.speedAvg || 0) - (b.speedAvg || 0)) > 0.1 ||
+    a.alarms !== b.alarms
+  );
+}
+
+function isProductionAreasDataChanged(
+  prev: ProductionAreaSummary[],
+  next: ProductionAreaSummary[]
+): boolean {
+  if (prev.length !== next.length) return true;
+  const nextById = new Map(next.map((a) => [a.id, a]));
+  for (const p of prev) {
+    const n = nextById.get(p.id);
+    if (!n) return true;
+    if (productionAreaSummaryChanged(p, n)) return true;
+  }
+  for (const n of next) {
+    if (!prev.some((p) => p.id === n.id)) return true;
+  }
+  return false;
+}
 
 // Hook for global KPIs
 export function useGlobalKPIs() {
@@ -72,9 +132,8 @@ export function useGlobalKPIs() {
     // Initial fetch
     fetchKPIs();
 
-    // Poll for updates every 1 second
     const pollInterval = setInterval(() => {
-      if (mounted) {
+      if (mounted && typeof document !== 'undefined' && !document.hidden) {
         fetchKPIs();
       }
     }, 1000);
@@ -122,27 +181,11 @@ export function useProductionAreas() {
               if (!prevAreas || prevAreas.length === 0) {
                 return response.data; // First load
               }
-              
-              if (prevAreas.length !== response.data.length) {
-                return response.data; // Length changed
-              }
-              
-              // Compare each area's key metrics
-              const changed = prevAreas.some((prevArea, index) => {
-                const newArea = response.data[index];
-                if (!newArea || prevArea.id !== newArea.id) return true;
-                
-                return (
-                  prevArea.running !== newArea.running ||
-                  prevArea.total !== newArea.total ||
-                  prevArea.output !== newArea.output ||
-                  Math.abs((prevArea.avgSpeed || 0) - (newArea.avgSpeed || 0)) > 0.1 ||
-                  prevArea.alarms !== newArea.alarms
-                );
-              });
-              
-              if (changed) {
-                console.log('🔄 Areas changed');
+
+              if (isProductionAreasDataChanged(prevAreas, response.data)) {
+                if (import.meta.env.DEV) {
+                  console.log('🔄 Areas changed');
+                }
                 return response.data;
               }
               return prevAreas; // No change, return previous state (prevents re-render)
@@ -166,9 +209,8 @@ export function useProductionAreas() {
     // Initial fetch
     fetchAreas();
 
-    // Poll for updates every 1 second
     const pollInterval = setInterval(() => {
-      if (mounted) {
+      if (mounted && typeof document !== 'undefined' && !document.hidden) {
         fetchAreas();
       }
     }, 1000);
@@ -191,91 +233,60 @@ export function useProductionAreas() {
 }
 
 // Hook for all machines
-export function useMachines(areaId?: string) {
+export function useMachines(
+  areaId?: string,
+  options?: { activeTab?: string }
+) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pollMs = getFleetPollIntervalMs(options?.activeTab);
+
+  const machineIdsKey = useMemo(
+    () =>
+      [...machines.map((m) => m.id).filter(Boolean)].sort().join('|'),
+    [machines]
+  );
 
   useEffect(() => {
     let mounted = true;
-
     let isInitialLoad = true;
-    
+
     const fetchMachines = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       try {
-        // Only show loading on initial load, not on polling
         if (isInitialLoad) {
           setLoading(true);
           isInitialLoad = false;
         }
         const response = areaId
-          ? await apiClient.getMachinesByArea(areaId as any)
+          ? await apiClient.getMachinesByArea(areaId as ProductionArea)
           : await apiClient.getAllMachines();
-        
-        console.log(`🔍 useMachines response:`, {
-          success: response.success,
-          hasData: !!response.data,
-          dataType: Array.isArray(response.data) ? 'array' : typeof response.data,
-          dataLength: Array.isArray(response.data) ? response.data.length : 'N/A',
-          message: response.message,
-        });
-        
+
+        if (import.meta.env.DEV) {
+          console.log(`🔍 useMachines response:`, {
+            success: response.success,
+            hasData: !!response.data,
+            dataLength: Array.isArray(response.data) ? response.data.length : 'N/A',
+          });
+        }
+
         if (mounted) {
           if (response.success && response.data) {
-            // Ensure data is an array
             const machinesData = Array.isArray(response.data) ? response.data : [];
-            console.log(`✅ Machines data loaded:`, machinesData.length, 'machines');
-            
-            // Only update if data actually changed (efficient comparison)
             setMachines((prevMachines) => {
               if (!prevMachines || prevMachines.length === 0) {
-                return machinesData; // First load
-              }
-              
-              if (prevMachines.length !== machinesData.length) {
-                console.log('🔄 Machines count changed:', machinesData.length);
                 return machinesData;
               }
-              
-              // Compare each machine's key fields (more efficient than JSON.stringify)
-              const changed = prevMachines.some((prevMachine, index) => {
-                const newMachine = machinesData[index];
-                if (!newMachine || prevMachine.id !== newMachine.id) return true;
-                
-                // Only check fields that matter for display
-                return (
-                  prevMachine.status !== newMachine.status ||
-                  (prevMachine.productName || '') !== (newMachine.productName || '') ||
-                  (prevMachine.productionOrderProductName || '') !==
-                    (newMachine.productionOrderProductName || '') ||
-                  Math.abs((prevMachine.lineSpeed || 0) - (newMachine.lineSpeed || 0)) > 0.1 ||
-                  Math.abs(
-                    effectiveProducedLengthOkM(prevMachine) -
-                      effectiveProducedLengthOkM(newMachine)
-                  ) > 0.1 ||
-                  Math.abs((prevMachine.current || 0) - (newMachine.current || 0)) > 0.1 ||
-                  Math.abs((prevMachine.power || 0) - (newMachine.power || 0)) > 0.1 ||
-                  Math.abs((prevMachine.temperature || 0) - (newMachine.temperature || 0)) > 0.1 ||
-                  Math.abs((prevMachine.oee || 0) - (newMachine.oee || 0)) > 0.1
-                );
-              });
-              
-              if (changed) {
-                console.log('🔄 Machines changed:', new Date().toLocaleTimeString(), machinesData.length, 'machines');
+
+              if (isMachineFleetDataChanged(prevMachines, machinesData)) {
                 return machinesData;
               }
-              // No change, return previous state (prevents re-render)
               return prevMachines;
             });
             setError(null);
           } else {
-            console.error('❌ Failed to fetch machines:', {
-              success: response.success,
-              message: response.message,
-              hasData: !!response.data,
-              dataType: typeof response.data,
-            });
-            setMachines([]); // Set empty array instead of undefined
+            setMachines([]);
             setError(response.message || 'Failed to fetch machines');
           }
         }
@@ -290,49 +301,39 @@ export function useMachines(areaId?: string) {
       }
     };
 
-    // Initial fetch
     fetchMachines();
 
-    // Poll for updates every 1 second with change detection
     const pollInterval = setInterval(() => {
-      if (mounted) {
-        fetchMachines();
-      }
-    }, 1000);
-
-    // Subscribe to real-time updates for each machine
-    const unsubscribes: (() => void)[] = [];
-    
-    // Re-subscribe when machines change
-    const subscribeToUpdates = () => {
-      // Clean up existing subscriptions
-      unsubscribes.forEach((unsub) => unsub());
-      unsubscribes.length = 0;
-      
-      // Subscribe to each machine
-      machines.forEach((machine) => {
-        const unsubscribe = apiClient.subscribeToMachineUpdates(machine.id, (updated) => {
-          if (mounted) {
-            setMachines((prev) =>
-              prev.map((m) => (m.id === updated.id ? updated : m))
-            );
-          }
-        });
-        unsubscribes.push(unsubscribe);
-      });
-    };
-
-    // Initial subscription after first load
-    if (machines.length > 0) {
-      subscribeToUpdates();
-    }
+      if (!mounted) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchMachines();
+    }, pollMs);
 
     return () => {
       mounted = false;
       clearInterval(pollInterval);
-      unsubscribes.forEach((unsub) => unsub());
     };
-  }, [areaId]);
+  }, [areaId, pollMs]);
+
+  useEffect(() => {
+    const ids = machines.map((m) => m.id).filter(Boolean);
+    if (ids.length === 0) return;
+
+    const unsubs = ids.map((id) =>
+      apiClient.subscribeToMachineUpdates(id, (updated) => {
+        setMachines((prev) => {
+          const prevRow = prev.find((m) => m.id === updated.id);
+          if (!prevRow) return prev;
+          const merged = { ...prevRow, ...updated };
+          if (!machineFleetRowChanged(prevRow, merged)) return prev;
+          return prev.map((m) => (m.id === updated.id ? merged : m));
+        });
+      })
+    );
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [machineIdsKey]);
 
   return { machines, loading, error };
 }
@@ -364,37 +365,25 @@ export function useMachineDetail(machineId: string | null) {
         const response = await apiClient.getMachineDetail(machineId);
         if (mounted) {
           if (response.success && response.data) {
+            const data = response.data;
+            if (data.id !== machineId) {
+              if (import.meta.env.DEV) {
+                console.warn('[useMachineDetail] Ignoring response: machine id mismatch', {
+                  requested: machineId,
+                  received: data.id,
+                });
+              }
+              return;
+            }
             // Only update if data actually changed
             setMachine((prevMachine) => {
               if (!prevMachine) {
-                return response.data; // First load
+                return data; // First load
               }
-              
-              // Compare key fields that matter
-              const changed = 
-                prevMachine.status !== response.data.status ||
-                (prevMachine.productionOrderId || null) !==
-                  (response.data.productionOrderId || null) ||
-                (prevMachine.productionOrderName || null) !==
-                  (response.data.productionOrderName || null) ||
-                (prevMachine.productionOrderProductName || null) !==
-                  (response.data.productionOrderProductName || null) ||
-                (prevMachine.productName || null) !==
-                  (response.data.productName || null) ||
-                Math.abs((prevMachine.lineSpeed || 0) - (response.data.lineSpeed || 0)) > 0.1 ||
-                Math.abs(
-                  effectiveProducedLengthOkM(prevMachine) -
-                    effectiveProducedLengthOkM(response.data)
-                ) > 0.1 ||
-                Math.abs((prevMachine.current || 0) - (response.data.current || 0)) > 0.1 ||
-                Math.abs((prevMachine.power || 0) - (response.data.power || 0)) > 0.1 ||
-                Math.abs((prevMachine.temperature || 0) - (response.data.temperature || 0)) > 0.1 ||
-                Math.abs((prevMachine.oee || 0) - (response.data.oee || 0)) > 0.1;
-              
-              if (changed) {
-                return response.data;
+              if (machineDetailCoreChanged(prevMachine, data)) {
+                return data;
               }
-              return prevMachine; // No change, return previous state (prevents re-render)
+              return prevMachine;
             });
             setError(null);
           } else {
@@ -415,18 +404,22 @@ export function useMachineDetail(machineId: string | null) {
     // Initial fetch
     fetchMachine();
 
-    // Poll for updates every 1 second with change detection
+    const detailPollMs = parseMachineDetailPollBaseMs();
     const pollInterval = setInterval(() => {
-      if (mounted) {
-        fetchMachine();
-      }
-    }, 1000);
+      if (!mounted) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchMachine();
+    }, detailPollMs);
 
-    // Subscribe to real-time updates
     const unsubscribe = apiClient.subscribeToMachineUpdates(machineId, (updated) => {
-      if (mounted && machine) {
-        setMachine((prev) => (prev ? { ...prev, ...updated } : null));
-      }
+      if (!mounted) return;
+      if (updated.id !== machineId) return;
+      setMachine((prev) => {
+        if (!prev || prev.id !== machineId) return prev;
+        const merged = { ...prev, ...updated };
+        if (!machineDetailCoreChanged(prev, merged)) return prev;
+        return merged;
+      });
     });
 
     return () => {

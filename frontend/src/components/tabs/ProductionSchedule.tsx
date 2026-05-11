@@ -1,9 +1,12 @@
 import { Clock, Package, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useMachines, useProductionOrders } from '../../hooks/useProductionData';
+import { useProductionOrders } from '../../hooks/useProductionData';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 
-export function ProductionSchedule() {
-  const { machines } = useMachines();
+interface ProductionScheduleProps {
+  machines: Machine[];
+}
+
+export function ProductionSchedule({ machines }: ProductionScheduleProps) {
   const { orders, loading, error } = useProductionOrders();
   
   // Create a map of machine ID to machine name

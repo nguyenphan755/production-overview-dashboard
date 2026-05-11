@@ -61,6 +61,7 @@ export function EquipmentDetail({
   }, [machine, simProducedLengthOk]);
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     if (!machine) return;
     if (!machine.name?.includes('LHT-1')) return;
     const key = `sim-bobbin-once:${machine.id}`;

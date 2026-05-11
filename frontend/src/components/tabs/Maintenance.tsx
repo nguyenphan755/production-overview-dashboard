@@ -1,8 +1,10 @@
 import { Wrench, Calendar, CheckCircle2, Clock, AlertTriangle, Package } from 'lucide-react';
-import { useMachines } from '../../hooks/useProductionData';
 
-export function Maintenance() {
-  const { machines } = useMachines();
+interface MaintenanceProps {
+  machines: Machine[];
+}
+
+export function Maintenance({ machines }: MaintenanceProps) {
   
   // Create a map of machine ID to machine name
   const machineNameMap = new Map(

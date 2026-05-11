@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Activity, Package, Gauge, AlertTriangle } from 'lucide-react';
 
 import type { ProductionAreaSummary } from '../types';
@@ -7,7 +8,7 @@ interface AreaCardProps {
   area: ProductionAreaSummary;
 }
 
-export function AreaCard({ area }: AreaCardProps) {
+export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'running': return 'bg-[#22C55E]'; // Green for running
@@ -153,4 +154,4 @@ export function AreaCard({ area }: AreaCardProps) {
 
     </div>
   );
-}
+});

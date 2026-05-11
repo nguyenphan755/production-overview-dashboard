@@ -11,6 +11,14 @@ import type {
   ProductionArea,
 } from '../types';
 
+const IS_API_DEBUG_LOGS =
+  import.meta.env.DEV ||
+  String(import.meta.env.VITE_DEBUG_API ?? '').toLowerCase() === 'true';
+
+function apiDebugLog(...args: unknown[]) {
+  if (IS_API_DEBUG_LOGS) console.log(...args);
+}
+
 let mockApiPromise: Promise<typeof import('./mockApi')> | null = null;
 
 async function getMockApi() {
@@ -48,8 +56,9 @@ function getApiBaseUrl(): string {
       console.warn('   Ignoring env variable and using dynamic detection instead.');
       // Fall through to Priority 2 (dynamic detection)
     } else {
-      // Environment variable is valid for current hostname, use it
-      console.log('🔧 Using VITE_API_BASE_URL from environment:', envUrl);
+      if (IS_API_DEBUG_LOGS) {
+        console.log('🔧 Using VITE_API_BASE_URL from environment:', envUrl);
+      }
       return envUrl;
     }
   }
@@ -62,15 +71,14 @@ function getApiBaseUrl(): string {
     const port = 3001; // Backend API port
     
     const detectedUrl = `${protocol}//${hostname}:${port}/api`;
-    
-    // Debug logging to verify hostname detection
-    console.log('🔍 getApiBaseUrl() detected:', {
+
+    apiDebugLog('🔍 getApiBaseUrl() detected:', {
       hostname: hostname,
       protocol: protocol,
       detectedUrl: detectedUrl,
-      isLocalhost: hostname === 'localhost' || hostname === '127.0.0.1'
+      isLocalhost: hostname === 'localhost' || hostname === '127.0.0.1',
     });
-    
+
     return detectedUrl;
   }
 
@@ -86,14 +94,14 @@ const API_CONFIG = {
   realtimeEnabled: import.meta.env.VITE_REALTIME_ENABLED === 'true',
 };
 
-// Log configuration on startup
-console.log('🔧 API Configuration:');
-console.log(`   Base URL: Will be detected dynamically at request time`);
+// Log configuration on startup (dev / explicit debug only)
+apiDebugLog('🔧 API Configuration:');
+apiDebugLog(`   Base URL: Will be detected dynamically at request time`);
 if (import.meta.env.VITE_API_BASE_URL) {
-  console.log(`   Environment VITE_API_BASE_URL: ${import.meta.env.VITE_API_BASE_URL}`);
+  apiDebugLog(`   Environment VITE_API_BASE_URL: ${import.meta.env.VITE_API_BASE_URL}`);
 }
-console.log(`   Using Mock: ${API_CONFIG.useMock}`);
-console.log(`   Real-time: ${API_CONFIG.realtimeEnabled}`);
+apiDebugLog(`   Using Mock: ${API_CONFIG.useMock}`);
+apiDebugLog(`   Real-time: ${API_CONFIG.realtimeEnabled}`);
 
 // API Client class
 class APIClient {
@@ -115,8 +123,10 @@ class APIClient {
     options?: RequestInit
   ): Promise<APIResponse<T>> {
     if (this.useMock) {
-      console.warn('⚠️ Using MOCK API data - Set VITE_USE_MOCK_DATA=false to use real API');
-      console.log('📦 Using MOCK API data for:', endpoint);
+      if (IS_API_DEBUG_LOGS) {
+        console.warn('⚠️ Using MOCK API data - Set VITE_USE_MOCK_DATA=false to use real API');
+      }
+      apiDebugLog('📦 Using MOCK API data for:', endpoint);
       const mockAPI = await getMockApi();
       return await mockAPI.request<T>(endpoint, options);
     }
@@ -141,8 +151,10 @@ class APIClient {
       }
     }
     
-    console.log(`🌐 API Request: ${url}`);
-    console.log(`🔧 Using Mock: ${this.useMock}, Base URL: ${currentBaseUrl}, Hostname: ${typeof window !== 'undefined' && window.location ? window.location.hostname : 'N/A'}`);
+    apiDebugLog(`🌐 API Request: ${url}`);
+    apiDebugLog(
+      `🔧 Using Mock: ${this.useMock}, Base URL: ${currentBaseUrl}, Hostname: ${typeof window !== 'undefined' && window.location ? window.location.hostname : 'N/A'}`
+    );
     
     try {
       const response = await fetch(url, {
@@ -158,19 +170,19 @@ class APIClient {
       }
 
       const jsonData = await response.json();
-      console.log(`✅ API Success: ${endpoint}`);
-      console.log(`📦 Response structure:`, {
+      apiDebugLog(`✅ API Success: ${endpoint}`);
+      apiDebugLog(`📦 Response structure:`, {
         hasData: jsonData.data !== undefined,
         hasSuccess: jsonData.success !== undefined,
         dataType: Array.isArray(jsonData.data) ? 'array' : typeof jsonData.data,
         dataLength: Array.isArray(jsonData.data) ? jsonData.data.length : 'N/A',
       });
-      
+
       // Backend returns { data: ..., success: true, timestamp: ... }
       // Extract the actual data from the response
       const actualData = jsonData.data !== undefined ? jsonData.data : jsonData;
-      
-      console.log(`📊 Extracted data:`, {
+
+      apiDebugLog(`📊 Extracted data:`, {
         isArray: Array.isArray(actualData),
         length: Array.isArray(actualData) ? actualData.length : 'N/A',
         type: typeof actualData,
@@ -399,11 +411,11 @@ class APIClient {
       // Always get fresh baseUrl to ensure correct hostname detection
       const currentBaseUrl = this.getBaseUrl();
       const wsUrl = currentBaseUrl.replace('http://', 'ws://').replace('https://', 'wss://').replace('/api', '');
-      console.log('🔌 WebSocket connecting to:', `${wsUrl}/ws`);
+      apiDebugLog('🔌 WebSocket connecting to:', `${wsUrl}/ws`);
       this.ws = new WebSocket(`${wsUrl}/ws`);
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected');
+        apiDebugLog('✅ WebSocket connected');
       };
 
       this.ws.onmessage = (event) => {
@@ -411,7 +423,6 @@ class APIClient {
           const message = JSON.parse(event.data);
           
           if (message.type === 'machine:update') {
-            // Broadcast to all machine update callbacks
             const callbacks = this.wsCallbacks.get('machine:update') || new Set();
             callbacks.forEach((callback) => {
               try {
@@ -420,9 +431,10 @@ class APIClient {
                 console.error('Error in WebSocket callback:', error);
               }
             });
+            return;
           }
 
-          // Handle other event types
+          // Other event types (not handled above)
           const callbacks = this.wsCallbacks.get(message.type) || new Set();
           callbacks.forEach((callback) => {
             try {
@@ -441,7 +453,7 @@ class APIClient {
       };
 
       this.ws.onclose = () => {
-        console.log('❌ WebSocket disconnected, reconnecting in 3s...');
+        apiDebugLog('❌ WebSocket disconnected, reconnecting in 3s...');
         this.ws = null;
         setTimeout(() => this.connectWebSocket(), 3000);
       };
@@ -478,11 +490,15 @@ class APIClient {
     }
 
     const callbacks = this.wsCallbacks.get(eventType)!;
-    callbacks.add(callback);
+    const wrapped = (data: Machine) => {
+      if (!data || data.id !== machineId) return;
+      callback(data);
+    };
+    callbacks.add(wrapped);
 
     // Return unsubscribe function
     return () => {
-      callbacks.delete(callback);
+      callbacks.delete(wrapped);
       if (callbacks.size === 0) {
         this.wsCallbacks.delete(eventType);
       }

@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { CompanyHeader } from "../components/CompanyHeader";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { TabNavigation } from "../components/TabNavigation";
 import { ProductionOverview } from "../components/tabs/ProductionOverview";
 import { QualityControl } from "../components/tabs/QualityControl";
 import { EquipmentStatus } from "../components/tabs/EquipmentStatus";
-import { EquipmentDetail } from "../components/tabs/EquipmentDetail";
-import { PerformanceAnalytics } from "../components/tabs/PerformanceAnalytics";
 import { Maintenance } from "../components/tabs/Maintenance";
 import { ProductionSchedule } from "../components/tabs/ProductionSchedule";
 import { Activity, BarChart3, Calendar, ClipboardCheck, Settings, Shield, Wrench } from "lucide-react";
@@ -17,6 +16,17 @@ import { useEquipmentOeeRollup } from "../hooks/useEquipmentOeeRollup";
 import { usePastShiftReportOee } from "../hooks/usePastShiftReportOee";
 import type { EquipmentOeeMode } from "../utils/equipmentOeeDisplay";
 import { getLastCompletedShiftSelection } from "../utils/shiftCalculator";
+
+const EquipmentDetailTab = lazy(() =>
+  import("../components/tabs/EquipmentDetail").then((m) => ({ default: m.EquipmentDetail }))
+);
+const PerformanceAnalyticsTab = lazy(() =>
+  import("../components/tabs/PerformanceAnalytics").then((m) => ({ default: m.PerformanceAnalytics }))
+);
+
+const tabSuspenseFallback = (
+  <div className="flex justify-center py-16 text-white/50 text-sm">Loading…</div>
+);
 
 type DashboardProps = {
   onLogout: () => void;
@@ -30,7 +40,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Keep bobbin detector running for all production lines globally.
-  const { machines } = useMachines();
+  const { machines, loading: machinesLoading } = useMachines(undefined, { activeTab });
   useBobbinCutDetectorForFleet(machines);
 
   // Error boundary - catch any rendering errors
@@ -88,27 +98,32 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   const equipmentOeeRollupError =
     equipmentOeeMode === "past_shift" ? pastShiftReport.error : analyticsRollup.error;
 
-  const handleMachineClick = (machineId: string) => {
+  const handleMachineClick = useCallback((machineId: string) => {
     setSelectedMachineId(machineId);
-    // Automatically switch to Equipment tab when a machine is clicked
     setActiveTab("equipment");
-  };
+  }, []);
 
-  const handleBackToEquipment = () => {
+  const handleBackToEquipment = useCallback(() => {
     setSelectedMachineId(null);
-  };
+  }, []);
 
   const renderTabContent = () => {
     switch (activeTab) {
       case "production":
-        return <ProductionOverview onMachineClick={handleMachineClick} machines={machines} />;
+        return (
+          <ProductionOverview
+            onMachineClick={handleMachineClick}
+            machines={machines}
+            machinesLoading={machinesLoading}
+          />
+        );
       case "quality":
         return <QualityControl />;
       case "equipment":
         // If a machine is selected, show detail page
         if (selectedMachineId) {
           return (
-            <EquipmentDetail
+            <EquipmentDetailTab
               machineId={selectedMachineId}
               onBack={handleBackToEquipment}
               equipmentOeeMode={equipmentOeeMode}
@@ -127,6 +142,8 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
         // Otherwise show equipment overview
         return (
           <EquipmentStatus
+            machines={machines}
+            machinesLoading={machinesLoading}
             onMachineClick={handleMachineClick}
             equipmentOeeMode={equipmentOeeMode}
             onEquipmentOeeModeChange={setEquipmentOeeMode}
@@ -141,15 +158,23 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
           />
         );
       case "analytics":
-        return <PerformanceAnalytics />;
+        return (
+          <PerformanceAnalyticsTab machines={machines} machinesLoading={machinesLoading} />
+        );
       case "maintenance":
-        return <Maintenance />;
+        return <Maintenance machines={machines} />;
       case "schedule":
-        return <ProductionSchedule />;
+        return <ProductionSchedule machines={machines} />;
       case "accounts":
         return <AccountManagement token={token} />;
       default:
-        return <ProductionOverview onMachineClick={handleMachineClick} />;
+        return (
+          <ProductionOverview
+            onMachineClick={handleMachineClick}
+            machines={machines}
+            machinesLoading={machinesLoading}
+          />
+        );
     }
   };
 
@@ -196,7 +221,9 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
             : []),
         ]}
       />
-      {renderTabContent()}
+      <ErrorBoundary fallbackTitle="This tab hit a rendering error">
+        <Suspense fallback={tabSuspenseFallback}>{renderTabContent()}</Suspense>
+      </ErrorBoundary>
     </div>
   );
 }
