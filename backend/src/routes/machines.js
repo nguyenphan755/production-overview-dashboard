@@ -66,6 +66,10 @@ const formatMachine = (row) => {
     qualityDataQuality: row.quality_data_quality || undefined,
     current: row.current ? parseFloat(row.current) : undefined,
     power: row.power ? parseFloat(row.power) : undefined,
+    energyMeterKwh:
+      row.energy_meter_kwh !== undefined && row.energy_meter_kwh !== null
+        ? parseFloat(row.energy_meter_kwh)
+        : undefined,
     temperature: row.temperature ? parseFloat(row.temperature) : undefined,
     multiZoneTemperatures: multiZoneTemps,
     healthScore: row.health_score ? parseFloat(row.health_score) : undefined,
@@ -383,19 +387,25 @@ router.get('/:machineId', async (req, res) => {
         maxRange: avgPower + 7,
       }));
 
-    // Get energy consumption (last 24 hours, hourly)
+    // Energy buckets (hourly kWh) — 14-day lookback so shift/calendar views can filter client-side
     const energyResult = await query(
       `SELECT energy_kwh, hour 
        FROM energy_consumption 
        WHERE machine_id = $1
-       AND hour >= NOW() - INTERVAL '24 hours'
+       AND hour >= NOW() - INTERVAL '14 days'
        ORDER BY hour ASC`,
       [machineId]
     );
-    machine.energyConsumption = energyResult.rows.map((row) => ({
-      hour: new Date(row.hour).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      energy: parseFloat(row.energy_kwh || 0),
-    }));
+    machine.energyConsumption = energyResult.rows.map((row) => {
+      const start = new Date(row.hour);
+      const end = new Date(start.getTime() + 3600000);
+      return {
+        bucketStart: start.toISOString(),
+        bucketEnd: end.toISOString(),
+        energy: parseFloat(row.energy_kwh || 0),
+        hour: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      };
+    });
 
     // Get order history
     const orderHistoryResult = await query(
@@ -663,6 +673,8 @@ router.patch('/:machineId', async (req, res) => {
       quality: 'quality',
       current: 'current',
       power: 'power',
+      energyMeterKwh: 'energy_meter_kwh',
+      energy_meter_kwh: 'energy_meter_kwh',
       temperature: 'temperature',
       multiZoneTemperatures: 'multi_zone_temperatures',
       healthScore: 'health_score',
@@ -948,6 +960,8 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       current: 'current',
       power: 'power',
       powerConsumption: 'power', // Alias for power
+      energyMeterKwh: 'energy_meter_kwh',
+      energy_meter_kwh: 'energy_meter_kwh',
       temperature: 'temperature',
       multiZoneTemperatures: 'multi_zone_temperatures',
       healthScore: 'health_score',
@@ -1188,6 +1202,16 @@ router.post('/:machineId/metrics', async (req, res) => {
        RETURNING *`,
       [resolvedMachineId, metricType, value, targetValue || null, zoneNumber || null, productName]
     );
+
+    if (String(metricType).toLowerCase() === 'energy_meter_kwh') {
+      const v = parseFloat(value);
+      if (!Number.isNaN(v)) {
+        await query(
+          `UPDATE machines SET energy_meter_kwh = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2`,
+          [v, resolvedMachineId]
+        );
+      }
+    }
 
     res.json({
       data: {

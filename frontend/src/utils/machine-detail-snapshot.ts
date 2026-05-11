@@ -20,6 +20,7 @@ export function machineDetailCoreSnapshot(m: MachineDetail): string {
     lenOk: roundMetric(effectiveProducedLengthOkM(m)),
     current: roundMetric(m.current),
     power: roundMetric(m.power),
+    energyMeter: roundMetric(m.energyMeterKwh),
     temp: roundMetric(m.temperature),
     oee: roundMetric(m.oee),
     poId: m.productionOrderId ?? null,

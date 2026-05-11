@@ -24,6 +24,7 @@ function machineFleetRowChanged(a: Machine, b: Machine): boolean {
     Math.abs(effectiveProducedLengthOkM(a) - effectiveProducedLengthOkM(b)) > 0.1 ||
     Math.abs((a.current || 0) - (b.current || 0)) > 0.1 ||
     Math.abs((a.power || 0) - (b.power || 0)) > 0.1 ||
+    Math.abs((a.energyMeterKwh ?? 0) - (b.energyMeterKwh ?? 0)) > 0.01 ||
     Math.abs((a.temperature || 0) - (b.temperature || 0)) > 0.1 ||
     Math.abs((a.oee || 0) - (b.oee || 0)) > 0.1
   );

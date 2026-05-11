@@ -38,6 +38,8 @@ export interface Machine {
     | 'ERROR_DEFAULT';
   current?: number; // Amperes
   power?: number; // kW
+  /** Cumulative energy meter register (kWh) — delta per period = end reading − start reading */
+  energyMeterKwh?: number;
   temperature?: number; // Celsius
   multiZoneTemperatures?: {
     zone1?: number;
@@ -169,11 +171,20 @@ export interface MachineDetail extends Machine {
     minRange: number;
     maxRange: number;
   }>;
-  energyConsumption?: Array<{
-    hour: string;
-    energy: number; // kWh
-  }>;
+  /** Hourly (or bucketed) energy from DB — prefer bucketStart/bucketEnd ISO */
+  energyConsumption?: MachineEnergyBucket[];
   orderHistory?: ProductionOrder[];
+}
+
+/** One energy bucket for machine detail charts (EnMS-friendly explicit window). */
+export interface MachineEnergyBucket {
+  /** ISO 8601 start of bucket (inclusive) */
+  bucketStart: string;
+  /** ISO 8601 end of bucket (exclusive) */
+  bucketEnd: string;
+  energy: number; // kWh
+  /** Optional display label (e.g. local time); UI may derive from bucketStart */
+  hour?: string;
 }
 
 export interface TimeSeriesDataPoint {

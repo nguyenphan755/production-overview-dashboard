@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS machines (
     quality_data_quality VARCHAR(64),
     current DECIMAL(10, 2),
     power DECIMAL(10, 2),
+    energy_meter_kwh DECIMAL(14, 3),
     temperature DECIMAL(10, 2),
     multi_zone_temperatures JSONB,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

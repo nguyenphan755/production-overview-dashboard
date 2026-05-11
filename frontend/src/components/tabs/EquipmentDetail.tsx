@@ -20,6 +20,12 @@ import {
   buildOperationalStatesTimeline,
   type OperationalStatesGanttRow,
 } from '../../utils/equipment-operational-states-timeline';
+import {
+  allocateEnergyByOrderOverlap,
+  buildEnergyBarChartData,
+  enrichHourlyEnergyBarsWithPowerEstimate,
+  resolveEnergyChartContext,
+} from '../../utils/equipment-energy-chart';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -130,6 +136,19 @@ export function EquipmentDetail({
     timelineMinuteKey,
   ]);
 
+  const energyAnchorNow = useMemo(() => {
+    if (rollingTimelineModes) return new Date(timelineMinuteKey * 60_000);
+    return new Date();
+  }, [
+    rollingTimelineModes,
+    timelineMinuteKey,
+    referenceDate,
+    equipmentOeeMode,
+    equipmentOeeScope?.start,
+    equipmentOeeScope?.end,
+    equipmentOeeScope?.dayDate,
+  ]);
+
   const statusHistoryRangeKey = useMemo(
     () =>
       `${operationalTimeline.queryStart.toISOString()}|${operationalTimeline.queryEnd.toISOString()}`,
@@ -234,56 +253,67 @@ export function EquipmentDetail({
       : (machine.powerTrend || []);
   }, [realTimeTrends.power, machine?.powerTrend]);
 
-  const energyData = useMemo(() => {
-    if (!machine) return [];
-    
-    // Get raw energy data
-    const rawData = realTimeTrends.energy.length > 0 
-      ? realTimeTrends.energy 
-      : (machine.energyConsumption || []);
-    
-    // Transform data to ensure it has hour and energy keys, and limit to 8 hours
-    const now = new Date();
-    const eightHoursAgo = new Date(now.getTime() - 8 * 60 * 60 * 1000);
-    
-    // If we have data, process it
-    if (rawData && rawData.length > 0) {
-      // Transform to hourly format if needed
-      const processedData = rawData.map((item: any, index: number) => {
-        if (typeof item === 'object' && item !== null) {
-          // If it already has hour and energy, use it
-          if (item.hour !== undefined && item.energy !== undefined) {
-            return item;
-          }
-          // Otherwise, try to extract energy value
-          const energy = item.energy || item.value || item || 0;
-          const hour = item.hour || item.time || index;
-          return { hour, energy: typeof energy === 'number' ? energy : parseFloat(energy) || 0 };
-        } else {
-          // If it's a number, use it as energy value
-          return { hour: index, energy: typeof item === 'number' ? item : parseFloat(item) || 0 };
-        }
-      });
-      
-      // Take last 8 hours
-      return processedData.slice(-8).map((item: any, index: number) => {
-        const hourTime = new Date(eightHoursAgo.getTime() + index * 60 * 60 * 1000);
-        return {
-          hour: hourTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          energy: item.energy || 0
-        };
-      });
+  const energyChartContext = useMemo(() => {
+    if (!machine) return null;
+    return resolveEnergyChartContext(
+      equipmentOeeMode,
+      referenceDate,
+      pastIsoShiftNumber,
+      equipmentOeeScope,
+      energyAnchorNow
+    );
+  }, [
+    machine,
+    equipmentOeeMode,
+    referenceDate,
+    pastIsoShiftNumber,
+    equipmentOeeScope,
+    energyAnchorNow,
+  ]);
+
+  const energyBarDisplay = useMemo(() => {
+    if (!machine || !energyChartContext) {
+      return { rows: [], source: 'empty' as const, powerFill: 'none' as const };
     }
-    
-    // If no data, generate 8 hours of zero/placeholder data
-    return Array.from({ length: 8 }, (_, index) => {
-      const hourTime = new Date(eightHoursAgo.getTime() + index * 60 * 60 * 1000);
-      return {
-        hour: hourTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        energy: 0
-      };
-    });
-  }, [realTimeTrends.energy, machine?.energyConsumption]);
+    const preferPower =
+      String(import.meta.env.VITE_ENERGY_SOURCE ?? 'meter').toLowerCase() === 'power';
+    const raw =
+      realTimeTrends.energy.length > 0 ? realTimeTrends.energy : machine.energyConsumption;
+    const built = preferPower
+      ? buildEnergyBarChartData([], energyChartContext)
+      : buildEnergyBarChartData(raw as unknown[], energyChartContext);
+
+    const pd =
+      realTimeTrends.power.length > 0 ? realTimeTrends.power : machine.powerTrend || [];
+    let avgKw = 0;
+    let n = 0;
+    for (const p of pd as Array<{ power?: number }>) {
+      const w = Number(p.power);
+      if (Number.isFinite(w) && w > 0) {
+        avgKw += w;
+        n += 1;
+      }
+    }
+    if (n > 0) avgKw /= n;
+    else avgKw = Number(machine.power) || 0;
+
+    return enrichHourlyEnergyBarsWithPowerEstimate(
+      built,
+      energyChartContext,
+      avgKw > 0 ? avgKw : undefined,
+      { preferPowerOverMeter: preferPower }
+    );
+  }, [
+    machine,
+    energyChartContext,
+    realTimeTrends.energy,
+    realTimeTrends.power,
+    machine?.energyConsumption,
+    machine?.powerTrend,
+    machine?.power,
+  ]);
+
+  const energyBarRows = energyBarDisplay.rows;
 
   // Helper function to calculate dynamic Y-axis domain with ±30% margin
   const calculateDomain = (currentValue: number, minValue?: number, maxValue?: number): [number, number] => {
@@ -379,6 +409,24 @@ export function EquipmentDetail({
     }
     return history;
   }, [machine, machineForOkSimulation]);
+
+  const energyProductRows = useMemo(() => {
+    if (!machine || !energyChartContext) return [];
+    const total = energyBarRows.reduce((s, r) => s + r.energy, 0);
+    return allocateEnergyByOrderOverlap({
+      totalKwh: total,
+      windowStart: energyChartContext.windowStart,
+      windowEnd: energyChartContext.windowEnd,
+      orders: displayOrders.map((o) => ({
+        id: o.id,
+        productName: o.productName,
+        name: o.name,
+        startTime: o.startTime,
+        endTime: o.endTime,
+        producedLengthOk: o.producedLengthOk,
+      })),
+    });
+  }, [machine, energyChartContext, energyBarRows, displayOrders]);
 
   // Early return AFTER all hooks
   if (loading || !machine) {
@@ -1304,6 +1352,19 @@ export function EquipmentDetail({
               {machine.power ? `${machine.power.toFixed(1)} kW` : 'N/A'}
             </div>
             <div className="text-white/60 text-xs">Current</div>
+            <div className="mt-2 text-white/55 text-xs">
+              Chỉ số đồng hồ (tích lũy){' '}
+              <span className="text-[#FFB86C]/90 font-medium tabular-nums">
+                {machine.energyMeterKwh != null && Number.isFinite(machine.energyMeterKwh)
+                  ? `${machine.energyMeterKwh.toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`
+                  : '—'}
+              </span>
+            </div>
+            <div className="text-white/40 text-[10px] mt-0.5 leading-snug">
+              Gửi chỉ số qua PATCH <span className="text-white/55">energyMeterKwh</span> hoặc POST metrics{' '}
+              <span className="text-white/55">metricType = energy_meter_kwh</span>. kWh theo ca ≈ chỉ số cuối
+              trừ đầu ca.
+            </div>
           </div>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
@@ -1359,15 +1420,36 @@ export function EquipmentDetail({
           
           <div className="mb-3">
             <div className="text-3xl text-[#4FFFBC] tracking-tight">
-              {energyData.reduce((sum: number, d: any) => sum + (typeof d === 'object' ? (d.energy || 0) : d), 0).toFixed(1)} kWh
+              {energyBarRows.reduce((sum, d) => sum + d.energy, 0).toFixed(1)} kWh
             </div>
-            <div className="text-white/60 text-xs">8-hour shift total</div>
+            <div className="text-white/60 text-xs leading-snug">
+              {energyChartContext?.kpiSubtitle ?? '—'}
+            </div>
+            {energyBarDisplay.source === 'power_estimate' &&
+              energyBarDisplay.powerFill === 'policy' && (
+                <p className="text-sky-200/90 text-xs mt-1.5 leading-snug">
+                  Chế độ <span className="font-medium">VITE_ENERGY_SOURCE=power</span>: kWh mỗi cột = công suất
+                  trung bình (kW) × độ dài bucket — chấp nhận sai số; không dùng bảng energy_consumption.
+                </p>
+              )}
+            {energyBarDisplay.source === 'power_estimate' &&
+              energyBarDisplay.powerFill === 'fallback' && (
+                <p className="text-amber-200/90 text-xs mt-1.5 leading-snug">
+                  Chưa có kWh trong khung này trên CSDL (bảng energy_consumption hoặc mốc giờ không trùng ca).
+                  Các cột là ước lượng từ công suất trung bình (kW) × thời gian mỗi bucket — không thay cho công tơ.
+                </p>
+              )}
+            {energyBarDisplay.source === 'empty' && energyBarRows.length > 0 && (
+              <p className="text-white/50 text-xs mt-1.5">
+                Không có dữ liệu kWh và không có công suất để ước lượng.
+              </p>
+            )}
           </div>
 
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
-                data={energyData} 
+                data={energyBarRows} 
                 margin={{ top: 10, right: 10, left: 40, bottom: 50 }}
                 isAnimationActive={false}
                 barCategoryGap="10%"
@@ -1379,13 +1461,20 @@ export function EquipmentDetail({
                   </linearGradient>
                 </defs>
                 <XAxis 
-                  dataKey="hour" 
+                  dataKey="label" 
                   stroke="#ffffff40" 
-                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  tick={{ fill: '#ffffff60', fontSize: 9 }}
                   angle={-45}
                   textAnchor="end"
                   height={60}
-                  label={{ value: 'Time (Hour)', position: 'insideBottom', offset: -5, fill: '#ffffff60', fontSize: 10 }}
+                  interval="preserveStartEnd"
+                  label={{
+                    value: energyChartContext?.xAxisLabel ?? 'Time',
+                    position: 'insideBottom',
+                    offset: -5,
+                    fill: '#ffffff60',
+                    fontSize: 10,
+                  }}
                 />
                 <YAxis 
                   stroke="#ffffff40" 
@@ -1408,7 +1497,7 @@ export function EquipmentDetail({
                     const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
                     return [`${numValue.toFixed(2)} kWh`, 'Energy'];
                   }}
-                  labelFormatter={(label) => `Hour: ${label}`}
+                  labelFormatter={(label) => `Bucket: ${label}`}
                 />
                 <Bar 
                   dataKey="energy" 
@@ -1423,6 +1512,77 @@ export function EquipmentDetail({
           </div>
         </div>
       </div>
+
+      {energyProductRows.length > 0 && (
+        <div className="mt-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Layers className="w-4 h-4 text-[#7DD3FC]" strokeWidth={2.5} />
+            <h3 className="text-base text-white">Estimated energy by production order</h3>
+          </div>
+          <p className="text-white/50 text-xs mb-3">
+            kWh allocated by overlap of each order with the same time window as the chart above (EnMS-style split for reporting; not a substitute for sub-metering).
+          </p>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                layout="vertical"
+                data={energyProductRows}
+                margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                isAnimationActive={false}
+              >
+                <XAxis
+                  type="number"
+                  stroke="#ffffff40"
+                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  tickFormatter={(v) => `${Number(v).toFixed(1)}`}
+                  label={{
+                    value: 'kWh (allocated)',
+                    position: 'insideBottom',
+                    offset: -2,
+                    fill: '#ffffff60',
+                    fontSize: 10,
+                  }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  stroke="#ffffff40"
+                  tick={{ fill: '#ffffff60', fontSize: 10 }}
+                  width={148}
+                  tickFormatter={(v) =>
+                    String(v).length > 22 ? `${String(v).slice(0, 20)}…` : String(v)
+                  }
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#0E2F4F',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: '#ffffff',
+                  }}
+                  formatter={(value: unknown, _label: string, item: { payload?: { kwhPerKm?: number | null } }) => {
+                    const kwh = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
+                    const per = item?.payload?.kwhPerKm;
+                    if (typeof per === 'number' && Number.isFinite(per)) {
+                      return [`${kwh.toFixed(2)} kWh · ${per.toFixed(2)} kWh/km`, 'Allocated'];
+                    }
+                    return [`${kwh.toFixed(2)} kWh`, 'Allocated'];
+                  }}
+                />
+                <Bar
+                  dataKey="kwh"
+                  fill="#7DD3FC"
+                  radius={[0, 4, 4, 0]}
+                  isAnimationActive={false}
+                  stroke="#38BDF8"
+                  strokeWidth={1}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* Production Order History (24h) */}
       <div className="mt-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">

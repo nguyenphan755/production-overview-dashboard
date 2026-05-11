@@ -41,6 +41,7 @@ function initializeMockData() {
       quality: 99.1,
       current: 45.2,
       power: 68.5,
+      energyMeterKwh: 182403.75,
       temperature: 68,
       multiZoneTemperatures: {
         zone1: 148,
@@ -921,11 +922,15 @@ export const mockAPI = {
       };
     });
 
-    // Energy consumption (last 24 hours, hourly)
-    const energyConsumption = Array.from({ length: 8 }, (_, i) => {
-      const hour = new Date(Date.now() - (7 - i) * 3600000);
+    // Energy consumption: hourly buckets with explicit ISO window (aligned with real API)
+    const energyConsumption = Array.from({ length: 24 }, (_, i) => {
+      const start = new Date(Date.now() - (23 - i) * 3600000);
+      start.setMinutes(0, 0, 0);
+      const end = new Date(start.getTime() + 3600000);
       return {
-        hour: hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        bucketStart: start.toISOString(),
+        bucketEnd: end.toISOString(),
+        hour: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         energy: (machine.power || 68) * 0.8 + Math.random() * 10,
       };
     });
