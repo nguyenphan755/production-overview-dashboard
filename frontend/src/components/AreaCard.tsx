@@ -1,11 +1,4 @@
 import { Activity, Package, Gauge, AlertTriangle } from 'lucide-react';
-import { SparklineChart } from './SparklineChart';
-
-interface Machine {
-  name: string;
-  speed: number;
-  status: 'running' | 'setup' | 'error' | 'stopped';
-}
 
 import type { ProductionAreaSummary } from '../types';
 
@@ -96,13 +89,30 @@ export function AreaCard({ area }: AreaCardProps) {
               const statusColor = getStatusColor(machine.status);
               const displaySpeed = (machine.status === 'stopped' || machine.status === 'error') ? 0 : machine.speed;
               
+              const productLabel = machine.productName?.trim();
+
               return (
-                <div key={machine.id || index} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}></div>
-                    <span className="text-white text-xl font-medium">{machine.name}</span>
+                <div key={machine.id || index} className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    <div
+                      className={`mt-1.5 shrink-0 w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-white text-lg sm:text-xl font-medium leading-tight truncate">
+                        {machine.name}
+                      </div>
+                      {productLabel ? (
+                        <div
+                          className="text-xs sm:text-sm text-[#22C55E] font-semibold truncate mt-0.5"
+                          title={productLabel}
+                        >
+                          {productLabel}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className={`text-xl font-semibold ${
+                  <div
+                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight ${
                     machine.status === 'running' ? 'text-[#22C55E]' :
                     machine.status === 'idle' ? 'text-[#F59E0B]' :
                     machine.status === 'warning' ? 'text-[#F59E0B]' :

@@ -245,6 +245,9 @@ export function useMachines(areaId?: string) {
                 // Only check fields that matter for display
                 return (
                   prevMachine.status !== newMachine.status ||
+                  (prevMachine.productName || '') !== (newMachine.productName || '') ||
+                  (prevMachine.productionOrderProductName || '') !==
+                    (newMachine.productionOrderProductName || '') ||
                   Math.abs((prevMachine.lineSpeed || 0) - (newMachine.lineSpeed || 0)) > 0.1 ||
                   Math.abs(
                     effectiveProducedLengthOkM(prevMachine) -

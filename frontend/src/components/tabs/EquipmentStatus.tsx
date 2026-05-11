@@ -284,11 +284,12 @@ export function EquipmentStatus({
                                   machine.productionOrderName ??
                                   order?.id;
 
+                                // Match EquipmentDetail PRODUCT: prefer machine snapshot over orders list.
                                 const productName =
-                                  (order?.productNameCurrent ??
-                                    order?.productName ??
+                                  (machine.productName ??
                                     machine.productionOrderProductName ??
-                                    machine.productName)?.trim();
+                                    order?.productNameCurrent ??
+                                    order?.productName)?.trim();
 
                                 if (!productName) {
                                   const isInvalid = !!machine.materialCode;

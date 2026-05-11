@@ -78,12 +78,15 @@ export interface ProductionAreaSummary {
     name: string;
     speed: number;
     status: MachineStatus;
+    /** Filled client-side from /machines snapshot; matches Equipment PRODUCT */
+    productName?: string;
   }>;
   allMachines?: Array<{
     id: string;
     name: string;
     speed: number;
     status: MachineStatus;
+    productName?: string;
   }>; // All machines in the area
   sparklineData: number[]; // Speed trend data (last 10 minutes)
 }

@@ -101,7 +101,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   const renderTabContent = () => {
     switch (activeTab) {
       case "production":
-        return <ProductionOverview onMachineClick={handleMachineClick} />;
+        return <ProductionOverview onMachineClick={handleMachineClick} machines={machines} />;
       case "quality":
         return <QualityControl />;
       case "equipment":
