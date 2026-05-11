@@ -13,10 +13,12 @@ import availabilityRouter from './routes/availability.js';
 import analyticsRouter from './routes/analytics.js';
 import oeeSettledRouter from './routes/oee-settled.js';
 import usersRouter from './routes/users.js';
+import reportsRouter from './routes/reports.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
 import { query } from '../database/connection.js';
 import { startAnalyticsScheduler } from './services/analyticsService.js';
+import { startMachineLineTelemetrySampler } from './services/machineLineTelemetrySampler.js';
 
 dotenv.config();
 
@@ -125,6 +127,7 @@ app.get('/', (req, res) => {
           availability: '/api/availability',
           analytics: '/api/analytics',
           oeeSettled: '/api/oee-settled',
+          reports: '/api/reports',
         },
       },
       websocket: '/ws',
@@ -148,6 +151,7 @@ app.use('/api/alarms', alarmsRouter);
 app.use('/api/availability', availabilityRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/oee-settled', oeeSettledRouter);
+app.use('/api/reports', reportsRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -195,5 +199,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   const ANALYTICS_REFRESH_SECONDS = parseInt(process.env.ANALYTICS_REFRESH_INTERVAL || '60', 10);
   startAnalyticsScheduler({ ranges: ['shift', 'today'], intervalSeconds: ANALYTICS_REFRESH_SECONDS });
   console.log(`🤖 Analytics cache scheduler started (interval: ${ANALYTICS_REFRESH_SECONDS}s)`);
+
+  startMachineLineTelemetrySampler();
 });
 

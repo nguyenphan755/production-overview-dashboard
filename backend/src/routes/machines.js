@@ -1,5 +1,12 @@
 import express from 'express';
 import { query, withClient } from '../../database/connection.js';
+import {
+  parseFiniteOrNull,
+  recordEnergyTelemetryAndAggregateBestEffort,
+  hasMachineTelemetrySnapshotChanged,
+  buildTelemetryRowAfterApiUpdate,
+  telemetryApiShouldSkipUnchanged,
+} from '../services/machineLineTelemetry.js';
 import { applyLengthCounterUpdate } from '../services/productionLengthService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { broadcast } from '../websocket/broadcast.js';
@@ -139,172 +146,6 @@ async function recordEnergyMeterSampleOnRowUpdate(client, machineId, prevRow, ne
      VALUES ($1, 'energy_meter_kwh', $2, NULL, NULL, $3, CURRENT_TIMESTAMP)`,
     [machineId, nextVal, nextRow.product_name || null]
   );
-}
-
-const parseFiniteOrNull = (raw) => {
-  if (raw === undefined || raw === null || raw === '') return null;
-  const n = Number.parseFloat(raw);
-  return Number.isFinite(n) ? n : null;
-};
-
-async function recordEnergyTelemetrySample(client, machineId, row) {
-  await client.query(
-    `INSERT INTO machine_energy_samples (
-       machine_id,
-       sampled_at,
-       machine_status,
-       power_kw,
-       energy_meter_kwh,
-       material_code,
-       product_name,
-       produced_length_m,
-       produced_length_ok_m
-     ) VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      machineId,
-      row.status || 'idle',
-      parseFiniteOrNull(row.power),
-      parseFiniteOrNull(row.energy_meter_kwh),
-      row.material_code || null,
-      row.product_name || null,
-      parseFiniteOrNull(row.produced_length),
-      parseFiniteOrNull(row.produced_length_ok),
-    ]
-  );
-}
-
-async function upsertEnergyConsumptionHourly(client, machineId, sampledAt = new Date()) {
-  await client.query(
-    `WITH bucket AS (
-       SELECT date_trunc('hour', $2::timestamp) AS hour_start
-     ),
-     samples AS (
-       SELECT
-         s.sampled_at,
-         s.machine_status,
-         s.power_kw,
-         s.energy_meter_kwh,
-         s.material_code,
-         s.product_name,
-         s.produced_length_m,
-         s.produced_length_ok_m
-       FROM machine_energy_samples s
-       CROSS JOIN bucket b
-       WHERE s.machine_id = $1
-         AND s.sampled_at >= b.hour_start
-         AND s.sampled_at < b.hour_start + INTERVAL '1 hour'
-     ),
-     aggregated AS (
-       SELECT
-         COUNT(*)::int AS sample_count,
-         AVG(power_kw) FILTER (WHERE power_kw IS NOT NULL) AS avg_power_kw,
-         (ARRAY_AGG(energy_meter_kwh ORDER BY sampled_at ASC)
-           FILTER (WHERE energy_meter_kwh IS NOT NULL))[1] AS meter_start,
-         (ARRAY_AGG(energy_meter_kwh ORDER BY sampled_at DESC)
-           FILTER (WHERE energy_meter_kwh IS NOT NULL))[1] AS meter_end,
-         (ARRAY_AGG(COALESCE(produced_length_ok_m, produced_length_m) ORDER BY sampled_at ASC)
-           FILTER (WHERE COALESCE(produced_length_ok_m, produced_length_m) IS NOT NULL))[1] AS length_start,
-         (ARRAY_AGG(COALESCE(produced_length_ok_m, produced_length_m) ORDER BY sampled_at DESC)
-           FILTER (WHERE COALESCE(produced_length_ok_m, produced_length_m) IS NOT NULL))[1] AS length_end
-       FROM samples
-     ),
-     latest_context AS (
-       SELECT material_code, product_name, machine_status
-       FROM samples
-       ORDER BY sampled_at DESC
-       LIMIT 1
-     ),
-     payload AS (
-       SELECT
-         b.hour_start AS hour,
-         a.sample_count,
-         a.avg_power_kw,
-         CASE
-           WHEN a.meter_start IS NULL OR a.meter_end IS NULL THEN 0::numeric
-           WHEN a.meter_end < a.meter_start THEN 0::numeric
-           ELSE ROUND((a.meter_end - a.meter_start)::numeric, 3)
-         END AS energy_kwh,
-         CASE
-           WHEN a.length_start IS NULL OR a.length_end IS NULL THEN NULL::numeric
-           WHEN a.length_end < a.length_start THEN NULL::numeric
-           ELSE ROUND((a.length_end - a.length_start)::numeric, 3)
-         END AS produced_length_m,
-         c.material_code,
-         c.product_name,
-         c.machine_status
-       FROM aggregated a
-       CROSS JOIN bucket b
-       LEFT JOIN latest_context c ON TRUE
-       WHERE a.sample_count > 0
-     )
-     INSERT INTO energy_consumption (
-       machine_id,
-       hour,
-       energy_kwh,
-       power_kw,
-       material_code,
-       product_name,
-       machine_status,
-       produced_length_m,
-       kwh_per_100m,
-       sample_count,
-       created_at,
-       updated_at
-     )
-     SELECT
-       $1,
-       p.hour,
-       p.energy_kwh,
-       ROUND(p.avg_power_kw::numeric, 3),
-       p.material_code,
-       p.product_name,
-       p.machine_status,
-       p.produced_length_m,
-       CASE
-         WHEN p.produced_length_m IS NULL OR p.produced_length_m <= 0 THEN NULL
-         ELSE ROUND(((p.energy_kwh * 100.0) / p.produced_length_m)::numeric, 4)
-       END AS kwh_per_100m,
-       p.sample_count,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP
-     FROM payload p
-     ON CONFLICT (machine_id, hour) DO UPDATE SET
-       energy_kwh = EXCLUDED.energy_kwh,
-       power_kw = EXCLUDED.power_kw,
-       material_code = EXCLUDED.material_code,
-       product_name = EXCLUDED.product_name,
-       machine_status = EXCLUDED.machine_status,
-       produced_length_m = EXCLUDED.produced_length_m,
-       kwh_per_100m = EXCLUDED.kwh_per_100m,
-       sample_count = EXCLUDED.sample_count,
-       updated_at = CURRENT_TIMESTAMP`,
-    [machineId, sampledAt]
-  );
-}
-
-async function recordEnergyTelemetryAndAggregate(client, machineId, machineRow) {
-  await recordEnergyTelemetrySample(client, machineId, machineRow);
-  await upsertEnergyConsumptionHourly(client, machineId, new Date());
-}
-
-async function recordEnergyTelemetryAndAggregateBestEffort(machineId, machineRow, sourceTag) {
-  try {
-    await withClient(async (client) => {
-      await client.query('BEGIN');
-      try {
-        await recordEnergyTelemetryAndAggregate(client, machineId, machineRow);
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      }
-    });
-  } catch (energyErr) {
-    console.error(
-      `[${sourceTag}] energy telemetry aggregate skipped:`,
-      energyErr.message || energyErr
-    );
-  }
 }
 
 const syncRunningOrderProductNameCurrent = async (machineId, productName) => {
@@ -1091,11 +932,16 @@ router.patch('/:machineId', async (req, res) => {
 
     // Run energy telemetry persistence out-of-band so machine realtime updates
     // are never blocked by migration lag / telemetry table errors.
-    recordEnergyTelemetryAndAggregateBestEffort(
-      machineId,
-      result.rows[0],
-      `PATCH /machines/${machineId}`
-    );
+    const telemetryNextRow = buildTelemetryRowAfterApiUpdate(result.rows[0], updatedMachine);
+    const skipUnchanged = telemetryApiShouldSkipUnchanged();
+    if (!skipUnchanged || hasMachineTelemetrySnapshotChanged(machineRow, telemetryNextRow)) {
+      recordEnergyTelemetryAndAggregateBestEffort(
+        machineId,
+        machineRow,
+        telemetryNextRow,
+        `PATCH /machines/${machineId}`
+      );
+    }
 
     return res.json({
       data: updatedMachine,
@@ -1398,11 +1244,16 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
 
     // Run energy telemetry persistence out-of-band so machine realtime updates
     // are never blocked by migration lag / telemetry table errors.
-    recordEnergyTelemetryAndAggregateBestEffort(
-      machineId,
-      result.rows[0],
-      `PUT /machines/name/${machineName}`
-    );
+    const telemetryNextRow = buildTelemetryRowAfterApiUpdate(result.rows[0], updatedMachine);
+    const skipUnchanged = telemetryApiShouldSkipUnchanged();
+    if (!skipUnchanged || hasMachineTelemetrySnapshotChanged(machineRow, telemetryNextRow)) {
+      recordEnergyTelemetryAndAggregateBestEffort(
+        machineId,
+        machineRow,
+        telemetryNextRow,
+        `PUT /machines/name/${machineName}`
+      );
+    }
 
     console.log(`✅ Machine ${machineName} updated via API by ${req.user?.username || 'unknown'}`);
 

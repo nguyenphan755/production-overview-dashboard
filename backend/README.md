@@ -29,6 +29,16 @@ NODE_ENV=development
 
 # CORS
 CORS_ORIGIN=http://localhost:5173
+
+# Optional: periodic snapshot of all machines into machine_line_telemetry (e.g. 15000 = every 15s).
+# With default TELEMETRY_SAMPLER_SKIP_UNCHANGED=true, idle machines do not INSERT until a field changes.
+# TELEMETRY_AUTO_SAMPLE_INTERVAL_MS=15000
+
+# PATCH/PUT: skip telemetry INSERT when machine snapshot unchanged (default true). Set false to log every API update.
+# TELEMETRY_API_SKIP_UNCHANGED=false
+
+# Interval sampler: skip machines whose row equals last sampled snapshot (default true).
+# TELEMETRY_SAMPLER_SKIP_UNCHANGED=false
 ```
 
 ### 3. Create Database
@@ -78,7 +88,31 @@ The database includes:
 - `production_orders` - Production order information
 - `alarms` - Machine alarms
 - `machine_metrics` - Time-series metrics (speed, temperature, current, power)
-- `energy_consumption` - Energy consumption data
+- `energy_consumption` - Hourly energy rollups (kWh from meter delta, avg power, EnPI fields)
+- `machine_energy_samples` - Legacy 5s energy samples (optional; hourly rollup reads `machine_line_telemetry`)
+- `machine_line_telemetry` - Full line snapshot per API update, **partitioned by month** on `sampled_at`
+- `v_machine_telemetry_ai_hourly` - Hourly aggregates for reporting / AI
+
+### Telemetry migrations & partitions
+
+```bash
+cd backend
+npm run apply-machine-line-telemetry   # creates partitioned table + view + initial partitions
+npm run ensure-telemetry-partitions    # create current + future month partitions (cron weekly/monthly)
+```
+
+### Factory telemetry export (all machines / all parameters)
+
+`GET /api/reports/factory-telemetry` (requires `Authorization: Bearer <token>`)
+
+Query parameters:
+
+- `from`, `to` — ISO 8601 range
+- `granularity` — `raw` | `1m` | `15m` | `1h` (default `1h`)
+- `format` — `json` | `csv` (default `json`)
+- `machineId` — optional filter
+
+Raw mode limits: 2 days (all machines), 7 days when `machineId` is set. Aggregated modes allow up to 366 days.
 
 ## Inserting Sample Data
 
