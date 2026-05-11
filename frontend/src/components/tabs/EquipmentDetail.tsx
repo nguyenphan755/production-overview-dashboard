@@ -15,6 +15,7 @@ import {
   type EquipmentOeeMode,
   type MachineOeeRollupRow,
 } from '../../utils/equipmentOeeDisplay';
+import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../../utils/productNameDisplay';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -567,7 +568,16 @@ export function EquipmentDetail({
                         </span>
                       );
                     }
-                    return <span className="text-[#22C55E]">{productName}</span>;
+                    return (
+                      <span
+                        className={
+                          isUnknownLikeProductName(productName) ? '' : 'text-[#22C55E]'
+                        }
+                        style={unknownLikeProductInlineStyle(productName)}
+                      >
+                        {productName}
+                      </span>
+                    );
                   })()}
                 </div>
               </div>

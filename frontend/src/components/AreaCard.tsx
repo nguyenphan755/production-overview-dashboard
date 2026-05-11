@@ -1,6 +1,7 @@
 import { Activity, Package, Gauge, AlertTriangle } from 'lucide-react';
 
 import type { ProductionAreaSummary } from '../types';
+import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../utils/productNameDisplay';
 
 interface AreaCardProps {
   area: ProductionAreaSummary;
@@ -92,27 +93,35 @@ export function AreaCard({ area }: AreaCardProps) {
               const productLabel = machine.productName?.trim();
 
               return (
-                <div key={machine.id || index} className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                <div key={machine.id || index} className="flex items-center justify-between gap-2 min-h-[28px]">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
-                      className={`mt-1.5 shrink-0 w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}
+                      className={`shrink-0 w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-white text-lg sm:text-xl font-medium leading-tight truncate">
+                    <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                      <span className="text-white text-lg sm:text-xl font-medium leading-tight shrink-0">
                         {machine.name}
-                      </div>
+                      </span>
                       {productLabel ? (
-                        <div
-                          className="text-xs sm:text-sm text-[#22C55E] font-semibold truncate mt-0.5"
-                          title={productLabel}
-                        >
-                          {productLabel}
-                        </div>
+                        <>
+                          <span className="text-white/35 shrink-0 select-none" aria-hidden>
+                            ·
+                          </span>
+                          <span
+                            className={`text-sm sm:text-base font-semibold leading-tight truncate min-w-0 ${
+                              isUnknownLikeProductName(productLabel) ? '' : 'text-[#22C55E]'
+                            }`}
+                            style={unknownLikeProductInlineStyle(productLabel)}
+                            title={productLabel}
+                          >
+                            {productLabel}
+                          </span>
+                        </>
                       ) : null}
                     </div>
                   </div>
                   <div
-                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight ${
+                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight whitespace-nowrap pl-1 ${
                     machine.status === 'running' ? 'text-[#22C55E]' :
                     machine.status === 'idle' ? 'text-[#F59E0B]' :
                     machine.status === 'warning' ? 'text-[#F59E0B]' :

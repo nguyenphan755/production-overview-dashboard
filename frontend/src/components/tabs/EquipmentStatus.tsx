@@ -12,6 +12,7 @@ import {
   type EquipmentOeeMode,
   type MachineOeeRollupRow,
 } from '../../utils/equipmentOeeDisplay';
+import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../../utils/productNameDisplay';
 interface EquipmentStatusProps {
   onMachineClick: (machineId: string) => void;
   equipmentOeeMode: EquipmentOeeMode;
@@ -307,7 +308,14 @@ export function EquipmentStatus({
                                 return (
                                   <>
                                     {poText && <span>{poText} • </span>}
-                                    <span className="text-[#22C55E] font-semibold text-sm">{productName}</span>
+                                    <span
+                                      className={`font-semibold text-sm ${
+                                        isUnknownLikeProductName(productName) ? '' : 'text-[#22C55E]'
+                                      }`}
+                                      style={unknownLikeProductInlineStyle(productName)}
+                                    >
+                                      {productName}
+                                    </span>
                                   </>
                                 );
                               })()}
