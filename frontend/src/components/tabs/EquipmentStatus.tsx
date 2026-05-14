@@ -1,5 +1,5 @@
-import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Settings, Zap, Thermometer, Gauge, Circle, Activity, Target, ChevronDown, ChevronUp, Ruler, FileDown } from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
 import { useProductionOrders } from '../../hooks/useProductionData';
 import { useMachineTrends } from '../../hooks/useMachineTrends';
 import { MachineTrendChart } from '../MachineTrendChart';
@@ -13,6 +13,7 @@ import {
   type MachineOeeRollupRow,
 } from '../../utils/equipmentOeeDisplay';
 import { isUnknownLikeProductName, unknownLikeProductInlineStyle } from '../../utils/productNameDisplay';
+import { apiClient } from '../../services/api';
 interface EquipmentStatusProps {
   machines: Machine[];
   machinesLoading?: boolean;
@@ -27,6 +28,8 @@ interface EquipmentStatusProps {
   onReferenceDateChange: (isoDate: string) => void;
   pastIsoShiftNumber: 1 | 2 | 3;
   onPastIsoShiftNumberChange: (n: 1 | 2 | 3) => void;
+  /** JWT for authenticated report download */
+  authToken?: string;
 }
 
 const areaConfig: Record<ProductionArea, { name: string; icon: any }> = {
@@ -50,10 +53,12 @@ export function EquipmentStatus({
   onReferenceDateChange,
   pastIsoShiftNumber,
   onPastIsoShiftNumberChange,
+  authToken,
 }: EquipmentStatusProps) {
   const loading = machinesLoading;
   const trends = useMachineTrends(machines);
   const [expandedMachines, setExpandedMachines] = useState<Set<string>>(new Set());
+  const [exportBusyArea, setExportBusyArea] = useState<ProductionArea | null>(null);
   const { orders } = useProductionOrders();
 
   const activeOrderByMachineId = useMemo(() => {
@@ -87,6 +92,23 @@ export function EquipmentStatus({
     }
     return map;
   }, [orders]);
+
+  const handleExportLineProcessing = useCallback(
+    async (areaId: ProductionArea) => {
+      if (!authToken) {
+        window.alert('Cần đăng nhập để xuất báo cáo.');
+        return;
+      }
+      setExportBusyArea(areaId);
+      const res = await apiClient.downloadLineProcessingHtmlReport(
+        { localDate: referenceDate, area: areaId },
+        authToken
+      );
+      setExportBusyArea(null);
+      if (!res.ok) window.alert(res.message);
+    },
+    [authToken, referenceDate]
+  );
 
   // Group machines by area
   const productionAreas = (['drawing', 'stranding', 'armoring', 'sheathing'] as ProductionArea[]).map((areaId) => {
@@ -210,7 +232,19 @@ export function EquipmentStatus({
                     <AreaIcon className="w-4 h-4 text-[#34E7F8]" strokeWidth={2.5} />
                   </div>
                   <h2 className="text-lg text-white tracking-wide">{area.name}</h2>
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                    {authToken ? (
+                      <button
+                        type="button"
+                        title="Xuất báo cáo HTML Processing (3 ca, theo sản phẩm — ngày đang chọn trên toolbar)"
+                        onClick={() => void handleExportLineProcessing(area.id)}
+                        disabled={exportBusyArea !== null}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-white/10 hover:bg-white/20 text-[#34E7F8] border border-[#34E7F8]/40 disabled:opacity-50"
+                      >
+                        <FileDown className="w-3.5 h-3.5" strokeWidth={2} />
+                        {exportBusyArea === area.id ? 'Đang xuất…' : 'HTML Processing'}
+                      </button>
+                    ) : null}
                     <div className="text-white/60 text-xs">
                       {area.machines.filter(m => m.status === 'running').length} / {area.machines.length} Running
                     </div>

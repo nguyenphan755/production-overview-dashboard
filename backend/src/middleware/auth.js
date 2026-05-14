@@ -8,8 +8,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
  * Verify JWT token from Authorization header
  */
 export const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const authHeaderRaw = req.headers.authorization || req.headers.Authorization;
+  const authHeader = typeof authHeaderRaw === 'string' ? authHeaderRaw.trim() : '';
+  const bearerMatch = /^Bearer\s+(\S+)/i.exec(authHeader);
+  const token = bearerMatch ? bearerMatch[1].trim() : null;
 
   if (!token) {
     return res.status(401).json({
@@ -22,11 +24,15 @@ export const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
+      const message =
+        err.name === 'TokenExpiredError'
+          ? 'Token expired — please sign in again'
+          : 'Invalid or expired token';
       return res.status(403).json({
         data: null,
         timestamp: new Date().toISOString(),
         success: false,
-        message: 'Invalid or expired token',
+        message,
       });
     }
 

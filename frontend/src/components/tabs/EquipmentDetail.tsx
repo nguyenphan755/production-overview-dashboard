@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle, Layers } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle, Layers, FileDown } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
 import { useMachineDetailTrends } from '../../hooks/useMachineDetailTrends';
@@ -38,6 +38,7 @@ interface EquipmentDetailProps {
   onReferenceDateChange: (isoDate: string) => void;
   pastIsoShiftNumber: 1 | 2 | 3;
   onPastIsoShiftNumberChange: (n: 1 | 2 | 3) => void;
+  authToken?: string;
 }
 
 export function EquipmentDetail({
@@ -53,8 +54,10 @@ export function EquipmentDetail({
   onReferenceDateChange,
   pastIsoShiftNumber,
   onPastIsoShiftNumberChange,
+  authToken,
 }: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
+  const [exportHtmlBusy, setExportHtmlBusy] = useState(false);
 
   // Dev helper: auto simulate 1 bobbin on LHT-1 for UI verification.
   // It only runs once per tab session (sessionStorage) when opening EquipmentDetail.
@@ -82,6 +85,20 @@ export function EquipmentDetail({
       clearTimeout(t2);
     };
   }, [machine?.id, machine?.name]);
+
+  const handleExportLineProcessingHtml = useCallback(async () => {
+    if (!authToken) {
+      window.alert('Cần đăng nhập để xuất báo cáo.');
+      return;
+    }
+    setExportHtmlBusy(true);
+    const res = await apiClient.downloadLineProcessingHtmlReport(
+      { localDate: referenceDate, machineIds: machineId },
+      authToken
+    );
+    setExportHtmlBusy(false);
+    if (!res.ok) window.alert(res.message);
+  }, [authToken, referenceDate, machineId]);
 
   const { cutsVersion } = useBobbinCutDetector(
     machineId,
@@ -815,6 +832,20 @@ export function EquipmentDetail({
           pastIsoShiftNumber={pastIsoShiftNumber}
           onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
         />
+        {authToken ? (
+          <div className="flex justify-end mt-2">
+            <button
+              type="button"
+              title="Xuất báo cáo HTML Processing (3 ca, theo sản phẩm — ngày trên toolbar)"
+              onClick={() => void handleExportLineProcessingHtml()}
+              disabled={exportHtmlBusy}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-[#34E7F8] border border-[#34E7F8]/40 disabled:opacity-50"
+            >
+              <FileDown className="w-3.5 h-3.5" strokeWidth={2} />
+              {exportHtmlBusy ? 'Đang xuất…' : 'Xuất HTML Processing (máy này)'}
+            </button>
+          </div>
+        ) : null}
 
       <div className="desktop-only rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-3">
         <div className="flex items-center gap-2 mb-3">

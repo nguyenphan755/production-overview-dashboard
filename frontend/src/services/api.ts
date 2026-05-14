@@ -87,6 +87,22 @@ function getApiBaseUrl(): string {
   return 'http://localhost:3001/api';
 }
 
+const MES_LOGIN_SESSION_KEY = 'mes_login_session';
+
+/** JWT from the same store as App.tsx (avoids stale React props on export). */
+function readStoredAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(MES_LOGIN_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { token?: string };
+    const t = parsed?.token != null ? String(parsed.token).trim() : '';
+    return t || null;
+  } catch {
+    return null;
+  }
+}
+
 const API_CONFIG = {
   // DO NOT compute baseUrl here - it must be computed dynamically at request time
   // Computing it here causes issues on remote PCs where window.location might not be ready
@@ -396,6 +412,68 @@ class APIClient {
       method: 'POST',
       body: JSON.stringify({ range, area, machineId, shiftDate, shiftNumber, dayDate }),
     });
+  }
+
+  /**
+   * Download HTML line processing report (JWT). Omit shift to include all three shifts on localDate.
+   */
+  async downloadLineProcessingHtmlReport(
+    params: {
+      localDate: string;
+      area?: string;
+      machineIds?: string;
+      shift?: 1 | 2 | 3;
+    },
+    authToken?: string | null
+  ): Promise<{ ok: true; filename: string } | { ok: false; message: string }> {
+    if (this.useMock) {
+      return { ok: false, message: 'Export not available in mock mode' };
+    }
+    const bearer =
+      readStoredAuthToken() ??
+      (authToken != null && String(authToken).trim() !== '' ? String(authToken).trim() : null);
+    if (!bearer) {
+      return { ok: false, message: 'Chưa có phiên đăng nhập — vui lòng đăng nhập lại.' };
+    }
+    const q = new URLSearchParams();
+    q.set('localDate', params.localDate);
+    if (params.area) q.set('area', params.area);
+    if (params.machineIds) q.set('machineIds', params.machineIds);
+    if (params.shift != null) q.set('shift', String(params.shift));
+    const currentBaseUrl = this.getBaseUrl();
+    const url = `${currentBaseUrl}/reports/line-processing.html?${q.toString()}`;
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
+      if (!response.ok) {
+        const errJ = (await response.json().catch(() => ({}))) as { message?: string };
+        return {
+          ok: false,
+          message: errJ.message || `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+      const cd = response.headers.get('Content-Disposition');
+      let filename = 'line-processing.html';
+      const m = cd && /filename="([^"]+)"/.exec(cd);
+      if (m?.[1]) filename = m[1];
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+      return { ok: true, filename };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Network error',
+      };
+    }
   }
 
   // WebSocket connection for real-time updates

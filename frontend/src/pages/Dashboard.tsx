@@ -136,6 +136,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
               onReferenceDateChange={setReferenceDate}
               pastIsoShiftNumber={pastIsoShiftNumber}
               onPastIsoShiftNumberChange={setPastIsoShiftNumber}
+              authToken={token}
             />
           );
         }
@@ -155,6 +156,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
             onReferenceDateChange={setReferenceDate}
             pastIsoShiftNumber={pastIsoShiftNumber}
             onPastIsoShiftNumberChange={setPastIsoShiftNumber}
+            authToken={token}
           />
         );
       case "analytics":

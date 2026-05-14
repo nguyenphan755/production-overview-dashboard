@@ -1,6 +1,7 @@
 import express from 'express';
 import { query } from '../../database/connection.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { buildLineProcessingHtmlReport } from '../services/lineProcessingReportService.js';
 
 const router = express.Router();
 
@@ -215,6 +216,47 @@ router.get('/factory-telemetry', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('factory-telemetry report error:', error);
+    return res.status(500).json({
+      data: null,
+      timestamp: new Date().toISOString(),
+      success: false,
+      message: error.message || 'Internal server error',
+    });
+  }
+});
+
+/**
+ * GET /api/reports/line-processing.html
+ * HTML export: processing by shift/day, product sessions from telemetry, status history clipped.
+ *
+ * Query (JWT required):
+ * - localDate: YYYY-MM-DD (required, server local calendar anchor)
+ * - shift: 1 | 2 | 3 (optional; omit = all three shifts on that date)
+ * - area: drawing | stranding | armoring | sheathing — XOR —
+ * - machineIds: comma-separated machine ids
+ */
+router.get('/line-processing.html', authenticateToken, async (req, res) => {
+  try {
+    const out = await buildLineProcessingHtmlReport({
+      localDate: req.query.localDate,
+      shift: req.query.shift,
+      area: req.query.area,
+      machineIds: req.query.machineIds,
+    });
+    if (out.error) {
+      return res.status(out.status).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: out.error,
+      });
+    }
+    const safeName = String(out.filename).replace(/[^\w.\-()+]/g, '_');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    return res.send(out.html);
+  } catch (error) {
+    console.error('line-processing.html report error:', error);
     return res.status(500).json({
       data: null,
       timestamp: new Date().toISOString(),
