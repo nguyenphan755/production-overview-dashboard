@@ -1,6 +1,7 @@
 /**
- * HTML report: processing time by shift/day, product sessions from machine_line_telemetry,
- * run/stop/setup from machine_status_history (clipped to sessions).
+ * HTML report: processing time by shift/day, product sessions from machine_line_telemetry
+ * (product_name + material_code, forward-filled), run/stop/setup from machine_status_history
+ * (clipped to sessions). machine_product_change_events for DB snapshot change times.
  */
 import { query } from '../../database/connection.js';
 import { getShiftWindow } from '../utils/shiftCalculator.js';
@@ -8,6 +9,7 @@ import { getShiftWindow } from '../utils/shiftCalculator.js';
 const VALID_AREAS = new Set(['drawing', 'stranding', 'armoring', 'sheathing']);
 const MAX_MACHINES = 80;
 const TELEMETRY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const DB_CHANGEOVER_MATCH_WINDOW_MS = 12 * 60 * 1000;
 
 function parseLocalDateYmd(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd).trim());
@@ -38,6 +40,19 @@ function normalizeProductName(name) {
   return s === '' ? 'UNKNOWN' : s;
 }
 
+function normalizeMaterialCode(code) {
+  if (code == null) return '';
+  const s = String(code).trim();
+  return s === '' ? '' : s;
+}
+
+function formatSessionLabel(product, materialCode) {
+  const p = product != null ? String(product) : 'UNKNOWN';
+  const m = normalizeMaterialCode(materialCode);
+  if (m === '') return p;
+  return `${p} [${m}]`;
+}
+
 /** Same idea as UI `machine.name` — never show blank when id is known. */
 function machineDisplayName(row) {
   const n = row?.name != null ? String(row.name).trim() : '';
@@ -47,8 +62,8 @@ function machineDisplayName(row) {
 }
 
 /**
- * Carry forward last non-empty telemetry product_name per machine so gaps
- * (null snapshots) do not wipe "Cm 3.00" from session rows.
+ * Carry forward last non-empty telemetry product_name and material_code per machine so gaps
+ * (null snapshots) do not wipe prior snapshot on session rows.
  */
 function forwardFillTelemetryProducts(rawRows) {
   const byMachine = new Map();
@@ -60,16 +75,21 @@ function forwardFillTelemetryProducts(rawRows) {
   const combined = [];
   for (const [machineKey, list] of byMachine) {
     list.sort((a, b) => a.sampledAt.getTime() - b.sampledAt.getTime());
-    let lastNonEmpty = null;
+    let lastNonEmptyProduct = null;
+    let lastNonEmptyMaterial = null;
     for (const r of list) {
-      const raw = r._rawProductName != null ? String(r._rawProductName).trim() : '';
-      if (raw !== '') lastNonEmpty = raw;
-      const effective = raw !== '' ? raw : lastNonEmpty;
+      const rawP = r._rawProductName != null ? String(r._rawProductName).trim() : '';
+      const rawM = r._rawMaterialCode != null ? String(r._rawMaterialCode).trim() : '';
+      if (rawP !== '') lastNonEmptyProduct = rawP;
+      if (rawM !== '') lastNonEmptyMaterial = rawM;
+      const effectiveP = rawP !== '' ? rawP : lastNonEmptyProduct;
+      const effectiveM = rawM !== '' ? rawM : lastNonEmptyMaterial;
       combined.push({
         machineId: machineKey,
         sampledAt: r.sampledAt,
         status: r.status,
-        productName: normalizeProductName(effective),
+        productName: normalizeProductName(effectiveP),
+        materialCode: normalizeMaterialCode(effectiveM),
       });
     }
   }
@@ -271,7 +291,7 @@ async function fetchStatusHistoryBatch(machineIds, rangeStart, rangeEnd) {
 async function fetchTelemetryProductTimeline(machineIds, telFrom, telTo) {
   if (!machineIds.length) return [];
   const result = await query(
-    `SELECT machine_id, sampled_at, product_name, status
+    `SELECT machine_id, sampled_at, product_name, material_code, status
      FROM machine_line_telemetry
      WHERE machine_id = ANY($1::varchar[])
        AND sampled_at >= $2
@@ -284,9 +304,61 @@ async function fetchTelemetryProductTimeline(machineIds, telFrom, telTo) {
     machineId: row.machine_id,
     sampledAt: new Date(row.sampled_at),
     _rawProductName: row.product_name,
+    _rawMaterialCode: row.material_code,
     status: row.status,
   }));
   return forwardFillTelemetryProducts(rawMapped);
+}
+
+/**
+ * @param {string[]} machineIds
+ * @param {Date} rangeStart
+ * @param {Date} rangeEnd
+ */
+async function fetchMachineProductChangeEvents(machineIds, rangeStart, rangeEnd) {
+  if (!machineIds.length) return [];
+  try {
+    const result = await query(
+      `SELECT machine_id, machine_name, material_code, product_name, changed_at
+       FROM machine_product_change_events
+       WHERE machine_id = ANY($1::varchar[])
+         AND changed_at >= $2
+         AND changed_at < $3
+       ORDER BY machine_id ASC, changed_at ASC`,
+      [machineIds, rangeStart, rangeEnd]
+    );
+    return result.rows.map((row) => ({
+      machineId: String(row.machine_id),
+      machineName: row.machine_name != null ? String(row.machine_name) : '',
+      materialCode: row.material_code != null ? String(row.material_code) : null,
+      productName: row.product_name != null ? String(row.product_name) : null,
+      changedAt: new Date(row.changed_at),
+    }));
+  } catch (e) {
+    if (e && e.code === '42P01') return [];
+    throw e;
+  }
+}
+
+function findDbChangeNearSessionBStart(dbEvents, toProductForDb, toMaterialForDb, sessionBStartMs) {
+  const targetP = normalizeProductName(toProductForDb);
+  const targetM = normalizeMaterialCode(toMaterialForDb);
+  let best = null;
+  let bestKey = null;
+  for (const ev of dbEvents) {
+    const t = ev.changedAt.getTime();
+    const dt = Math.abs(t - sessionBStartMs);
+    if (dt > DB_CHANGEOVER_MATCH_WINDOW_MS) continue;
+    if (normalizeProductName(ev.productName) !== targetP) continue;
+    const evM = normalizeMaterialCode(ev.materialCode);
+    const matMismatch = targetM !== '' && evM !== targetM ? 1 : 0;
+    const key = matMismatch * 1e15 + dt;
+    if (bestKey === null || key < bestKey) {
+      bestKey = key;
+      best = ev;
+    }
+  }
+  return best;
 }
 
 /**
@@ -312,9 +384,11 @@ function buildProductSessions(rows, machineId, w0, w1) {
   const hasTelemetryInWindow = inWindow.length > 0;
 
   let productAtWindowStart = 'UNKNOWN';
+  let materialAtWindowStart = '';
   for (let i = machineRows.length - 1; i >= 0; i -= 1) {
     if (machineRows[i].sampledAt.getTime() < w0t) {
       productAtWindowStart = machineRows[i].productName;
+      materialAtWindowStart = normalizeMaterialCode(machineRows[i].materialCode);
       break;
     }
   }
@@ -323,17 +397,22 @@ function buildProductSessions(rows, machineId, w0, w1) {
       const t = r.sampledAt.getTime();
       return t >= w0t && t < w1t;
     });
-    if (firstIn) productAtWindowStart = firstIn.productName;
+    if (firstIn) {
+      productAtWindowStart = firstIn.productName;
+      materialAtWindowStart = normalizeMaterialCode(firstIn.materialCode);
+    }
   }
 
   const sessions = [];
   let currentProduct = productAtWindowStart;
+  let currentMaterial = materialAtWindowStart;
   let sessionStartMs = w0t;
 
   const emitSession = (endMs) => {
     if (endMs <= sessionStartMs) return;
     sessions.push({
       product: currentProduct,
+      materialCode: currentMaterial,
       start: new Date(sessionStartMs),
       end: new Date(endMs),
     });
@@ -343,9 +422,11 @@ function buildProductSessions(rows, machineId, w0, w1) {
     const t = r.sampledAt.getTime();
     if (t < w0t) continue;
     if (t >= w1t) break;
-    if (r.productName !== currentProduct) {
+    const rowMat = normalizeMaterialCode(r.materialCode);
+    if (r.productName !== currentProduct || rowMat !== currentMaterial) {
       emitSession(t);
       currentProduct = r.productName;
+      currentMaterial = rowMat;
       sessionStartMs = t;
     }
   }
@@ -420,7 +501,12 @@ function buildChangeoverRows(sessions, clippedShift) {
   for (let i = 1; i < sessions.length; i += 1) {
     const prev = sessions[i - 1];
     const cur = sessions[i];
-    if (prev.product === cur.product) continue;
+    if (
+      prev.product === cur.product &&
+      normalizeMaterialCode(prev.materialCode) === normalizeMaterialCode(cur.materialCode)
+    ) {
+      continue;
+    }
 
     const prevStartMs = prev.start.getTime();
     const prevEndMs = prev.end.getTime();
@@ -445,14 +531,17 @@ function buildChangeoverRows(sessions, clippedShift) {
     }
 
     rows.push({
-      fromProduct: prev.product,
-      toProduct: cur.product,
+      fromDisplay: formatSessionLabel(prev.product, prev.materialCode),
+      toDisplay: formatSessionLabel(cur.product, cur.materialCode),
+      toProductForDb: cur.product,
+      toMaterialForDb: normalizeMaterialCode(cur.materialCode),
       gapSeconds,
       gapLabel,
       wallGapSeconds: wallGapSec,
       lastNonRunEndMs: lastNonRunEnd,
       changeoverStartMs: startCapped,
       firstRunBMs: firstRunB,
+      sessionBStartMs: curStartMs,
     });
   }
   return rows;
@@ -466,9 +555,12 @@ function renderMachineSection(
   w1,
   reportSlice,
   liveProductFromMachine,
+  liveMaterialFromMachine,
   machineHistorySegments,
   reportNowMs,
-  nominalShiftEnd = null
+  nominalShiftEnd = null,
+  dbEventsInShift = [],
+  dbEventsForMachine = []
 ) {
   const { sessions, productChangesInWindow, hasTelemetryInWindow } = reportSlice;
 
@@ -487,25 +579,35 @@ function renderMachineSection(
       ? String(liveProductFromMachine).trim()
       : '—'
   )}</p>`;
+  body += `<p><strong>Mã vật tư hiện tại (máy — <code>machines.material_code</code>):</strong> ${escapeHtml(
+    liveMaterialFromMachine != null && String(liveMaterialFromMachine).trim() !== ''
+      ? String(liveMaterialFromMachine).trim()
+      : '—'
+  )}</p>`;
 
   if (!hasTelemetryInWindow) {
     body += `<p class="warn">Không có snapshot telemetry trong cửa sổ; ranh giới sản phẩm suy từ dữ liệu trước ca hoặc chỉ hiển thị tổng trạng thái.</p>`;
   }
 
-  body += `<p><strong>Số lần đổi sản phẩm (theo snapshot telemetry, sau khi lấp chỗ trống product) trong cửa sổ:</strong> ${productChangesInWindow}</p>`;
+  body += `<p><strong>Số lần đổi sản phẩm / mã vật tư (theo snapshot telemetry, sau khi lấp chỗ trống) trong cửa sổ:</strong> ${productChangesInWindow}</p>`;
+  body += `<p><strong>Số sự kiện đổi snapshot trên DB (<code>machine_product_change_events</code>) trong ca:</strong> ${dbEventsInShift.length}</p>`;
 
   body += renderShiftStatusBarHtml(clippedShift, w0, w1);
 
   body += '<table><thead><tr>';
   body +=
-    '<th>Sản phẩm (Production)</th><th>Bắt đầu</th><th>Kết thúc</th><th>Slot (wall)</th><th>Chạy (running)</th><th>Setup</th><th>Dừng khác</th>';
+    '<th>Sản phẩm (Production)</th><th>Mã vật tư (telemetry)</th><th>Bắt đầu</th><th>Kết thúc</th><th>Slot (wall)</th><th>Chạy (running)</th><th>Setup</th><th>Dừng khác</th>';
   body += '</tr></thead><tbody>';
 
   for (const sess of sessions) {
     const wallSec = (sess.end.getTime() - sess.start.getTime()) / 1000;
     const { runningSec, setupSec, otherStopSec } = sess.metrics;
+    const matCell =
+      sess.materialCode != null && String(sess.materialCode).trim() !== ''
+        ? escapeHtml(String(sess.materialCode).trim())
+        : '<span class="muted">—</span>';
     body += '<tr>';
-    body += `<td>${escapeHtml(sess.product)}</td>`;
+    body += `<td>${escapeHtml(sess.product)}</td><td>${matCell}</td>`;
     body += `<td>${formatReportDateTimeHtml(sess.start)}</td>`;
     body += `<td>${formatReportDateTimeHtml(sess.end)}</td>`;
     body += `<td>${escapeHtml(formatDurationSeconds(wallSec))}</td>`;
@@ -515,7 +617,7 @@ function renderMachineSection(
     body += '</tr>';
   }
   if (sessions.length === 0) {
-    body += '<tr><td colspan="7">Không có phiên sản phẩm trong cửa sổ.</td></tr>';
+    body += '<tr><td colspan="8">Không có phiên sản phẩm trong cửa sổ.</td></tr>';
   }
   body += '</tbody></table>';
 
@@ -523,7 +625,7 @@ function renderMachineSection(
     body +=
       '<h4>Chuyển đổi sản phẩm (theo lịch sử trạng thái: từ kết thúc không-chạy cuối trước đổi SP → chạy đầu tiên của SP sau)</h4>';
     body +=
-      '<table><thead><tr><th>Từ</th><th>Sang</th><th>Kết thúc không-chạy (A)<br/><span class="muted" style="font-weight:normal">trước đổi SP</span></th><th>Bắt đầu chạy (B)<br/><span class="muted" style="font-weight:normal">running đầu trong phiên B</span></th><th>Thời gian chuyển</th><th>Khe telemetry<br/><span class="muted" style="font-weight:normal">Bắt đầu B − Kết thúc A</span></th></tr></thead><tbody>';
+      '<table><thead><tr><th>Từ</th><th>Sang</th><th>Kết thúc không-chạy (A)<br/><span class="muted" style="font-weight:normal">trước đổi SP</span></th><th>Bắt đầu chạy (B)<br/><span class="muted" style="font-weight:normal">running đầu trong phiên B</span></th><th>Thời gian chuyển</th><th>Khe telemetry<br/><span class="muted" style="font-weight:normal">Bắt đầu B − Kết thúc A</span></th><th>Mốc DB<br/><span class="muted" style="font-weight:normal">machine_product_change_events</span></th></tr></thead><tbody>';
     for (const c of changeovers) {
       const endANode =
         c.lastNonRunEndMs != null
@@ -531,13 +633,40 @@ function renderMachineSection(
           : formatReportDateTimeHtml(new Date(c.changeoverStartMs));
       const startBNode =
         c.firstRunBMs != null ? formatReportDateTimeHtml(new Date(c.firstRunBMs)) : '<span class="muted">—</span>';
+      const dbHit =
+        dbEventsForMachine.length && c.sessionBStartMs != null
+          ? findDbChangeNearSessionBStart(
+              dbEventsForMachine,
+              c.toProductForDb,
+              c.toMaterialForDb,
+              c.sessionBStartMs
+            )
+          : null;
+      const dbCell = dbHit ? formatReportDateTimeHtml(dbHit.changedAt) : '<span class="muted">—</span>';
       body += '<tr>';
-      body += `<td>${escapeHtml(c.fromProduct)}</td>`;
-      body += `<td>${escapeHtml(c.toProduct)}</td>`;
+      body += `<td>${escapeHtml(c.fromDisplay)}</td>`;
+      body += `<td>${escapeHtml(c.toDisplay)}</td>`;
       body += `<td>${endANode}</td>`;
       body += `<td>${startBNode}</td>`;
       body += `<td><strong>${escapeHtml(c.gapLabel)}</strong></td>`;
       body += `<td class="muted">${escapeHtml(formatDurationSeconds(c.wallGapSeconds))}</td>`;
+      body += `<td>${dbCell}</td>`;
+      body += '</tr>';
+    }
+    body += '</tbody></table>';
+  }
+
+  if (dbEventsInShift.length > 0) {
+    body +=
+      '<h4>Đăng ký đổi snapshot (<code>machine_product_change_events</code>) trong ca</h4>';
+    body +=
+      '<table><thead><tr><th>Thời điểm</th><th>Sản phẩm (sau đổi)</th><th>Mã vật tư</th><th>Tên máy (lúc ghi)</th></tr></thead><tbody>';
+    for (const ev of dbEventsInShift) {
+      body += '<tr>';
+      body += `<td>${formatReportDateTimeHtml(ev.changedAt)}</td>`;
+      body += `<td>${escapeHtml(ev.productName != null && String(ev.productName).trim() !== '' ? String(ev.productName).trim() : '—')}</td>`;
+      body += `<td>${escapeHtml(ev.materialCode != null && String(ev.materialCode).trim() !== '' ? String(ev.materialCode).trim() : '—')}</td>`;
+      body += `<td>${escapeHtml(ev.machineName || '—')}</td>`;
       body += '</tr>';
     }
     body += '</tbody></table>';
@@ -563,10 +692,12 @@ function renderFooter() {
       <ul>
         <li><strong>Tên máy</strong>: ưu tiên <code>machines.name</code>; nếu trống thì dùng <code>machines.id</code> (giống cách UI không để trống tiêu đề).</li>
         <li><strong>Sản phẩm hiện tại</strong>: dòng riêng lấy từ <code>machines.product_name</code> tại thời điểm xuất (cùng nguồn với ô Product trên EquipmentDetail).</li>
-        <li><strong>Phiên sản phẩm trong bảng</strong>: từ <code>product_name</code> trên <code>machine_line_telemetry</code>, có <strong>lấp forward</strong> snapshot trống bằng sản phẩm snapshot gần nhất trước đó trên cùng máy (không dùng Order ID). Ranh giới vẫn phụ thuộc tần suất ghi telemetry.</li>
+        <li><strong>Mã vật tư hiện tại (máy)</strong>: <code>machines.material_code</code> tại thời điểm xuất.</li>
+        <li><strong>Phiên sản phẩm trong bảng</strong>: từ <code>product_name</code> và <code>material_code</code> trên <code>machine_line_telemetry</code>, có <strong>lấp forward</strong> snapshot trống (cả SP và mã vật tư). Ranh giới phiên khi đổi tên SP hoặc đổi mã vật tư; tần suất ghi telemetry vẫn ảnh hưởng độ mịn timeline.</li>
         <li><strong>Chạy / Setup / Dừng khác</strong>: cộng thời lượng các đoạn <code>machine_status_history</code> sau khi cắt (clip) giao với khoảng thời gian của phiên; <code>running</code> = chạy, <code>setup</code> = setup, còn lại = dừng khác. Với đoạn đang mở (<code>status_end_time</code> null), kết thúc hiệu lực = <code>min(thời điểm xuất báo cáo, cuối cửa sổ)</code> — cùng ý với Gantt trên EquipmentDetail (không kéo running đến hết ca nếu máy đang chạy liên tục).</li>
         <li><strong>Thanh màu theo ca</strong>: dựng từ cùng tập đoạn đã cắt như trên.</li>
-        <li><strong>Số lần đổi sản phẩm</strong>: số phiên sản phẩm trong cửa sổ trừ một (mỗi lần đổi <code>product_name</code> trên telemetry sau forward-fill tạo thêm một phiên).</li>
+        <li><strong>Số lần đổi sản phẩm / mã vật tư</strong>: số phiên trong cửa sổ trừ một (mỗi lần đổi tên SP hoặc mã vật tư trên telemetry sau forward-fill tạo thêm một phiên).</li>
+        <li><strong>machine_product_change_events</strong>: một dòng mỗi lần đổi <code>machines.product_name</code> hoặc <code>machines.material_code</code> (trigger DB). Bảng riêng trong ca liệt kê các mốc trong cửa sổ. Cột <strong>Mốc DB</strong> ở bảng chuyển đổi: ghép với bắt đầu phiên B (telemetry) nếu có sự kiện trùng tên SP trong ±12 phút, ưu tiên trùng mã vật tư khi phiên B có mã.</li>
         <li><strong>Thời gian chuyển đổi A → B</strong>: từ <strong>kết thúc đoạn không-chạy</strong> (<code>status</code> khác <code>running</code>) cuối cùng trong khoảng phiên A trước mốc đổi sản phẩm theo telemetry, đến <strong>thời điểm bắt đầu <code>running</code> đầu tiên</strong> trong phiên B — cả hai mốc lấy từ <code>machine_status_history</code> đã cắt theo ca (cùng logic Gantt). Nếu không có đoạn không-chạy trước đổi SP, neo mốc đầu vào kết thúc phiên A theo telemetry; nếu không có <code>running</code> trong phiên B thì cột thời gian chuyển hiển thị "—". Cột <strong>Khe telemetry</strong> là khoảng giữa mốc bắt đầu phiên B và kết thúc phiên A trên timeline sản phẩm (để đối chiếu tần suất snapshot).</li>
         <li><strong>Ca đang chạy</strong>: nếu thời điểm xuất báo cáo nằm trong khoảng <code>[bắt đầu ca, kết thúc ca theo lịch)</code>, cửa sổ báo cáo được <strong>cắt đến thời điểm xuất</strong> (giống realtime trên màn hình), không kéo đến hết ca trên lịch (vd. ca 3 tới 06:00 hôm sau).</li>
         <li>Múi giờ: thời gian ca và <code>localDate</code> theo múi giờ của máy chủ Node.js.</li>
@@ -617,7 +748,7 @@ export async function buildLineProcessingHtmlReport(params) {
   let machineRows;
   if (area) {
     const r = await query(
-      `SELECT id, name, area, product_name FROM machines WHERE area = $1::production_area ORDER BY id ASC`,
+      `SELECT id, name, area, product_name, material_code FROM machines WHERE area = $1::production_area ORDER BY id ASC`,
       [area]
     );
     machineRows = r.rows;
@@ -633,7 +764,7 @@ export async function buildLineProcessingHtmlReport(params) {
       return { error: `At most ${MAX_MACHINES} machines per export`, status: 400 };
     }
     const r = await query(
-      `SELECT id, name, area, product_name FROM machines WHERE id = ANY($1::varchar[]) ORDER BY id ASC`,
+      `SELECT id, name, area, product_name, material_code FROM machines WHERE id = ANY($1::varchar[]) ORDER BY id ASC`,
       [ids]
     );
     machineRows = r.rows;
@@ -664,6 +795,7 @@ export async function buildLineProcessingHtmlReport(params) {
 
   const telemetryRows = await fetchTelemetryProductTimeline(machineIds, telFrom, maxW);
   const statusRows = await fetchStatusHistoryBatch(machineIds, minW, maxW);
+  const productChangeDbRows = await fetchMachineProductChangeEvents(machineIds, minW, maxW);
 
   const statusByMachine = new Map();
   for (const mid of machineIds) statusByMachine.set(String(mid), []);
@@ -671,6 +803,14 @@ export async function buildLineProcessingHtmlReport(params) {
     const key = String(s.machineId);
     if (!statusByMachine.has(key)) statusByMachine.set(key, []);
     statusByMachine.get(key).push(s);
+  }
+
+  const dbEventsByMachine = new Map();
+  for (const mid of machineIds) dbEventsByMachine.set(String(mid), []);
+  for (const ev of productChangeDbRows) {
+    const key = String(ev.machineId);
+    if (!dbEventsByMachine.has(key)) dbEventsByMachine.set(key, []);
+    dbEventsByMachine.get(key).push(ev);
   }
 
   const shiftLabels = { 1: 'Ca 1 (06:00–14:00)', 2: 'Ca 2 (14:00–22:00)', 3: 'Ca 3 (22:00–06:00 hôm sau)' };
@@ -699,6 +839,7 @@ export async function buildLineProcessingHtmlReport(params) {
         sessions = [
           {
             product: '(Không có telemetry — tổng theo trạng thái trong ca)',
+            materialCode: '',
             start: w0,
             end: w1,
             metrics,
@@ -710,6 +851,13 @@ export async function buildLineProcessingHtmlReport(params) {
           return { ...sess, metrics };
         });
       }
+      const dbForM = dbEventsByMachine.get(String(m.id)) || [];
+      const w0t = w0.getTime();
+      const w1t = w1.getTime();
+      const dbEventsInShift = dbForM.filter((e) => {
+        const t = e.changedAt.getTime();
+        return t >= w0t && t < w1t;
+      });
       content += renderMachineSection(
         machineDisplayName(m),
         m.id,
@@ -722,9 +870,12 @@ export async function buildLineProcessingHtmlReport(params) {
           hasTelemetryInWindow,
         },
         m.product_name,
+        m.material_code,
         segments,
         reportNowMs,
-        nominalShiftEnd
+        nominalShiftEnd,
+        dbEventsInShift,
+        dbForM
       );
     }
     content += '</article>';
