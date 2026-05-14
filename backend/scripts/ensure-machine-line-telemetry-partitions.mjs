@@ -1,6 +1,7 @@
 /**
- * Ensure monthly partitions exist for machine_line_telemetry (current month + next N months).
+ * Ensure monthly partitions exist for machine_line_telemetry (past N months + current + next M).
  * Run via cron monthly or weekly: node scripts/ensure-machine-line-telemetry-partitions.mjs
+ * Set TELEMETRY_PARTITION_MONTHS_BACK (default 12) so imports / restores with older sampled_at work on a fresh PC.
  */
 import dotenv from 'dotenv';
 import path from 'path';
@@ -19,6 +20,7 @@ const pool = new pg.Pool({
 });
 
 const MONTHS_AHEAD = parseInt(process.env.TELEMETRY_PARTITION_MONTHS_AHEAD || '3', 10);
+const MONTHS_BACK = parseInt(process.env.TELEMETRY_PARTITION_MONTHS_BACK || '12', 10);
 
 function monthStart(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
@@ -41,7 +43,7 @@ async function main() {
   try {
     const now = new Date();
     const base = monthStart(now);
-    for (let i = 0; i <= MONTHS_AHEAD; i += 1) {
+    for (let i = -MONTHS_BACK; i <= MONTHS_AHEAD; i += 1) {
       const pStart = addMonths(base, i);
       const pEnd = addMonths(base, i + 1);
       const y = pStart.getFullYear();

@@ -17,8 +17,10 @@
  *   --map=path.json    Optional: { "CSV machine_name": "machines.name in DB" } for mismatched labels
  *   --mes-alias        Try common MES→DB name aliases (Bọc 150-1→150-1, KÉO LHT1→LHT-1, XOẮN 54-1→54-1, …)
  *
- * Before first May–2026 import on a fresh DB, run:
+ * Before first import on a fresh DB, run:
  *   npm run ensure-telemetry-partitions
+ *
+ * Excel (.xlsx): use `npm run import-machine-material-xlsx -- "path.xlsx" --full ...` (see import-machine-material-timeseries-xlsx.mjs).
  *
  * Env:
  *   IMPORT_CSV_TZ_OFFSET=+07:00   (default) wall time for parsed timestamps
@@ -87,7 +89,7 @@ function splitCsvLine(line) {
  */
 function parseSampledAt(raw, tzOffset) {
   const s = String(raw || '').trim();
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
   if (!m) return null;
   const dd = m[1].padStart(2, '0');
   const mo = m[2].padStart(2, '0');
