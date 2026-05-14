@@ -321,3 +321,57 @@ DROP TRIGGER IF EXISTS update_production_orders_updated_at ON production_orders;
 CREATE TRIGGER update_production_orders_updated_at BEFORE UPDATE ON production_orders
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Line product / material change log (matches EquipmentStatus primary: machines.product_name)
+CREATE TABLE IF NOT EXISTS machine_product_change_events (
+    id BIGSERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+    machine_name VARCHAR(255) NOT NULL,
+    material_code VARCHAR(50),
+    product_name VARCHAR(255),
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE machine_product_change_events IS
+  'One row per change to machines.product_name or machines.material_code; see migration_machine_product_change_events.sql.';
+
+CREATE INDEX IF NOT EXISTS idx_mpce_machine_changed_at
+    ON machine_product_change_events (machine_id, changed_at DESC);
+
+CREATE OR REPLACE FUNCTION log_machine_product_or_material_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP <> 'UPDATE' THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.product_name IS DISTINCT FROM OLD.product_name
+       OR NEW.material_code IS DISTINCT FROM OLD.material_code THEN
+        INSERT INTO machine_product_change_events (
+            machine_id,
+            machine_name,
+            material_code,
+            product_name,
+            changed_at
+        ) VALUES (
+            NEW.id,
+            NEW.name,
+            NEW.material_code,
+            NEW.product_name,
+            CURRENT_TIMESTAMP
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_log_machine_product_change ON machines;
+CREATE TRIGGER trigger_log_machine_product_change
+    AFTER UPDATE OF product_name, material_code ON machines
+    FOR EACH ROW
+    WHEN (
+        OLD.product_name IS DISTINCT FROM NEW.product_name
+        OR OLD.material_code IS DISTINCT FROM NEW.material_code
+    )
+    EXECUTE FUNCTION log_machine_product_or_material_change();
+

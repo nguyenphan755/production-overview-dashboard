@@ -20,14 +20,42 @@ function effectiveProductNameFromOrderRow(orderRow) {
 
 /**
  * machine_line_telemetry is written from machine PATCH/PUT and the interval sampler.
- * Editing only production_orders left machines.product_name stale and skipped telemetry.
+ * There is **no PostgreSQL trigger** on machines/orders that inserts into machine_line_telemetry.
+ *
+ * Editing production_orders used to skip telemetry when `machines.production_order_id` was NULL
+ * or stale while the order was still `running` on that machine — UI showed new product but sync bailed.
  */
+function machineOrderTelemetrySyncAllowed(machineRow, orderRow) {
+  if (String(orderRow.machine_id || '') !== String(machineRow.id || '')) {
+    return { ok: false, reason: 'order.machine_id does not match machine row' };
+  }
+  const fk = String(machineRow.production_order_id ?? '').trim();
+  const oid = String(orderRow.id ?? '').trim();
+  if (fk !== '' && fk === oid) {
+    return { ok: true, reason: 'machines.production_order_id matches order' };
+  }
+  if (String(orderRow.status || '').toLowerCase() === 'running') {
+    return { ok: true, reason: 'running order on this machine (FK may be null/stale)' };
+  }
+  return {
+    ok: false,
+    reason:
+      'order not running and machines.production_order_id !== order.id (set machine production_order_id or PATCH machine product)',
+  };
+}
+
 async function syncMachineProductAndTelemetryFromOrder(orderRow, bodyUpdates) {
   if (!bodyUpdates || typeof bodyUpdates !== 'object') return;
   if (!('productName' in bodyUpdates) && !('productNameCurrent' in bodyUpdates)) return;
 
   const machineId = orderRow.machine_id;
-  if (!machineId) return;
+  if (!machineId) {
+    console.warn(
+      '[PATCH /orders/:orderId] skip machine_line_telemetry sync: production_orders.machine_id is null',
+      { orderId: orderRow.id }
+    );
+    return;
+  }
 
   const effectiveName = effectiveProductNameFromOrderRow(orderRow);
 
@@ -40,11 +68,22 @@ async function syncMachineProductAndTelemetryFromOrder(orderRow, bodyUpdates) {
       );
       if (lock.rows.length === 0) {
         await client.query('ROLLBACK');
+        console.warn('[PATCH /orders/:orderId] skip telemetry sync: machine not found', {
+          orderId: orderRow.id,
+          machineId,
+        });
         return;
       }
       const machineRow = lock.rows[0];
-      if (String(machineRow.production_order_id || '') !== String(orderRow.id)) {
+      const allow = machineOrderTelemetrySyncAllowed(machineRow, orderRow);
+      if (!allow.ok) {
         await client.query('ROLLBACK');
+        console.warn('[PATCH /orders/:orderId] skip machine_line_telemetry sync:', allow.reason, {
+          orderId: orderRow.id,
+          machineId,
+          machineProductionOrderId: machineRow.production_order_id ?? null,
+          orderStatus: orderRow.status,
+        });
         return;
       }
 
