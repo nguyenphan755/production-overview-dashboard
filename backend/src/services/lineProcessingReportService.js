@@ -87,6 +87,14 @@ function formatDurationSeconds(sec) {
   return `${s}s`;
 }
 
+/** Readable local date/time for HTML tables (not raw ISO). */
+function formatReportDateTimeHtml(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '—';
+  const dateStr = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return `<span class="dt-split"><span class="dt-d">${escapeHtml(dateStr)}</span><span class="dt-t">${escapeHtml(timeStr)}</span></span>`;
+}
+
 function clipIntervalSeconds(segStart, segEnd, w0, w1) {
   const s = Math.max(segStart.getTime(), w0.getTime());
   const e = Math.min(segEnd.getTime(), w1.getTime());
@@ -359,17 +367,80 @@ function aggregateStatusInSession(segments, sessionStart, sessionEnd, reportNowM
   return { runningSec, setupSec, otherStopSec };
 }
 
-function buildChangeoverRows(sessions) {
+/**
+ * Clipped status rows: { status, startMs, endMs, seconds }.
+ * Last non-running end strictly before product B (telemetry) starts.
+ */
+function lastNonRunningEndBefore(clipped, rangeStartMs, rangeEndMs) {
+  let best = null;
+  for (const seg of clipped) {
+    if (seg.status === 'running') continue;
+    if (seg.endMs <= rangeStartMs || seg.startMs >= rangeEndMs) continue;
+    const endClip = Math.min(seg.endMs, rangeEndMs);
+    const startClip = Math.max(seg.startMs, rangeStartMs);
+    if (endClip <= startClip) continue;
+    if (best === null || endClip > best) best = endClip;
+  }
+  return best;
+}
+
+/** First instant of running within [sessionStart, sessionEnd) from clipped history. */
+function firstRunningStartInWindow(clipped, sessionStartMs, sessionEndMs) {
+  let best = null;
+  for (const seg of clipped) {
+    if (seg.status !== 'running') continue;
+    if (seg.endMs <= sessionStartMs || seg.startMs >= sessionEndMs) continue;
+    const startClip = Math.max(seg.startMs, sessionStartMs);
+    if (startClip >= sessionEndMs) continue;
+    if (best === null || startClip < best) best = startClip;
+  }
+  return best;
+}
+
+/**
+ * Changeover A→B: từ kết thúc đoạn không-chạy (≠ running) cuối trong khoảng [phiên A] trước mốc đổi SP,
+ * đến thời điểm bắt đầu running đầu tiên trong phiên B. Nếu không có đoạn không-chạy trước đổi SP, neo vào
+ * mốc kết thúc phiên A theo telemetry (prev.end). Nếu không có running trong phiên B, báo "—".
+ */
+function buildChangeoverRows(sessions, clippedShift) {
   const rows = [];
+  const clipped = clippedShift || [];
   for (let i = 1; i < sessions.length; i += 1) {
     const prev = sessions[i - 1];
     const cur = sessions[i];
-    const gapSec = (cur.start.getTime() - prev.end.getTime()) / 1000;
     if (prev.product === cur.product) continue;
+
+    const prevStartMs = prev.start.getTime();
+    const prevEndMs = prev.end.getTime();
+    const curStartMs = cur.start.getTime();
+    const curEndMs = cur.end.getTime();
+
+    const lastNonRunEnd = lastNonRunningEndBefore(clipped, prevStartMs, curStartMs);
+    const changeoverStartMs = lastNonRunEnd != null ? lastNonRunEnd : prevEndMs;
+    const startCapped = Math.min(changeoverStartMs, curStartMs);
+
+    const firstRunB = firstRunningStartInWindow(clipped, curStartMs, curEndMs);
+    const wallGapSec = Math.max(0, (curStartMs - prevEndMs) / 1000);
+
+    let gapSeconds = null;
+    let gapLabel = '—';
+    if (firstRunB != null && firstRunB > startCapped) {
+      gapSeconds = (firstRunB - startCapped) / 1000;
+      gapLabel = formatDurationSeconds(gapSeconds);
+    } else if (firstRunB != null && firstRunB <= startCapped) {
+      gapLabel = '0s';
+      gapSeconds = 0;
+    }
+
     rows.push({
       fromProduct: prev.product,
       toProduct: cur.product,
-      gapSeconds: Math.max(0, gapSec),
+      gapSeconds,
+      gapLabel,
+      wallGapSeconds: wallGapSec,
+      lastNonRunEndMs: lastNonRunEnd,
+      changeoverStartMs: startCapped,
+      firstRunBMs: firstRunB,
     });
   }
   return rows;
@@ -386,7 +457,10 @@ function renderMachineSection(
   machineHistorySegments,
   reportNowMs
 ) {
-  const { sessions, productChangesInWindow, hasTelemetryInWindow, changeovers } = reportSlice;
+  const { sessions, productChangesInWindow, hasTelemetryInWindow } = reportSlice;
+
+  const clippedShift = clipHistoryToShiftWindow(machineHistorySegments, w0, w1, reportNowMs);
+  const changeovers = buildChangeoverRows(sessions, clippedShift);
 
   const idSuffix =
     machineId && machineDisplayTitle && machineId !== machineDisplayTitle
@@ -407,7 +481,6 @@ function renderMachineSection(
 
   body += `<p><strong>Số lần đổi sản phẩm (theo snapshot telemetry, sau khi lấp chỗ trống product) trong cửa sổ:</strong> ${productChangesInWindow}</p>`;
 
-  const clippedShift = clipHistoryToShiftWindow(machineHistorySegments, w0, w1, reportNowMs);
   body += renderShiftStatusBarHtml(clippedShift, w0, w1);
 
   body += '<table><thead><tr>';
@@ -420,8 +493,8 @@ function renderMachineSection(
     const { runningSec, setupSec, otherStopSec } = sess.metrics;
     body += '<tr>';
     body += `<td>${escapeHtml(sess.product)}</td>`;
-    body += `<td>${escapeHtml(sess.start.toISOString())}</td>`;
-    body += `<td>${escapeHtml(sess.end.toISOString())}</td>`;
+    body += `<td>${formatReportDateTimeHtml(sess.start)}</td>`;
+    body += `<td>${formatReportDateTimeHtml(sess.end)}</td>`;
     body += `<td>${escapeHtml(formatDurationSeconds(wallSec))}</td>`;
     body += `<td>${escapeHtml(formatDurationSeconds(runningSec))}</td>`;
     body += `<td>${escapeHtml(formatDurationSeconds(setupSec))}</td>`;
@@ -434,10 +507,25 @@ function renderMachineSection(
   body += '</tbody></table>';
 
   if (changeovers.length > 0) {
-    body += '<h4>Chuyển đổi sản phẩm (khoảng wall giữa hai phiên liên tiếp)</h4>';
-    body += '<table><thead><tr><th>Từ</th><th>Sang</th><th>Thời gian chuyển (ước lượng)</th></tr></thead><tbody>';
+    body +=
+      '<h4>Chuyển đổi sản phẩm (theo lịch sử trạng thái: từ kết thúc không-chạy cuối trước đổi SP → chạy đầu tiên của SP sau)</h4>';
+    body +=
+      '<table><thead><tr><th>Từ</th><th>Sang</th><th>Kết thúc không-chạy (A)<br/><span class="muted" style="font-weight:normal">trước đổi SP</span></th><th>Bắt đầu chạy (B)<br/><span class="muted" style="font-weight:normal">running đầu trong phiên B</span></th><th>Thời gian chuyển</th><th>Khe telemetry<br/><span class="muted" style="font-weight:normal">Bắt đầu B − Kết thúc A</span></th></tr></thead><tbody>';
     for (const c of changeovers) {
-      body += `<tr><td>${escapeHtml(c.fromProduct)}</td><td>${escapeHtml(c.toProduct)}</td><td>${escapeHtml(formatDurationSeconds(c.gapSeconds))}</td></tr>`;
+      const endANode =
+        c.lastNonRunEndMs != null
+          ? formatReportDateTimeHtml(new Date(c.lastNonRunEndMs))
+          : formatReportDateTimeHtml(new Date(c.changeoverStartMs));
+      const startBNode =
+        c.firstRunBMs != null ? formatReportDateTimeHtml(new Date(c.firstRunBMs)) : '<span class="muted">—</span>';
+      body += '<tr>';
+      body += `<td>${escapeHtml(c.fromProduct)}</td>`;
+      body += `<td>${escapeHtml(c.toProduct)}</td>`;
+      body += `<td>${endANode}</td>`;
+      body += `<td>${startBNode}</td>`;
+      body += `<td><strong>${escapeHtml(c.gapLabel)}</strong></td>`;
+      body += `<td class="muted">${escapeHtml(formatDurationSeconds(c.wallGapSeconds))}</td>`;
+      body += '</tr>';
     }
     body += '</tbody></table>';
   }
@@ -445,7 +533,7 @@ function renderMachineSection(
   return `
     <section class="machine">
       <h3>${escapeHtml(machineDisplayTitle)} — ${escapeHtml(shiftLabel)}</h3>
-      <p class="muted">Cửa sổ: ${escapeHtml(w0.toISOString())} → ${escapeHtml(w1.toISOString())} (server local)</p>
+      <p class="muted">Cửa sổ: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)} <span class="muted">(giờ máy chủ báo cáo)</span></p>
       ${body}
     </section>
   `;
@@ -461,8 +549,8 @@ function renderFooter() {
         <li><strong>Phiên sản phẩm trong bảng</strong>: từ <code>product_name</code> trên <code>machine_line_telemetry</code>, có <strong>lấp forward</strong> snapshot trống bằng sản phẩm snapshot gần nhất trước đó trên cùng máy (không dùng Order ID). Ranh giới vẫn phụ thuộc tần suất ghi telemetry.</li>
         <li><strong>Chạy / Setup / Dừng khác</strong>: cộng thời lượng các đoạn <code>machine_status_history</code> sau khi cắt (clip) giao với khoảng thời gian của phiên; <code>running</code> = chạy, <code>setup</code> = setup, còn lại = dừng khác. Với đoạn đang mở (<code>status_end_time</code> null), kết thúc hiệu lực = <code>min(thời điểm xuất báo cáo, cuối cửa sổ)</code> — cùng ý với Gantt trên EquipmentDetail (không kéo running đến hết ca nếu máy đang chạy liên tục).</li>
         <li><strong>Thanh màu theo ca</strong>: dựng từ cùng tập đoạn đã cắt như trên.</li>
-        <li><strong>Số lần đổi sản phẩm</strong>: số lần <code>product_name</code> (chuẩn hóa) đổi giữa hai snapshot telemetry liên tiếp có mốc thời gian nằm trong cửa sổ báo cáo.</li>
-        <li><strong>Thời gian chuyển đổi A → B</strong>: khoảng wall-time giữa kết thúc phiên A và bắt đầu phiên B (liền kề trên timeline).</li>
+        <li><strong>Số lần đổi sản phẩm</strong>: số phiên sản phẩm trong cửa sổ trừ một (mỗi lần đổi <code>product_name</code> trên telemetry sau forward-fill tạo thêm một phiên).</li>
+        <li><strong>Thời gian chuyển đổi A → B</strong>: từ <strong>kết thúc đoạn không-chạy</strong> (<code>status</code> khác <code>running</code>) cuối cùng trong khoảng phiên A trước mốc đổi sản phẩm theo telemetry, đến <strong>thời điểm bắt đầu <code>running</code> đầu tiên</strong> trong phiên B — cả hai mốc lấy từ <code>machine_status_history</code> đã cắt theo ca (cùng logic Gantt). Nếu không có đoạn không-chạy trước đổi SP, neo mốc đầu vào kết thúc phiên A theo telemetry; nếu không có <code>running</code> trong phiên B thì cột thời gian chuyển hiển thị "—". Cột <strong>Khe telemetry</strong> là khoảng giữa mốc bắt đầu phiên B và kết thúc phiên A trên timeline sản phẩm (để đối chiếu tần suất snapshot).</li>
         <li>Múi giờ: thời gian ca và <code>localDate</code> theo múi giờ của máy chủ Node.js.</li>
       </ul>
     </footer>
@@ -602,8 +690,6 @@ export async function buildLineProcessingHtmlReport(params) {
           return { ...sess, metrics };
         });
       }
-      const changeovers = buildChangeoverRows(sessions);
-
       content += renderMachineSection(
         machineDisplayName(m),
         m.id,
@@ -614,7 +700,6 @@ export async function buildLineProcessingHtmlReport(params) {
           sessions,
           productChangesInWindow,
           hasTelemetryInWindow,
-          changeovers,
         },
         m.product_name,
         segments,
@@ -647,6 +732,9 @@ export async function buildLineProcessingHtmlReport(params) {
     table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.875rem; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
     th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
     th { background: #e2e8f0; }
+    .dt-split { display: inline-flex; flex-direction: column; vertical-align: middle; line-height: 1.25; }
+    .dt-split .dt-d { font-weight: 600; color: #0f172a; }
+    .dt-split .dt-t { font-size: 0.82em; color: #64748b; font-variant-numeric: tabular-nums; }
     footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #cbd5e1; font-size: 0.85rem; color: #475569; }
     footer ul { padding-left: 1.25rem; }
     .machine { margin-bottom: 2rem; }
@@ -662,7 +750,7 @@ export async function buildLineProcessingHtmlReport(params) {
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
-  <p class="muted">Xuất: ${escapeHtml(new Date().toISOString())} (ISO) — Phạm vi: ${escapeHtml(scopeLabel)} — Máy: ${machineIds.length}</p>
+  <p class="muted">Xuất: ${formatReportDateTimeHtml(new Date())} — Phạm vi: ${escapeHtml(scopeLabel)} — Máy: ${machineIds.length}</p>
   ${content}
   ${renderFooter()}
 </body>
