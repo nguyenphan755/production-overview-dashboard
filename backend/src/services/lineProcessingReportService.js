@@ -20,6 +20,18 @@ function parseLocalDateYmd(ymd) {
   return dt;
 }
 
+/**
+ * Nominal shift is [w0, w1). When export time falls inside that window, cap the report end to `nowMs`
+ * so a "current" shift export matches real time instead of stretching to 06:00 next day.
+ * When the shift has not started yet (nowMs <= w0), end stays w0 (empty window). When past w1, keep full w1.
+ */
+function effectiveShiftReportEnd(w0, w1, nowMs = Date.now()) {
+  const w0t = w0.getTime();
+  const w1t = w1.getTime();
+  const capped = Math.min(w1t, Math.max(w0t, Math.min(nowMs, w1t)));
+  return new Date(capped);
+}
+
 function normalizeProductName(name) {
   if (name == null) return 'UNKNOWN';
   const s = String(name).trim();
@@ -455,7 +467,8 @@ function renderMachineSection(
   reportSlice,
   liveProductFromMachine,
   machineHistorySegments,
-  reportNowMs
+  reportNowMs,
+  nominalShiftEnd = null
 ) {
   const { sessions, productChangesInWindow, hasTelemetryInWindow } = reportSlice;
 
@@ -533,7 +546,11 @@ function renderMachineSection(
   return `
     <section class="machine">
       <h3>${escapeHtml(machineDisplayTitle)} — ${escapeHtml(shiftLabel)}</h3>
-      <p class="muted">Cửa sổ: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)} <span class="muted">(giờ máy chủ báo cáo)</span></p>
+      <p class="muted">Cửa sổ báo cáo: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}${
+        nominalShiftEnd != null && nominalShiftEnd.getTime() !== w1.getTime()
+          ? ` <span class="muted">(cuối ca theo lịch: ${formatReportDateTimeHtml(nominalShiftEnd)} — cắt đến thời điểm xuất vì ca chưa kết thúc)</span>`
+          : ' <span class="muted">(giờ máy chủ báo cáo)</span>'
+      }</p>
       ${body}
     </section>
   `;
@@ -551,6 +568,7 @@ function renderFooter() {
         <li><strong>Thanh màu theo ca</strong>: dựng từ cùng tập đoạn đã cắt như trên.</li>
         <li><strong>Số lần đổi sản phẩm</strong>: số phiên sản phẩm trong cửa sổ trừ một (mỗi lần đổi <code>product_name</code> trên telemetry sau forward-fill tạo thêm một phiên).</li>
         <li><strong>Thời gian chuyển đổi A → B</strong>: từ <strong>kết thúc đoạn không-chạy</strong> (<code>status</code> khác <code>running</code>) cuối cùng trong khoảng phiên A trước mốc đổi sản phẩm theo telemetry, đến <strong>thời điểm bắt đầu <code>running</code> đầu tiên</strong> trong phiên B — cả hai mốc lấy từ <code>machine_status_history</code> đã cắt theo ca (cùng logic Gantt). Nếu không có đoạn không-chạy trước đổi SP, neo mốc đầu vào kết thúc phiên A theo telemetry; nếu không có <code>running</code> trong phiên B thì cột thời gian chuyển hiển thị "—". Cột <strong>Khe telemetry</strong> là khoảng giữa mốc bắt đầu phiên B và kết thúc phiên A trên timeline sản phẩm (để đối chiếu tần suất snapshot).</li>
+        <li><strong>Ca đang chạy</strong>: nếu thời điểm xuất báo cáo nằm trong khoảng <code>[bắt đầu ca, kết thúc ca theo lịch)</code>, cửa sổ báo cáo được <strong>cắt đến thời điểm xuất</strong> (giống realtime trên màn hình), không kéo đến hết ca trên lịch (vd. ca 3 tới 06:00 hôm sau).</li>
         <li>Múi giờ: thời gian ca và <code>localDate</code> theo múi giờ của máy chủ Node.js.</li>
       </ul>
     </footer>
@@ -660,7 +678,9 @@ export async function buildLineProcessingHtmlReport(params) {
   const reportNowMs = Date.now();
   let content = '';
   for (const sn of shifts) {
-    const { start: w0, end: w1 } = getShiftWindow(sn, anchor);
+    const { start: w0, end: w1Nominal } = getShiftWindow(sn, anchor);
+    const w1 = effectiveShiftReportEnd(w0, w1Nominal, reportNowMs);
+    const nominalShiftEnd = w1Nominal.getTime() !== w1.getTime() ? w1Nominal : null;
     const shiftLabel = shiftLabels[sn];
     content += `<article class="shift-block"><h2>${escapeHtml(shiftLabel)} — ${escapeHtml(localDate)}</h2>`;
 
@@ -703,7 +723,8 @@ export async function buildLineProcessingHtmlReport(params) {
         },
         m.product_name,
         segments,
-        reportNowMs
+        reportNowMs,
+        nominalShiftEnd
       );
     }
     content += '</article>';

@@ -117,6 +117,71 @@ const resolveMachineByName = async (machineName) => {
 };
 
 /**
+ * PLC / Python loggers often send M, DESC, etc. instead of materialCode / productName.
+ * Without this, PATCH/PUT deleted product fields when materialCode was absent → machines + machine_line_telemetry did not update.
+ */
+async function applyMaterialAndProductRules(updates) {
+  const u = updates;
+  if (u == null || typeof u !== 'object') return;
+
+  if (u.materialCode === undefined && u.material_code === undefined) {
+    const alt = u.M ?? u.m ?? u.matCode ?? u.materialNumber ?? u.MaterialCode;
+    if (alt !== undefined && alt !== null && String(alt).trim() !== '') {
+      u.materialCode = String(alt).trim();
+    }
+  }
+
+  const hasProduct =
+    (u.productName !== undefined &&
+      u.productName !== null &&
+      String(u.productName).trim() !== '') ||
+    (u.product_name !== undefined &&
+      u.product_name !== null &&
+      String(u.product_name).trim() !== '');
+
+  const descCandidate =
+    u.DESC ?? u.desc ?? u.materialDescription ?? u.MaterialDescription ?? u.productDescription;
+  if (!hasProduct && descCandidate !== undefined && descCandidate !== null && String(descCandidate).trim() !== '') {
+    u.productName = String(descCandidate).trim();
+  }
+
+  const normalizedMaterialCode =
+    u.materialCode !== undefined ? u.materialCode : u.material_code !== undefined ? u.material_code : undefined;
+
+  delete u.M;
+  delete u.m;
+  delete u.matCode;
+  delete u.materialNumber;
+  delete u.MaterialCode;
+  delete u.DESC;
+  delete u.desc;
+  delete u.materialDescription;
+  delete u.MaterialDescription;
+  delete u.productDescription;
+
+  if (normalizedMaterialCode !== undefined && normalizedMaterialCode !== null) {
+    const code = String(normalizedMaterialCode).trim();
+    if (code === '') {
+      delete u.materialCode;
+      delete u.material_code;
+    } else {
+      const materialName = await resolveMaterialName(code);
+      u.materialCode = code;
+      if (materialName != null && String(materialName).trim() !== '') {
+        u.productName = materialName;
+      }
+    }
+    delete u.material_code;
+    delete u.product_name;
+  } else {
+    if (u.productName === undefined && u.product_name !== undefined) {
+      u.productName = u.product_name;
+    }
+    delete u.product_name;
+  }
+}
+
+/**
  * PLC often only PATCHes energyMeterKwh (machines.energy_meter_kwh) without POST /metrics.
  * Mirror that into machine_metrics so energyMeterTrend / charts have time series.
  * Skips when the stored kWh did not change (avoids one row per identical poll).
@@ -758,19 +823,7 @@ router.patch('/:machineId', async (req, res) => {
       runtimeHours: 'runtime_hours',
     };
 
-    const normalizedMaterialCode = updates.materialCode !== undefined
-      ? updates.materialCode
-      : updates.material_code;
-    if (normalizedMaterialCode !== undefined) {
-      const materialName = await resolveMaterialName(normalizedMaterialCode);
-      updates.materialCode = normalizedMaterialCode;
-      updates.productName = materialName;
-      delete updates.material_code;
-      delete updates.product_name;
-    } else {
-      delete updates.productName;
-      delete updates.product_name;
-    }
+    await applyMaterialAndProductRules(updates);
 
     const isDrawingMachine = machineRow.area === 'drawing';
 
@@ -1076,19 +1129,7 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
       runtime_hours: 'runtime_hours', // Support both formats
     };
 
-    const normalizedMaterialCode = updates.materialCode !== undefined
-      ? updates.materialCode
-      : updates.material_code;
-    if (normalizedMaterialCode !== undefined) {
-      const materialName = await resolveMaterialName(normalizedMaterialCode);
-      updates.materialCode = normalizedMaterialCode;
-      updates.productName = materialName;
-      delete updates.material_code;
-      delete updates.product_name;
-    } else {
-      delete updates.productName;
-      delete updates.product_name;
-    }
+    await applyMaterialAndProductRules(updates);
 
     const isDrawingMachine = machineRecord.area === 'drawing';
 

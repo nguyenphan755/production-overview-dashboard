@@ -1,7 +1,88 @@
 import express from 'express';
-import { query } from '../../database/connection.js';
+import { query, withClient } from '../../database/connection.js';
+import {
+  buildTelemetryRowAfterApiUpdate,
+  hasMachineTelemetrySnapshotChanged,
+  recordEnergyTelemetryAndAggregate,
+  telemetryApiShouldSkipUnchanged,
+} from '../services/machineLineTelemetry.js';
 
 const router = express.Router();
+
+/** Prefer live current name, then order snapshot — matches Schedule / Equipment display. */
+function effectiveProductNameFromOrderRow(orderRow) {
+  const cur = orderRow.product_name_current;
+  const snap = orderRow.product_name;
+  if (cur != null && String(cur).trim() !== '') return String(cur).trim();
+  if (snap != null && String(snap).trim() !== '') return String(snap).trim();
+  return null;
+}
+
+/**
+ * machine_line_telemetry is written from machine PATCH/PUT and the interval sampler.
+ * Editing only production_orders left machines.product_name stale and skipped telemetry.
+ */
+async function syncMachineProductAndTelemetryFromOrder(orderRow, bodyUpdates) {
+  if (!bodyUpdates || typeof bodyUpdates !== 'object') return;
+  if (!('productName' in bodyUpdates) && !('productNameCurrent' in bodyUpdates)) return;
+
+  const machineId = orderRow.machine_id;
+  if (!machineId) return;
+
+  const effectiveName = effectiveProductNameFromOrderRow(orderRow);
+
+  try {
+    await withClient(async (client) => {
+      await client.query('BEGIN');
+      const lock = await client.query(
+        `SELECT * FROM machines WHERE id = $1 FOR UPDATE`,
+        [machineId]
+      );
+      if (lock.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return;
+      }
+      const machineRow = lock.rows[0];
+      if (String(machineRow.production_order_id || '') !== String(orderRow.id)) {
+        await client.query('ROLLBACK');
+        return;
+      }
+
+      const prevNorm =
+        machineRow.product_name == null || String(machineRow.product_name).trim() === ''
+          ? null
+          : String(machineRow.product_name).trim();
+      if (prevNorm === effectiveName) {
+        await client.query('ROLLBACK');
+        return;
+      }
+
+      await client.query(
+        `UPDATE machines SET product_name = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2`,
+        [effectiveName, machineId]
+      );
+      const nextRes = await client.query(`SELECT * FROM machines WHERE id = $1`, [machineId]);
+      const nextRow = nextRes.rows[0];
+      const telemetryNextRow = buildTelemetryRowAfterApiUpdate(nextRow, null);
+      const skipUnchanged = telemetryApiShouldSkipUnchanged();
+      if (!skipUnchanged || hasMachineTelemetrySnapshotChanged(machineRow, telemetryNextRow)) {
+        await recordEnergyTelemetryAndAggregate(
+          client,
+          machineId,
+          machineRow,
+          telemetryNextRow,
+          'PATCH /orders/:orderId'
+        );
+      }
+      await client.query('COMMIT');
+    });
+  } catch (err) {
+    console.error(
+      '[PATCH /orders/:orderId] sync machine product / machine_line_telemetry:',
+      err.message || err
+    );
+  }
+}
 
 // GET /api/orders
 router.get('/', async (req, res) => {
@@ -191,6 +272,8 @@ router.patch('/:orderId', async (req, res) => {
       status: order.status,
       duration: order.duration,
     };
+
+    await syncMachineProductAndTelemetryFromOrder(order, updates);
 
     res.json({
       data: formattedOrder,

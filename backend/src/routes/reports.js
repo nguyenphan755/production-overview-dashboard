@@ -234,6 +234,8 @@ router.get('/factory-telemetry', authenticateToken, async (req, res) => {
  * - shift: 1 | 2 | 3 (optional; omit = all three shifts on that date)
  * - area: drawing | stranding | armoring | sheathing — XOR —
  * - machineIds: comma-separated machine ids
+ *
+ * If the export time falls inside a shift window, that shift's report end is capped to "now" (live window).
  */
 router.get('/line-processing.html', authenticateToken, async (req, res) => {
   try {
