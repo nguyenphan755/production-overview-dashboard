@@ -16,7 +16,8 @@
     "apply-energy-meter": "node scripts/apply-energy-meter-migration.mjs",
     "apply-energy-telemetry": "node scripts/apply-energy-telemetry-migration.mjs",
     "apply-machine-line-telemetry": "node scripts/apply-machine-line-telemetry-migration.mjs",
-    "ensure-telemetry-partitions": "node scripts/ensure-machine-line-telemetry-partitions.mjs"
+    "ensure-telemetry-partitions": "node scripts/ensure-machine-line-telemetry-partitions.mjs",
+    "import-machine-material-csv": "node scripts/import-machine-material-timeseries-csv.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

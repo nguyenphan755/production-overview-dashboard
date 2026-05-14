@@ -41,11 +41,12 @@ function machineDisplayName(row) {
 function forwardFillTelemetryProducts(rawRows) {
   const byMachine = new Map();
   for (const row of rawRows) {
-    if (!byMachine.has(row.machineId)) byMachine.set(row.machineId, []);
-    byMachine.get(row.machineId).push(row);
+    const key = String(row.machineId);
+    if (!byMachine.has(key)) byMachine.set(key, []);
+    byMachine.get(key).push(row);
   }
   const combined = [];
-  for (const [, list] of byMachine) {
+  for (const [machineKey, list] of byMachine) {
     list.sort((a, b) => a.sampledAt.getTime() - b.sampledAt.getTime());
     let lastNonEmpty = null;
     for (const r of list) {
@@ -53,7 +54,7 @@ function forwardFillTelemetryProducts(rawRows) {
       if (raw !== '') lastNonEmpty = raw;
       const effective = raw !== '' ? raw : lastNonEmpty;
       combined.push({
-        machineId: r.machineId,
+        machineId: machineKey,
         sampledAt: r.sampledAt,
         status: r.status,
         productName: normalizeProductName(effective),
@@ -272,7 +273,8 @@ async function fetchTelemetryProductTimeline(machineIds, telFrom, telTo) {
  * Build product sessions for one machine within [w0, w1), using telemetry from telFrom to w1.
  */
 function buildProductSessions(rows, machineId, w0, w1) {
-  const machineRows = rows.filter((r) => r.machineId === machineId);
+  const mid = String(machineId);
+  const machineRows = rows.filter((r) => String(r.machineId) === mid);
   if (machineRows.length === 0) {
     return {
       sessions: [],
@@ -329,14 +331,9 @@ function buildProductSessions(rows, machineId, w0, w1) {
   }
   emitSession(w1t);
 
-  let productChangesInWindow = 0;
-  for (let i = 1; i < machineRows.length; i += 1) {
-    const prev = machineRows[i - 1];
-    const cur = machineRows[i];
-    const ct = cur.sampledAt.getTime();
-    if (ct < w0t || ct >= w1t) continue;
-    if (prev.productName !== cur.productName) productChangesInWindow += 1;
-  }
+  // Count transitions from built sessions (same walk as the table), not pairwise
+  // raw rows — after forward-fill consecutive rows often share productName.
+  const productChangesInWindow = Math.max(0, sessions.length - 1);
 
   return { sessions, productChangesInWindow, hasTelemetryInWindow };
 }
