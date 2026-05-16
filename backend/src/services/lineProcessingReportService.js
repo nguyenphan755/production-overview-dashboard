@@ -630,13 +630,6 @@ function renderMachineSection(
       : '<span class="muted">—</span>';
 
   let detail = '';
-  detail += `<p><strong>Tên máy:</strong> ${escapeHtml(machineDisplayTitle)}${idSuffix}</p>`;
-  detail += `<p><strong>Sản phẩm hiện tại (máy — như màn hình chi tiết / bảng machines):</strong> ${escapeHtml(
-    liveProd !== '' ? liveProd : '—'
-  )}</p>`;
-  detail += `<p><strong>Mã vật tư hiện tại (máy — <code>machines.material_code</code>):</strong> ${escapeHtml(
-    liveMat !== '' ? liveMat : '—'
-  )}</p>`;
 
   if (!hasTelemetryInWindow) {
     detail += `<p class="warn">Không có snapshot telemetry trong cửa sổ; ranh giới sản phẩm suy từ dữ liệu trước ca hoặc chỉ hiển thị tổng trạng thái.</p>`;
@@ -725,13 +718,10 @@ function renderMachineSection(
     detail += '</tbody></table>';
   }
 
-  const windowHint = `Cửa sổ: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}`;
-
   const summaryInner = `
     <div class="machine-summary-inner">
       <div class="machine-summary-head">
         <strong class="machine-summary-title">${escapeHtml(machineDisplayTitle)}</strong>${idSuffix}
-        <span class="machine-summary-shift muted">${escapeHtml(shiftLabel)}</span>
       </div>
       <div class="machine-summary-grid">
         <div class="sg"><span class="sg-k">Mã vật tư (cuối ca / máy)</span><span class="sg-v">${summaryMaterialDisp}</span></div>
@@ -739,8 +729,6 @@ function renderMachineSection(
         <div class="sg"><span class="sg-k">Tổng chạy (running)</span><span class="sg-v">${escapeHtml(formatDurationSeconds(sumRun))}</span></div>
         <div class="sg"><span class="sg-k">Tổng dừng (setup + dừng khác)</span><span class="sg-v">${escapeHtml(formatDurationSeconds(sumStop))}</span></div>
       </div>
-      <p class="machine-summary-meta muted">${windowHint}</p>
-      <p class="machine-summary-hint">Nhấn để mở / đóng chi tiết: bảng phiên, chuyển đổi, DB, thanh trạng thái…</p>
     </div>
   `;
 
@@ -749,12 +737,6 @@ function renderMachineSection(
       <details class="machine-details">
         <summary class="machine-summary">${summaryInner}</summary>
         <div class="machine-detail-panel">
-          <h3 class="machine-detail-h3">${escapeHtml(machineDisplayTitle)} — ${escapeHtml(shiftLabel)}</h3>
-          <p class="muted">Cửa sổ báo cáo: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}${
-            nominalShiftEnd != null && nominalShiftEnd.getTime() !== w1.getTime()
-              ? ` <span class="muted">(cuối ca theo lịch: ${formatReportDateTimeHtml(nominalShiftEnd)} — cắt đến thời điểm xuất vì ca chưa kết thúc)</span>`
-              : ' <span class="muted">(giờ máy chủ báo cáo)</span>'
-          }</p>
           ${detail}
         </div>
       </details>
@@ -767,7 +749,7 @@ function renderFooter() {
     <footer>
       <h3>Chú thích</h3>
       <ul>
-        <li><strong>Tóm tắt / chi tiết</strong>: mỗi máy hiển thị dạng <code>&lt;details&gt;</code> — phần tóm tắt (mã vật tư cuối ca hoặc trên máy, mô tả từ <code>material_master</code> hoặc nhãn snapshot, tổng chạy / tổng dừng theo cộng các phiên). Nhấn để mở bảng phiên, chuyển đổi, sự kiện DB và thanh trạng thái.</li>
+        <li><strong>Tóm tắt / chi tiết</strong>: mỗi máy dùng <code>&lt;details&gt;</code> — tóm tắt gọn (tên máy, mã vật tư, mô tả, tổng chạy / tổng dừng). Phần mở rộng: cảnh báo telemetry (nếu có), số đổi SP, sự kiện DB, thanh trạng thái và các bảng chi tiết (không lặp lại tiêu đề ca / cửa sổ — đã nêu ở tiêu đề ca phía trên).</li>
         <li><strong>Tên máy</strong>: ưu tiên <code>machines.name</code>; nếu trống thì dùng <code>machines.id</code> (giống cách UI không để trống tiêu đề).</li>
         <li><strong>Sản phẩm hiện tại</strong>: dòng riêng lấy từ <code>machines.product_name</code> tại thời điểm xuất (cùng nguồn với ô Product trên EquipmentDetail).</li>
         <li><strong>Mã vật tư hiện tại (máy)</strong>: <code>machines.material_code</code> tại thời điểm xuất.</li>
@@ -1046,17 +1028,13 @@ export async function buildLineProcessingHtmlReport(params) {
     summary.machine-summary::-webkit-details-marker { display: none; }
     summary.machine-summary::marker { content: ''; }
     .machine-summary-inner { max-width: 100%; }
-    .machine-summary-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 4px; }
+    .machine-summary-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 6px; }
     .machine-summary-title { font-size: 1.05rem; color: #0f172a; }
-    .machine-summary-shift { font-size: 0.8rem; }
-    .machine-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 14px; margin-top: 10px; }
+    .machine-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 14px; margin-top: 4px; }
     .sg { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .sg-k { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
     .sg-v { font-size: 0.9rem; font-weight: 600; color: #0f172a; word-break: break-word; line-height: 1.35; }
-    .machine-summary-meta { font-size: 0.78rem; margin: 8px 0 0; }
-    .machine-summary-hint { font-size: 0.75rem; margin: 6px 0 0; color: #94a3b8; font-style: italic; }
-    .machine-detail-panel { padding: 0 14px 16px; border-top: 1px solid #f1f5f9; background: #fafafa; }
-    .machine-detail-h3 { font-size: 0.95rem; margin: 14px 0 8px; color: #334155; }
+    .machine-detail-panel { padding: 12px 14px 16px; border-top: 1px solid #f1f5f9; background: #fafafa; }
     code { background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-size: 0.85em; }
     .op-states { margin: 12px 0 16px; padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); }
     .op-states h4 { margin: 0 0 8px; font-size: 0.9rem; color: #334155; }
