@@ -1019,237 +1019,256 @@ router.patch('/:machineId', async (req, res) => {
 });
 
 // PUT /api/machines/name/:machineName - Update machine by name (for Node-RED)
+// Important: do not hold a pool client across pool.query() work (OEE, sync orders, etc.).
+// MES often bursts many PUTs; nested pool.query while withClient holds a client exhausts the pool
+// (timeouts ~ connectionTimeoutMillis) and can crash the process on uncaught pool.connect errors.
 router.put('/name/:machineName', authenticateToken, async (req, res) => {
-  return await withClient(async (client) => {
+  const ts = () => new Date().toISOString();
+  const failBody = (message) => ({
+    data: null,
+    timestamp: ts(),
+    success: false,
+    message,
+  });
+
   try {
     const { machineName } = req.params;
-    const updates = req.body;
-
-    const machineRecord = await resolveMachineByName(machineName);
-
-    if (!machineRecord) {
-      return res.status(404).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: `Machine with name "${machineName}" not found`,
-      });
-    }
-
-    const machineId = machineRecord.id;
-
-    await client.query('BEGIN');
-
-    const machineResult = await client.query(
-      `SELECT * FROM machines WHERE id = $1 FOR UPDATE`,
-      [machineId]
-    );
-
-    if (machineResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: 'Machine not found',
-      });
-    }
-
-    const machineRow = machineResult.rows[0];
-
-    // EVENT-BASED STATUS UPDATE: Only update status if it has changed
-    // This prevents excessive database writes and reduces load on machine_status_history table
-    let statusChanged = false;
-    if (updates.status !== undefined) {
-      const newStatus = updates.status;
-      statusChanged = hasStatusChanged(machineId, newStatus);
-      
-      if (!statusChanged) {
-        // Status hasn't changed, remove it from updates to prevent unnecessary database write
-        console.log(`⏭️  Machine ${machineName} (${machineId}): Status unchanged (${newStatus}), skipping status update`);
-        delete updates.status;
-      } else {
-        // Status has changed, will update database and trigger status history
-        console.log(`🔄 Machine ${machineName} (${machineId}): Status changed to ${newStatus}`);
-      }
-    }
-
-    await applyLengthCounterUpdate({
-      client,
-      machineRow,
-      updates,
-      eventTime: new Date()
-    });
-
-    // Build dynamic UPDATE query
-    const fields = [];
-    const values = [];
-    let paramIndex = 1;
-
-    // Map API field names to database column names
-    const fieldMapping = {
-      status: 'status',
-      lineSpeed: 'line_speed',
-      targetSpeed: 'target_speed',
-      producedLength: 'produced_length',
-      lengthCounter: 'length_counter',
-      lengthCounterLast: 'length_counter_last',
-      lengthCounterLastAt: 'length_counter_last_at',
-      currentShiftId: 'current_shift_id',
-      currentShiftStart: 'current_shift_start',
-      currentShiftEnd: 'current_shift_end',
-      length_counter: 'length_counter',
-      length_counter_last: 'length_counter_last',
-      targetLength: 'target_length',
-      productionOrderId: 'production_order_id',
-      productionOrderName: 'production_order_name',
-      materialCode: 'material_code',
-      material_code: 'material_code',
-      productName: 'product_name',
-      product_name: 'product_name',
-      operatorName: 'operator_name',
-      producedLengthOk: 'produced_length_ok', // OK length for quality calculation
-      producedLengthNg: 'produced_length_ng', // NG length for quality calculation
-      oee: 'oee',
-      availability: 'availability',
-      performance: 'performance',
-      quality: 'quality',
-      current: 'current',
-      power: 'power',
-      powerConsumption: 'power', // Alias for power
-      energyMeterKwh: 'energy_meter_kwh',
-      energy_meter_kwh: 'energy_meter_kwh',
-      temperature: 'temperature',
-      multiZoneTemperatures: 'multi_zone_temperatures',
-      healthScore: 'health_score',
-      health_score: 'health_score', // Support both formats
-      vibrationLevel: 'vibration_level',
-      vibration_level: 'vibration_level', // Support both formats
-      runtimeHours: 'runtime_hours',
-      runtime_hours: 'runtime_hours', // Support both formats
-    };
+    const updates =
+      req.body != null && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? { ...req.body }
+        : {};
 
     await applyMaterialAndProductRules(updates);
 
-    const isDrawingMachine = machineRecord.area === 'drawing';
+    let tx;
+    try {
+      tx = await withClient(async (client) => {
+        try {
+          const nameRes = await client.query(
+            `SELECT id, area, product_name FROM machines WHERE name = $1`,
+            [machineName]
+          );
+          if (!nameRes.rows.length) {
+            return {
+              ok: false,
+              status: 404,
+              body: failBody(`Machine with name "${machineName}" not found`),
+            };
+          }
+          const machineRecord = nameRes.rows[0];
+          const machineId = machineRecord.id;
 
-    for (const [key, value] of Object.entries(updates)) {
-      const dbField = fieldMapping[key];
-      if (dbField && value !== undefined) {
-        fields.push(`${dbField} = $${paramIndex}`);
-        if (key === 'multiZoneTemperatures' && typeof value === 'object') {
-          values.push(JSON.stringify(value));
-        } else if ((key === 'lineSpeed' || key === 'targetSpeed') && isDrawingMachine) {
-          // Convert m/s to m/min for drawing machines before storing
-          values.push(value * 60);
-        } else {
-          values.push(value);
-        }
-        paramIndex++;
-      }
-    }
+          await client.query('BEGIN');
 
-    if (fields.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: 'No valid fields to update',
-      });
-    }
+          const machineResult = await client.query(`SELECT * FROM machines WHERE id = $1 FOR UPDATE`, [machineId]);
 
-    // Always update last_updated
-    fields.push(`last_updated = CURRENT_TIMESTAMP`);
-    
-    // Only update last_status_update if status actually changed
-    if (statusChanged) {
-      fields.push(`last_status_update = CURRENT_TIMESTAMP`);
-    }
-    
-    values.push(machineId);
+          if (machineResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { ok: false, status: 404, body: failBody('Machine not found') };
+          }
 
-    const updateQuery = `
+          const machineRow = machineResult.rows[0];
+
+          let statusChanged = false;
+          if (updates.status !== undefined) {
+            const newStatus = updates.status;
+            statusChanged = hasStatusChanged(machineId, newStatus);
+
+            if (!statusChanged) {
+              console.log(
+                `⏭️  Machine ${machineName} (${machineId}): Status unchanged (${newStatus}), skipping status update`
+              );
+              delete updates.status;
+            } else {
+              console.log(`🔄 Machine ${machineName} (${machineId}): Status changed to ${newStatus}`);
+            }
+          }
+
+          await applyLengthCounterUpdate({
+            client,
+            machineRow,
+            updates,
+            eventTime: new Date(),
+          });
+
+          const fields = [];
+          const values = [];
+          let paramIndex = 1;
+
+          const fieldMapping = {
+            status: 'status',
+            lineSpeed: 'line_speed',
+            targetSpeed: 'target_speed',
+            producedLength: 'produced_length',
+            lengthCounter: 'length_counter',
+            lengthCounterLast: 'length_counter_last',
+            lengthCounterLastAt: 'length_counter_last_at',
+            currentShiftId: 'current_shift_id',
+            currentShiftStart: 'current_shift_start',
+            currentShiftEnd: 'current_shift_end',
+            length_counter: 'length_counter',
+            length_counter_last: 'length_counter_last',
+            targetLength: 'target_length',
+            productionOrderId: 'production_order_id',
+            productionOrderName: 'production_order_name',
+            materialCode: 'material_code',
+            material_code: 'material_code',
+            productName: 'product_name',
+            product_name: 'product_name',
+            operatorName: 'operator_name',
+            producedLengthOk: 'produced_length_ok',
+            producedLengthNg: 'produced_length_ng',
+            oee: 'oee',
+            availability: 'availability',
+            performance: 'performance',
+            quality: 'quality',
+            current: 'current',
+            power: 'power',
+            powerConsumption: 'power',
+            energyMeterKwh: 'energy_meter_kwh',
+            energy_meter_kwh: 'energy_meter_kwh',
+            temperature: 'temperature',
+            multiZoneTemperatures: 'multi_zone_temperatures',
+            healthScore: 'health_score',
+            health_score: 'health_score',
+            vibrationLevel: 'vibration_level',
+            vibration_level: 'vibration_level',
+            runtimeHours: 'runtime_hours',
+            runtime_hours: 'runtime_hours',
+          };
+
+          const isDrawingMachine = machineRecord.area === 'drawing';
+
+          for (const [key, value] of Object.entries(updates)) {
+            const dbField = fieldMapping[key];
+            if (dbField && value !== undefined) {
+              fields.push(`${dbField} = $${paramIndex}`);
+              if (key === 'multiZoneTemperatures' && typeof value === 'object') {
+                values.push(JSON.stringify(value));
+              } else if ((key === 'lineSpeed' || key === 'targetSpeed') && isDrawingMachine) {
+                values.push(value * 60);
+              } else {
+                values.push(value);
+              }
+              paramIndex += 1;
+            }
+          }
+
+          if (fields.length === 0) {
+            await client.query('ROLLBACK');
+            return { ok: false, status: 400, body: failBody('No valid fields to update') };
+          }
+
+          fields.push(`last_updated = CURRENT_TIMESTAMP`);
+
+          if (statusChanged) {
+            fields.push(`last_status_update = CURRENT_TIMESTAMP`);
+          }
+
+          values.push(machineId);
+
+          const updateQuery = `
       UPDATE machines 
       SET ${fields.join(', ')}
       WHERE id = $${paramIndex}
       RETURNING *
     `;
 
-    const result = await client.query(updateQuery, values);
+          const result = await client.query(updateQuery, values);
 
-    if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        data: null,
-        timestamp: new Date().toISOString(),
-        success: false,
-        message: 'Machine not found',
+          if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { ok: false, status: 404, body: failBody('Machine not found') };
+          }
+
+          try {
+            await recordEnergyMeterSampleOnRowUpdate(client, machineId, machineRow, result.rows[0], updates);
+          } catch (metricErr) {
+            console.error(
+              `[PUT /machines/name/${machineName}] energy_meter_kwh metric mirror failed:`,
+              metricErr.message || metricErr
+            );
+          }
+
+          await client.query('COMMIT');
+
+          return {
+            ok: true,
+            machineId,
+            machineName,
+            updates,
+            machineRow,
+            statusChanged,
+            resultRow: result.rows[0],
+            updatedMachine: formatMachine(result.rows[0]),
+          };
+        } catch (error) {
+          console.error('Error updating machine by name (transaction):', error);
+          try {
+            await client.query('ROLLBACK');
+          } catch (rollbackError) {
+            console.error('Error rolling back machine name update:', rollbackError);
+          }
+          return { ok: false, status: 500, body: failBody(error.message) };
+        }
       });
+    } catch (poolErr) {
+      console.error('PUT /machines/name DB pool / connect error:', poolErr);
+      return res.status(503).json(failBody(poolErr.message || 'Database temporarily unavailable'));
     }
 
-    try {
-      await recordEnergyMeterSampleOnRowUpdate(
-        client,
-        machineId,
-        machineRow,
-        result.rows[0],
-        updates
-      );
-    } catch (metricErr) {
-      console.error(
-        `[PUT /machines/name/${machineName}] energy_meter_kwh metric mirror failed:`,
-        metricErr.message || metricErr
-      );
+    if (!tx.ok) {
+      return res.status(tx.status).json(tx.body);
     }
 
-    const updatedMachine = formatMachine(result.rows[0]);
+    let { updatedMachine } = tx;
 
-    await client.query('COMMIT');
-
-    if (updates.productName !== undefined) {
+    if (tx.updates.productName !== undefined) {
       try {
-        await syncRunningOrderProductNameCurrent(machineId, updatedMachine.productName || null);
+        await syncRunningOrderProductNameCurrent(tx.machineId, updatedMachine.productName || null);
       } catch (error) {
-        console.error(`Error syncing current product for ${machineId}:`, error);
+        console.error(`Error syncing current product for ${tx.machineId}:`, error);
       }
     }
 
-    // Uses shift-based calculation
-    if (updates.status !== undefined) {
+    if (tx.updates.status !== undefined) {
       try {
-        await ensureAvailabilityCalculated(machineId, true); // Shift-based calculation
+        await ensureAvailabilityCalculated(tx.machineId, true);
       } catch (error) {
-        console.error(`Error ensuring availability calculated for ${machineId}:`, error);
-        // Continue without blocking
+        console.error(`Error ensuring availability calculated for ${tx.machineId}:`, error);
       }
     }
 
-    // Calculate real-time OEE if relevant fields were updated
-    const oeeRelevantFields = ['lineSpeed', 'targetSpeed', 'producedLength', 'producedLengthOk', 'producedLengthNg', 'status', 'productionOrderId'];
-    const shouldRecalculateOEE = oeeRelevantFields.some(field => updates[field] !== undefined);
-    
+    const oeeRelevantFields = [
+      'lineSpeed',
+      'targetSpeed',
+      'producedLength',
+      'producedLengthOk',
+      'producedLengthNg',
+      'status',
+      'productionOrderId',
+    ];
+    const shouldRecalculateOEE = oeeRelevantFields.some((field) => tx.updates[field] !== undefined);
+
     if (shouldRecalculateOEE) {
       try {
-        // Get current machine data for OEE calculation
         const currentMachineData = {
           lineSpeed: updatedMachine.lineSpeed || 0,
           targetSpeed: updatedMachine.targetSpeed || 0,
           producedLength: updatedMachine.producedLength || 0,
           producedLengthOk:
-            updates.producedLengthOk !== undefined ? updates.producedLengthOk : updatedMachine.producedLengthOk,
+            tx.updates.producedLengthOk !== undefined ? tx.updates.producedLengthOk : updatedMachine.producedLengthOk,
           producedLengthNg:
-            updates.producedLengthNg !== undefined ? updates.producedLengthNg : updatedMachine.producedLengthNg,
-          status: updatedMachine.status
+            tx.updates.producedLengthNg !== undefined ? tx.updates.producedLengthNg : updatedMachine.producedLengthNg,
+          status: updatedMachine.status,
         };
 
         const oeeResult = await calculateOEE(
-          machineId,
+          tx.machineId,
           currentMachineData,
           updatedMachine.productionOrderId || null
         );
 
-        // Update OEE values in database
         await query(
           `UPDATE machines 
            SET oee = $1, availability = $2, performance = $3, quality = $4,
@@ -1262,62 +1281,51 @@ router.put('/name/:machineName', authenticateToken, async (req, res) => {
             oeeResult.quality,
             oeeResult.performanceDataQuality,
             oeeResult.qualityDataQuality,
-            machineId,
+            tx.machineId,
           ]
         );
 
-        // Update machine object with OEE values
-        updatedMachine.oee = oeeResult.oee;
-        updatedMachine.availability = oeeResult.availability;
-        updatedMachine.availabilityIsPreliminary = oeeResult.availabilityIsPreliminary;
-        updatedMachine.performance = oeeResult.performance;
-        updatedMachine.quality = oeeResult.quality;
-        updatedMachine.performanceDataQuality = oeeResult.performanceDataQuality;
-        updatedMachine.qualityDataQuality = oeeResult.qualityDataQuality;
+        updatedMachine = {
+          ...updatedMachine,
+          oee: oeeResult.oee,
+          availability: oeeResult.availability,
+          availabilityIsPreliminary: oeeResult.availabilityIsPreliminary,
+          performance: oeeResult.performance,
+          quality: oeeResult.quality,
+          performanceDataQuality: oeeResult.performanceDataQuality,
+          qualityDataQuality: oeeResult.qualityDataQuality,
+        };
       } catch (error) {
-        console.error(`Error calculating OEE for ${machineId}:`, error);
-        // Continue without OEE update if calculation fails
+        console.error(`Error calculating OEE for ${tx.machineId}:`, error);
       }
     }
 
-    // Broadcast WebSocket update (includes OEE if calculated)
     broadcast('machine:update', updatedMachine);
 
-    // Run energy telemetry persistence out-of-band so machine realtime updates
-    // are never blocked by migration lag / telemetry table errors.
-    const telemetryNextRow = buildTelemetryRowAfterApiUpdate(result.rows[0], updatedMachine);
+    const telemetryNextRow = buildTelemetryRowAfterApiUpdate(tx.resultRow, updatedMachine);
     const skipUnchanged = telemetryApiShouldSkipUnchanged();
-    if (!skipUnchanged || hasMachineTelemetrySnapshotChanged(machineRow, telemetryNextRow)) {
+    if (!skipUnchanged || hasMachineTelemetrySnapshotChanged(tx.machineRow, telemetryNextRow)) {
       recordEnergyTelemetryAndAggregateBestEffort(
-        machineId,
-        machineRow,
+        tx.machineId,
+        tx.machineRow,
         telemetryNextRow,
-        `PUT /machines/name/${machineName}`
+        `PUT /machines/name/${tx.machineName}`
       );
     }
 
-    console.log(`✅ Machine ${machineName} updated via API by ${req.user?.username || 'unknown'}`);
+    console.log(`✅ Machine ${tx.machineName} updated via API by ${req.user?.username || 'unknown'}`);
 
     return res.json({
       data: updatedMachine,
-      timestamp: new Date().toISOString(),
+      timestamp: ts(),
       success: true,
     });
   } catch (error) {
-    console.error('Error updating machine by name:', error);
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      console.error('Error rolling back machine name update:', rollbackError);
+    console.error('PUT /machines/name unhandled error:', error);
+    if (!res.headersSent) {
+      return res.status(500).json(failBody(error.message || 'Internal server error'));
     }
-    return res.status(500).json({
-      data: null,
-      timestamp: new Date().toISOString(),
-      success: false,
-      message: error.message,
-    });
   }
-  });
 });
 
 // POST /api/machines/:machineId/metrics - Insert metric data point

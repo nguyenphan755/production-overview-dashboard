@@ -233,7 +233,8 @@ router.get('/factory-telemetry', authenticateToken, async (req, res) => {
  * - localDate: YYYY-MM-DD (required, server local calendar anchor)
  * - shift: 1 | 2 | 3 (optional; omit = all three shifts on that date)
  * - area: drawing | stranding | armoring | sheathing — XOR —
- * - machineIds: comma-separated machine ids
+ * - machineIds: comma-separated machine ids — XOR —
+ * - factory: 1 | true — all machines in all production areas (transparency export)
  *
  * If the export time falls inside a shift window, that shift's report end is capped to "now" (live window).
  */
@@ -244,6 +245,7 @@ router.get('/line-processing.html', authenticateToken, async (req, res) => {
       shift: req.query.shift,
       area: req.query.area,
       machineIds: req.query.machineIds,
+      factory: req.query.factory,
     });
     if (out.error) {
       return res.status(out.status).json({

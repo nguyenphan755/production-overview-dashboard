@@ -7,7 +7,10 @@ import { query } from '../../database/connection.js';
 import { getShiftWindow } from '../utils/shiftCalculator.js';
 
 const VALID_AREAS = new Set(['drawing', 'stranding', 'armoring', 'sheathing']);
+/** Per-area export or explicit machineIds list */
 const MAX_MACHINES = 80;
+/** Whole-factory export (all machines in production_area enum) */
+const MAX_FACTORY_MACHINES = 160;
 const TELEMETRY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const DB_CHANGEOVER_MATCH_WINDOW_MS = 12 * 60 * 1000;
 
@@ -547,6 +550,29 @@ function buildChangeoverRows(sessions, clippedShift) {
   return rows;
 }
 
+function aggregateMachineShiftMetrics(sessions) {
+  let runningSec = 0;
+  let stoppedSec = 0;
+  for (const s of sessions) {
+    const m = s.metrics || {};
+    runningSec += Number(m.runningSec) || 0;
+    stoppedSec += (Number(m.setupSec) || 0) + (Number(m.otherStopSec) || 0);
+  }
+  return { runningSec, stoppedSec };
+}
+
+/**
+ * Phiên telemetry cuối trong ca (theo thời gian) — mã vật tư + nhãn sản phẩm (thường là mô tả trên snapshot).
+ */
+function lastSessionMaterialSnapshot(sessions) {
+  if (!sessions.length) return { materialCode: '', productLabel: '' };
+  const last = sessions[sessions.length - 1];
+  return {
+    materialCode: normalizeMaterialCode(last.materialCode),
+    productLabel: last.product != null ? String(last.product).trim() : '',
+  };
+}
+
 function renderMachineSection(
   machineDisplayTitle,
   machineId,
@@ -560,7 +586,8 @@ function renderMachineSection(
   reportNowMs,
   nominalShiftEnd = null,
   dbEventsInShift = [],
-  dbEventsForMachine = []
+  dbEventsForMachine = [],
+  materialNameByCode = new Map()
 ) {
   const { sessions, productChangesInWindow, hasTelemetryInWindow } = reportSlice;
 
@@ -572,32 +599,58 @@ function renderMachineSection(
       ? ` <span class="muted">(mã: ${escapeHtml(machineId)})</span>`
       : '';
 
-  let body = '';
-  body += `<p><strong>Tên máy:</strong> ${escapeHtml(machineDisplayTitle)}${idSuffix}</p>`;
-  body += `<p><strong>Sản phẩm hiện tại (máy — như màn hình chi tiết / bảng machines):</strong> ${escapeHtml(
-    liveProductFromMachine && String(liveProductFromMachine).trim() !== ''
+  const { runningSec: sumRun, stoppedSec: sumStop } = aggregateMachineShiftMetrics(sessions);
+  const lastSnap = lastSessionMaterialSnapshot(sessions);
+  const liveMat = liveMaterialFromMachine != null && String(liveMaterialFromMachine).trim() !== ''
+    ? String(liveMaterialFromMachine).trim()
+    : '';
+  const liveProd =
+    liveProductFromMachine != null && String(liveProductFromMachine).trim() !== ''
       ? String(liveProductFromMachine).trim()
-      : '—'
+      : '';
+
+  const syntheticLast =
+    sessions.length === 1 &&
+    String(sessions[0].product || '').includes('Không có telemetry');
+
+  let summaryMaterial = lastSnap.materialCode || '';
+  if (syntheticLast || !summaryMaterial) summaryMaterial = liveMat;
+  const summaryMaterialDisp = summaryMaterial ? escapeHtml(summaryMaterial) : '<span class="muted">—</span>';
+
+  let materialDesc = '';
+  if (summaryMaterial && materialNameByCode.has(summaryMaterial)) {
+    materialDesc = String(materialNameByCode.get(summaryMaterial) || '').trim();
+  }
+  if (!materialDesc) {
+    materialDesc = lastSnap.productLabel && !syntheticLast ? lastSnap.productLabel : liveProd;
+  }
+  const materialDescDisp =
+    materialDesc && materialDesc.trim() !== ''
+      ? escapeHtml(materialDesc.trim())
+      : '<span class="muted">—</span>';
+
+  let detail = '';
+  detail += `<p><strong>Tên máy:</strong> ${escapeHtml(machineDisplayTitle)}${idSuffix}</p>`;
+  detail += `<p><strong>Sản phẩm hiện tại (máy — như màn hình chi tiết / bảng machines):</strong> ${escapeHtml(
+    liveProd !== '' ? liveProd : '—'
   )}</p>`;
-  body += `<p><strong>Mã vật tư hiện tại (máy — <code>machines.material_code</code>):</strong> ${escapeHtml(
-    liveMaterialFromMachine != null && String(liveMaterialFromMachine).trim() !== ''
-      ? String(liveMaterialFromMachine).trim()
-      : '—'
+  detail += `<p><strong>Mã vật tư hiện tại (máy — <code>machines.material_code</code>):</strong> ${escapeHtml(
+    liveMat !== '' ? liveMat : '—'
   )}</p>`;
 
   if (!hasTelemetryInWindow) {
-    body += `<p class="warn">Không có snapshot telemetry trong cửa sổ; ranh giới sản phẩm suy từ dữ liệu trước ca hoặc chỉ hiển thị tổng trạng thái.</p>`;
+    detail += `<p class="warn">Không có snapshot telemetry trong cửa sổ; ranh giới sản phẩm suy từ dữ liệu trước ca hoặc chỉ hiển thị tổng trạng thái.</p>`;
   }
 
-  body += `<p><strong>Số lần đổi sản phẩm / mã vật tư (theo snapshot telemetry, sau khi lấp chỗ trống) trong cửa sổ:</strong> ${productChangesInWindow}</p>`;
-  body += `<p><strong>Số sự kiện đổi snapshot trên DB (<code>machine_product_change_events</code>) trong ca:</strong> ${dbEventsInShift.length}</p>`;
+  detail += `<p><strong>Số lần đổi sản phẩm / mã vật tư (theo snapshot telemetry, sau khi lấp chỗ trống) trong cửa sổ:</strong> ${productChangesInWindow}</p>`;
+  detail += `<p><strong>Số sự kiện đổi snapshot trên DB (<code>machine_product_change_events</code>) trong ca:</strong> ${dbEventsInShift.length}</p>`;
 
-  body += renderShiftStatusBarHtml(clippedShift, w0, w1);
+  detail += renderShiftStatusBarHtml(clippedShift, w0, w1);
 
-  body += '<table><thead><tr>';
-  body +=
+  detail += '<table><thead><tr>';
+  detail +=
     '<th>Sản phẩm (Production)</th><th>Mã vật tư (telemetry)</th><th>Bắt đầu</th><th>Kết thúc</th><th>Slot (wall)</th><th>Chạy (running)</th><th>Setup</th><th>Dừng khác</th>';
-  body += '</tr></thead><tbody>';
+  detail += '</tr></thead><tbody>';
 
   for (const sess of sessions) {
     const wallSec = (sess.end.getTime() - sess.start.getTime()) / 1000;
@@ -606,25 +659,25 @@ function renderMachineSection(
       sess.materialCode != null && String(sess.materialCode).trim() !== ''
         ? escapeHtml(String(sess.materialCode).trim())
         : '<span class="muted">—</span>';
-    body += '<tr>';
-    body += `<td>${escapeHtml(sess.product)}</td><td>${matCell}</td>`;
-    body += `<td>${formatReportDateTimeHtml(sess.start)}</td>`;
-    body += `<td>${formatReportDateTimeHtml(sess.end)}</td>`;
-    body += `<td>${escapeHtml(formatDurationSeconds(wallSec))}</td>`;
-    body += `<td>${escapeHtml(formatDurationSeconds(runningSec))}</td>`;
-    body += `<td>${escapeHtml(formatDurationSeconds(setupSec))}</td>`;
-    body += `<td>${escapeHtml(formatDurationSeconds(otherStopSec))}</td>`;
-    body += '</tr>';
+    detail += '<tr>';
+    detail += `<td>${escapeHtml(sess.product)}</td><td>${matCell}</td>`;
+    detail += `<td>${formatReportDateTimeHtml(sess.start)}</td>`;
+    detail += `<td>${formatReportDateTimeHtml(sess.end)}</td>`;
+    detail += `<td>${escapeHtml(formatDurationSeconds(wallSec))}</td>`;
+    detail += `<td>${escapeHtml(formatDurationSeconds(runningSec))}</td>`;
+    detail += `<td>${escapeHtml(formatDurationSeconds(setupSec))}</td>`;
+    detail += `<td>${escapeHtml(formatDurationSeconds(otherStopSec))}</td>`;
+    detail += '</tr>';
   }
   if (sessions.length === 0) {
-    body += '<tr><td colspan="8">Không có phiên sản phẩm trong cửa sổ.</td></tr>';
+    detail += '<tr><td colspan="8">Không có phiên sản phẩm trong cửa sổ.</td></tr>';
   }
-  body += '</tbody></table>';
+  detail += '</tbody></table>';
 
   if (changeovers.length > 0) {
-    body +=
+    detail +=
       '<h4>Chuyển đổi sản phẩm (theo lịch sử trạng thái: từ kết thúc không-chạy cuối trước đổi SP → chạy đầu tiên của SP sau)</h4>';
-    body +=
+    detail +=
       '<table><thead><tr><th>Từ</th><th>Sang</th><th>Kết thúc không-chạy (A)<br/><span class="muted" style="font-weight:normal">trước đổi SP</span></th><th>Bắt đầu chạy (B)<br/><span class="muted" style="font-weight:normal">running đầu trong phiên B</span></th><th>Thời gian chuyển</th><th>Khe telemetry<br/><span class="muted" style="font-weight:normal">Bắt đầu B − Kết thúc A</span></th><th>Mốc DB<br/><span class="muted" style="font-weight:normal">machine_product_change_events</span></th></tr></thead><tbody>';
     for (const c of changeovers) {
       const endANode =
@@ -643,44 +696,68 @@ function renderMachineSection(
             )
           : null;
       const dbCell = dbHit ? formatReportDateTimeHtml(dbHit.changedAt) : '<span class="muted">—</span>';
-      body += '<tr>';
-      body += `<td>${escapeHtml(c.fromDisplay)}</td>`;
-      body += `<td>${escapeHtml(c.toDisplay)}</td>`;
-      body += `<td>${endANode}</td>`;
-      body += `<td>${startBNode}</td>`;
-      body += `<td><strong>${escapeHtml(c.gapLabel)}</strong></td>`;
-      body += `<td class="muted">${escapeHtml(formatDurationSeconds(c.wallGapSeconds))}</td>`;
-      body += `<td>${dbCell}</td>`;
-      body += '</tr>';
+      detail += '<tr>';
+      detail += `<td>${escapeHtml(c.fromDisplay)}</td>`;
+      detail += `<td>${escapeHtml(c.toDisplay)}</td>`;
+      detail += `<td>${endANode}</td>`;
+      detail += `<td>${startBNode}</td>`;
+      detail += `<td><strong>${escapeHtml(c.gapLabel)}</strong></td>`;
+      detail += `<td class="muted">${escapeHtml(formatDurationSeconds(c.wallGapSeconds))}</td>`;
+      detail += `<td>${dbCell}</td>`;
+      detail += '</tr>';
     }
-    body += '</tbody></table>';
+    detail += '</tbody></table>';
   }
 
   if (dbEventsInShift.length > 0) {
-    body +=
+    detail +=
       '<h4>Đăng ký đổi snapshot (<code>machine_product_change_events</code>) trong ca</h4>';
-    body +=
+    detail +=
       '<table><thead><tr><th>Thời điểm</th><th>Sản phẩm (sau đổi)</th><th>Mã vật tư</th><th>Tên máy (lúc ghi)</th></tr></thead><tbody>';
     for (const ev of dbEventsInShift) {
-      body += '<tr>';
-      body += `<td>${formatReportDateTimeHtml(ev.changedAt)}</td>`;
-      body += `<td>${escapeHtml(ev.productName != null && String(ev.productName).trim() !== '' ? String(ev.productName).trim() : '—')}</td>`;
-      body += `<td>${escapeHtml(ev.materialCode != null && String(ev.materialCode).trim() !== '' ? String(ev.materialCode).trim() : '—')}</td>`;
-      body += `<td>${escapeHtml(ev.machineName || '—')}</td>`;
-      body += '</tr>';
+      detail += '<tr>';
+      detail += `<td>${formatReportDateTimeHtml(ev.changedAt)}</td>`;
+      detail += `<td>${escapeHtml(ev.productName != null && String(ev.productName).trim() !== '' ? String(ev.productName).trim() : '—')}</td>`;
+      detail += `<td>${escapeHtml(ev.materialCode != null && String(ev.materialCode).trim() !== '' ? String(ev.materialCode).trim() : '—')}</td>`;
+      detail += `<td>${escapeHtml(ev.machineName || '—')}</td>`;
+      detail += '</tr>';
     }
-    body += '</tbody></table>';
+    detail += '</tbody></table>';
   }
+
+  const windowHint = `Cửa sổ: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}`;
+
+  const summaryInner = `
+    <div class="machine-summary-inner">
+      <div class="machine-summary-head">
+        <strong class="machine-summary-title">${escapeHtml(machineDisplayTitle)}</strong>${idSuffix}
+        <span class="machine-summary-shift muted">${escapeHtml(shiftLabel)}</span>
+      </div>
+      <div class="machine-summary-grid">
+        <div class="sg"><span class="sg-k">Mã vật tư (cuối ca / máy)</span><span class="sg-v">${summaryMaterialDisp}</span></div>
+        <div class="sg"><span class="sg-k">Mô tả vật tư</span><span class="sg-v">${materialDescDisp}</span></div>
+        <div class="sg"><span class="sg-k">Tổng chạy (running)</span><span class="sg-v">${escapeHtml(formatDurationSeconds(sumRun))}</span></div>
+        <div class="sg"><span class="sg-k">Tổng dừng (setup + dừng khác)</span><span class="sg-v">${escapeHtml(formatDurationSeconds(sumStop))}</span></div>
+      </div>
+      <p class="machine-summary-meta muted">${windowHint}</p>
+      <p class="machine-summary-hint">Nhấn để mở / đóng chi tiết: bảng phiên, chuyển đổi, DB, thanh trạng thái…</p>
+    </div>
+  `;
 
   return `
     <section class="machine">
-      <h3>${escapeHtml(machineDisplayTitle)} — ${escapeHtml(shiftLabel)}</h3>
-      <p class="muted">Cửa sổ báo cáo: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}${
-        nominalShiftEnd != null && nominalShiftEnd.getTime() !== w1.getTime()
-          ? ` <span class="muted">(cuối ca theo lịch: ${formatReportDateTimeHtml(nominalShiftEnd)} — cắt đến thời điểm xuất vì ca chưa kết thúc)</span>`
-          : ' <span class="muted">(giờ máy chủ báo cáo)</span>'
-      }</p>
-      ${body}
+      <details class="machine-details">
+        <summary class="machine-summary">${summaryInner}</summary>
+        <div class="machine-detail-panel">
+          <h3 class="machine-detail-h3">${escapeHtml(machineDisplayTitle)} — ${escapeHtml(shiftLabel)}</h3>
+          <p class="muted">Cửa sổ báo cáo: ${formatReportDateTimeHtml(w0)} → ${formatReportDateTimeHtml(w1)}${
+            nominalShiftEnd != null && nominalShiftEnd.getTime() !== w1.getTime()
+              ? ` <span class="muted">(cuối ca theo lịch: ${formatReportDateTimeHtml(nominalShiftEnd)} — cắt đến thời điểm xuất vì ca chưa kết thúc)</span>`
+              : ' <span class="muted">(giờ máy chủ báo cáo)</span>'
+          }</p>
+          ${detail}
+        </div>
+      </details>
     </section>
   `;
 }
@@ -690,6 +767,7 @@ function renderFooter() {
     <footer>
       <h3>Chú thích</h3>
       <ul>
+        <li><strong>Tóm tắt / chi tiết</strong>: mỗi máy hiển thị dạng <code>&lt;details&gt;</code> — phần tóm tắt (mã vật tư cuối ca hoặc trên máy, mô tả từ <code>material_master</code> hoặc nhãn snapshot, tổng chạy / tổng dừng theo cộng các phiên). Nhấn để mở bảng phiên, chuyển đổi, sự kiện DB và thanh trạng thái.</li>
         <li><strong>Tên máy</strong>: ưu tiên <code>machines.name</code>; nếu trống thì dùng <code>machines.id</code> (giống cách UI không để trống tiêu đề).</li>
         <li><strong>Sản phẩm hiện tại</strong>: dòng riêng lấy từ <code>machines.product_name</code> tại thời điểm xuất (cùng nguồn với ô Product trên EquipmentDetail).</li>
         <li><strong>Mã vật tư hiện tại (máy)</strong>: <code>machines.material_code</code> tại thời điểm xuất.</li>
@@ -706,12 +784,18 @@ function renderFooter() {
   `;
 }
 
+function parseFactoryFlag(raw) {
+  if (raw === true || raw === 1) return true;
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  return s === '1' || s === 'true' || s === 'yes' || s === 'factory';
+}
+
 /**
- * @param {{ localDate: string, shift?: string|null, area?: string|null, machineIds?: string|null }} params
+ * @param {{ localDate: string, shift?: string|null, area?: string|null, machineIds?: string|null, factory?: string|number|boolean|null }} params
  * @returns {Promise<{ html: string, filename: string }|{ error: string, status: number }>}
  */
 export async function buildLineProcessingHtmlReport(params) {
-  const { localDate, shift: shiftRaw, area: areaRaw, machineIds: machineIdsRaw } = params;
+  const { localDate, shift: shiftRaw, area: areaRaw, machineIds: machineIdsRaw, factory: factoryRaw } = params;
 
   if (localDate == null || String(localDate).trim() === '') {
     return { error: 'localDate is required (YYYY-MM-DD)', status: 400 };
@@ -722,12 +806,18 @@ export async function buildLineProcessingHtmlReport(params) {
     return { error: 'localDate must be YYYY-MM-DD', status: 400 };
   }
 
+  const factory = parseFactoryFlag(factoryRaw);
   const area = areaRaw != null && String(areaRaw).trim() !== '' ? String(areaRaw).trim().toLowerCase() : null;
   const machineIdsCsv =
     machineIdsRaw != null && String(machineIdsRaw).trim() !== '' ? String(machineIdsRaw).trim() : null;
 
-  if ((area && machineIdsCsv) || (!area && !machineIdsCsv)) {
-    return { error: 'Provide exactly one of: area (drawing|stranding|armoring|sheathing) or machineIds (comma-separated)', status: 400 };
+  const modeCount = [Boolean(area), Boolean(machineIdsCsv), factory].filter(Boolean).length;
+  if (modeCount !== 1) {
+    return {
+      error:
+        'Provide exactly one of: area (drawing|stranding|armoring|sheathing), machineIds (comma-separated), or factory=1 (all machines)',
+      status: 400,
+    };
   }
 
   if (area && !VALID_AREAS.has(area)) {
@@ -746,7 +836,16 @@ export async function buildLineProcessingHtmlReport(params) {
   }
 
   let machineRows;
-  if (area) {
+  if (factory) {
+    const r = await query(
+      `SELECT id, name, area, product_name, material_code
+       FROM machines
+       WHERE area::text = ANY($1::text[])
+       ORDER BY area::text ASC, id ASC`,
+      [[...VALID_AREAS]]
+    );
+    machineRows = r.rows;
+  } else if (area) {
     const r = await query(
       `SELECT id, name, area, product_name, material_code FROM machines WHERE area = $1::production_area ORDER BY id ASC`,
       [area]
@@ -777,12 +876,21 @@ export async function buildLineProcessingHtmlReport(params) {
     return { error: 'No machines matched the filter', status: 404 };
   }
 
-  if (machineRows.length > MAX_MACHINES) {
-    return { error: `At most ${MAX_MACHINES} machines per export`, status: 400 };
+  const maxAllowed = factory ? MAX_FACTORY_MACHINES : MAX_MACHINES;
+  if (machineRows.length > maxAllowed) {
+    return {
+      error: `At most ${maxAllowed} machines per ${factory ? 'factory-wide' : 'this'} export (got ${machineRows.length})`,
+      status: 400,
+    };
   }
 
   const machineIds = machineRows.map((m) => m.id);
-  const scopeLabel = area || `machines-${machineIds.length}`;
+  const scopeSlug = factory ? 'toan-nha-may' : area || `machines-${machineIds.length}`;
+  const scopeDisplay = factory
+    ? 'Toàn nhà máy (tất cả cụm)'
+    : area
+      ? String(area)
+      : `${machineIds.length} máy (theo danh sách)`;
 
   let minW = null;
   let maxW = null;
@@ -796,6 +904,28 @@ export async function buildLineProcessingHtmlReport(params) {
   const telemetryRows = await fetchTelemetryProductTimeline(machineIds, telFrom, maxW);
   const statusRows = await fetchStatusHistoryBatch(machineIds, minW, maxW);
   const productChangeDbRows = await fetchMachineProductChangeEvents(machineIds, minW, maxW);
+
+  const materialCodesForLookup = new Set();
+  for (const m of machineRows) {
+    if (m.material_code != null && String(m.material_code).trim() !== '') {
+      materialCodesForLookup.add(String(m.material_code).trim());
+    }
+  }
+  for (const t of telemetryRows) {
+    const c = t.materialCode != null ? String(t.materialCode).trim() : '';
+    if (c !== '') materialCodesForLookup.add(c);
+  }
+  const materialCodesList = [...materialCodesForLookup];
+  let materialNameByCode = new Map();
+  if (materialCodesList.length > 0) {
+    const mmRes = await query(
+      `SELECT material_code, material_name FROM material_master WHERE material_code = ANY($1::varchar[])`,
+      [materialCodesList]
+    );
+    for (const r of mmRes.rows) {
+      materialNameByCode.set(String(r.material_code).trim(), r.material_name != null ? String(r.material_name) : '');
+    }
+  }
 
   const statusByMachine = new Map();
   for (const mid of machineIds) statusByMachine.set(String(mid), []);
@@ -875,7 +1005,8 @@ export async function buildLineProcessingHtmlReport(params) {
         reportNowMs,
         nominalShiftEnd,
         dbEventsInShift,
-        dbForM
+        dbForM,
+        materialNameByCode
       );
     }
     content += '</article>';
@@ -883,9 +1014,9 @@ export async function buildLineProcessingHtmlReport(params) {
 
   const shiftPart =
     shifts.length === 3 ? 'all-shifts' : `shift${shifts[0]}`;
-  const filename = `line-processing_${scopeLabel}_${localDate}_${shiftPart}.html`;
+  const filename = `line-processing_${scopeSlug}_${localDate}_${shiftPart}.html`;
 
-  const title = `Báo cáo Processing — ${scopeLabel} — ${localDate}`;
+  const title = `Báo cáo Processing — ${scopeDisplay} — ${localDate}`;
 
   const html = `<!DOCTYPE html>
 <html lang="vi">
@@ -909,7 +1040,23 @@ export async function buildLineProcessingHtmlReport(params) {
     .dt-split .dt-t { font-size: 0.82em; color: #64748b; font-variant-numeric: tabular-nums; }
     footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #cbd5e1; font-size: 0.85rem; color: #475569; }
     footer ul { padding-left: 1.25rem; }
-    .machine { margin-bottom: 2rem; }
+    .machine { margin-bottom: 0.75rem; }
+    details.machine-details { border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.06); overflow: hidden; }
+    summary.machine-summary { cursor: pointer; list-style: none; padding: 12px 14px; }
+    summary.machine-summary::-webkit-details-marker { display: none; }
+    summary.machine-summary::marker { content: ''; }
+    .machine-summary-inner { max-width: 100%; }
+    .machine-summary-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 4px; }
+    .machine-summary-title { font-size: 1.05rem; color: #0f172a; }
+    .machine-summary-shift { font-size: 0.8rem; }
+    .machine-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 14px; margin-top: 10px; }
+    .sg { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .sg-k { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+    .sg-v { font-size: 0.9rem; font-weight: 600; color: #0f172a; word-break: break-word; line-height: 1.35; }
+    .machine-summary-meta { font-size: 0.78rem; margin: 8px 0 0; }
+    .machine-summary-hint { font-size: 0.75rem; margin: 6px 0 0; color: #94a3b8; font-style: italic; }
+    .machine-detail-panel { padding: 0 14px 16px; border-top: 1px solid #f1f5f9; background: #fafafa; }
+    .machine-detail-h3 { font-size: 0.95rem; margin: 14px 0 8px; color: #334155; }
     code { background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-size: 0.85em; }
     .op-states { margin: 12px 0 16px; padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); }
     .op-states h4 { margin: 0 0 8px; font-size: 0.9rem; color: #334155; }
@@ -922,7 +1069,7 @@ export async function buildLineProcessingHtmlReport(params) {
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
-  <p class="muted">Xuất: ${formatReportDateTimeHtml(new Date())} — Phạm vi: ${escapeHtml(scopeLabel)} — Máy: ${machineIds.length}</p>
+  <p class="muted">Xuất: ${formatReportDateTimeHtml(new Date())} — Phạm vi: ${escapeHtml(scopeDisplay)} — Số máy: ${machineIds.length}</p>
   ${content}
   ${renderFooter()}
 </body>

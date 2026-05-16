@@ -423,6 +423,8 @@ class APIClient {
       area?: string;
       machineIds?: string;
       shift?: 1 | 2 | 3;
+      /** All machines (all production areas); mutually exclusive with area and machineIds */
+      factory?: boolean;
     },
     authToken?: string | null
   ): Promise<{ ok: true; filename: string } | { ok: false; message: string }> {
@@ -437,8 +439,11 @@ class APIClient {
     }
     const q = new URLSearchParams();
     q.set('localDate', params.localDate);
-    if (params.area) q.set('area', params.area);
-    if (params.machineIds) q.set('machineIds', params.machineIds);
+    if (params.factory) q.set('factory', '1');
+    else {
+      if (params.area) q.set('area', params.area);
+      if (params.machineIds) q.set('machineIds', params.machineIds);
+    }
     if (params.shift != null) q.set('shift', String(params.shift));
     const currentBaseUrl = this.getBaseUrl();
     const url = `${currentBaseUrl}/reports/line-processing.html?${q.toString()}`;

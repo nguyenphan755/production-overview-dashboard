@@ -58,6 +58,11 @@ export function EquipmentDetail({
 }: EquipmentDetailProps) {
   const { machine, loading } = useMachineDetail(machineId);
   const [exportHtmlBusy, setExportHtmlBusy] = useState(false);
+  /** Ngày dùng cho xuất HTML (mặc định theo toolbar OEE; có thể đổi riêng cho báo cáo) */
+  const [htmlReportLocalDate, setHtmlReportLocalDate] = useState(referenceDate);
+  useEffect(() => {
+    setHtmlReportLocalDate(referenceDate);
+  }, [referenceDate]);
 
   // Dev helper: auto simulate 1 bobbin on LHT-1 for UI verification.
   // It only runs once per tab session (sessionStorage) when opening EquipmentDetail.
@@ -93,12 +98,30 @@ export function EquipmentDetail({
     }
     setExportHtmlBusy(true);
     const res = await apiClient.downloadLineProcessingHtmlReport(
-      { localDate: referenceDate, machineIds: machineId },
+      { localDate: htmlReportLocalDate, machineIds: machineId },
       authToken
     );
     setExportHtmlBusy(false);
     if (!res.ok) window.alert(res.message);
-  }, [authToken, referenceDate, machineId]);
+  }, [authToken, htmlReportLocalDate, machineId]);
+
+  const handleExportFactoryLineProcessingHtml = useCallback(async () => {
+    if (!authToken) {
+      window.alert('Cần đăng nhập để xuất báo cáo.');
+      return;
+    }
+    const ok = window.confirm(
+      'Xuất báo cáo HTML Processing cho toàn bộ máy trong nhà máy (4 cụm), 3 ca trong ngày đã chọn. File có thể lớn và tốn thời gian. Tiếp tục?'
+    );
+    if (!ok) return;
+    setExportHtmlBusy(true);
+    const res = await apiClient.downloadLineProcessingHtmlReport(
+      { localDate: htmlReportLocalDate, factory: true },
+      authToken
+    );
+    setExportHtmlBusy(false);
+    if (!res.ok) window.alert(res.message);
+  }, [authToken, htmlReportLocalDate]);
 
   const { cutsVersion } = useBobbinCutDetector(
     machineId,
@@ -833,17 +856,40 @@ export function EquipmentDetail({
           onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
         />
         {authToken ? (
-          <div className="flex justify-end mt-2">
-            <button
-              type="button"
-              title="Xuất báo cáo HTML Processing (3 ca, theo sản phẩm — ngày trên toolbar)"
-              onClick={() => void handleExportLineProcessingHtml()}
-              disabled={exportHtmlBusy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-[#34E7F8] border border-[#34E7F8]/40 disabled:opacity-50"
-            >
-              <FileDown className="w-3.5 h-3.5" strokeWidth={2} />
-              {exportHtmlBusy ? 'Đang xuất…' : 'Xuất HTML Processing (máy này)'}
-            </button>
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end mt-2">
+            <label className="inline-flex flex-col gap-1 text-left sm:mr-1">
+              <span className="text-[10px] uppercase tracking-wide text-white/50">Ngày báo cáo xuất</span>
+              <input
+                type="date"
+                value={htmlReportLocalDate}
+                onChange={(e) => setHtmlReportLocalDate(e.target.value)}
+                disabled={exportHtmlBusy}
+                className="min-h-[38px] rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm text-white outline-none focus:border-[#34E7F8]/60 focus:ring-1 focus:ring-[#34E7F8]/30 disabled:opacity-50 [color-scheme:dark]"
+                title="Áp dụng cho cả xuất máy này và xuất toàn nhà máy (3 ca trong ngày đã chọn)"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                title="Xuất báo cáo HTML Processing (3 ca) — chỉ máy đang xem — theo ngày đã chọn"
+                onClick={() => void handleExportLineProcessingHtml()}
+                disabled={exportHtmlBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-[#34E7F8] border border-[#34E7F8]/40 disabled:opacity-50"
+              >
+                <FileDown className="w-3.5 h-3.5" strokeWidth={2} />
+                {exportHtmlBusy ? 'Đang xuất…' : 'Xuất HTML (máy này)'}
+              </button>
+              <button
+                type="button"
+                title="Xuất báo cáo HTML Processing (3 ca) cho tất cả máy các cụm — minh bạch toàn nhà máy"
+                onClick={() => void handleExportFactoryLineProcessingHtml()}
+                disabled={exportHtmlBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#34E7F8]/15 hover:bg-[#34E7F8]/25 text-white border border-[#34E7F8]/50 disabled:opacity-50"
+              >
+                <Layers className="w-3.5 h-3.5" strokeWidth={2} />
+                {exportHtmlBusy ? 'Đang xuất…' : 'Xuất HTML (toàn nhà máy)'}
+              </button>
+            </div>
           </div>
         ) : null}
 
