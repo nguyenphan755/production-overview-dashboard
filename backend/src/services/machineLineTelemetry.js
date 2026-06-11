@@ -198,7 +198,7 @@ async function recordMachineLineTelemetrySample(
        data_quality_flags
      ) VALUES (
        $1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-       $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CAST($26 AS jsonb), $27, $28, $29, $30, $31
+       $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CAST($25 AS jsonb), $26, $27, $28, $29, $30
      )`,
     [
       machineId,

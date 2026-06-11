@@ -1,0 +1,97 @@
+{
+  "machine": {
+    "id": "A-01",
+    "name": "61",
+    "area": "armoring",
+    "status": "running",
+    "oee": "6.53",
+    "availability": "95.31",
+    "performance": "6.85",
+    "quality": "100.00",
+    "line_speed": "2.33",
+    "target_speed": "34.00",
+    "production_order_id": "PO-2024-166",
+    "produced_length": "1950.00",
+    "produced_length_ok": "1950.00",
+    "produced_length_ng": "0.00"
+  },
+  "order": {
+    "id": "PO-2024-166",
+    "name": "PO-2024-166",
+    "product_name": "CV 3x10.0mm²",
+    "start_time": "2025-12-23T03:29:47.784Z",
+    "end_time": null,
+    "status": "running",
+    "produced_length": "217900.00",
+    "target_length": "2500.00"
+  },
+  "window_label": "custom_2026-01-09T05:00:00Z_2026-01-09T13:00:00Z",
+  "periodStart": "2026-01-09T05:00:00.000Z",
+  "periodEnd": "2026-01-09T13:00:00.000Z",
+  "buckets": {
+    "pot_sec": 28800,
+    "pst_sec": 0,
+    "ppt_sec": 28800,
+    "dtl_sec": 20050,
+    "ot_sec": 8750,
+    "running_sec": 6729,
+    "speed_loss_sec": 2021,
+    "net_ot_sec": 6729,
+    "quality_loss_sec": 0,
+    "fpt_sec": 6729
+  },
+  "apq": {
+    "availability_pct": 30.4,
+    "performance_pct": 76.9,
+    "quality_pct": 100,
+    "oee_pct": 23.4
+  },
+  "legacy": {
+    "oee": 6.53,
+    "availability": 95.31,
+    "performance": 6.85,
+    "quality": 100,
+    "speed_ratio_pct": 6.852941176470588
+  },
+  "breakdown_summary": [
+    {
+      "bucket": "DTL",
+      "reason": "WAIT_MAT",
+      "status": "idle",
+      "seconds": 20050,
+      "count": 8,
+      "pct_of_pot": 69.6
+    },
+    {
+      "bucket": "OT",
+      "reason": "RUNNING",
+      "status": "running",
+      "seconds": 6729,
+      "count": 55,
+      "pct_of_pot": 23.4
+    },
+    {
+      "bucket": "SPEED_LOSS",
+      "reason": "MINOR_STOP",
+      "status": "idle",
+      "seconds": 2021,
+      "count": 48,
+      "pct_of_pot": 7
+    }
+  ],
+  "segment_count": 111,
+  "methodology": "waterfall_order_v1_demo",
+  "note": "PST/DTL phân loại heuristic từ PLC status (chưa có reason_codes). Ngưỡng DTL > 5 phút.",
+  "buckets_fmt": {
+    "pot": "8h 0m",
+    "pst": "0m 0s",
+    "ppt": "8h 0m",
+    "dtl": "5h 34m",
+    "ot": "2h 25m",
+    "running": "1h 52m",
+    "speed_loss": "33m 41s",
+    "net_ot": "1h 52m",
+    "quality_loss": "0m 0s",
+    "fpt": "1h 52m"
+  }
+}

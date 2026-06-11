@@ -1,0 +1,81 @@
+{
+  "machine": {
+    "id": "SH-02",
+    "name": "75-1",
+    "area": "sheathing",
+    "status": "running",
+    "oee": "100.00",
+    "availability": "100.00",
+    "performance": "100.00",
+    "quality": "100.00",
+    "line_speed": "96.00",
+    "target_speed": "0.00",
+    "production_order_id": "PO-2024-169",
+    "produced_length": "4434.00",
+    "produced_length_ok": "4434.00",
+    "produced_length_ng": "0.00"
+  },
+  "order": {
+    "id": "PO-2024-169",
+    "name": "PO-2024-169",
+    "product_name": "CV 3x4.0mm²",
+    "start_time": "2025-12-23T04:11:47.784Z",
+    "end_time": null,
+    "status": "running",
+    "produced_length": "752443.00",
+    "target_length": "3000.00"
+  },
+  "window_label": "custom_2026-06-04T06:00:00_2026-06-04T14:00:00",
+  "periodStart": "2026-06-03T23:00:00.000Z",
+  "periodEnd": "2026-06-04T07:00:00.000Z",
+  "buckets": {
+    "pot_sec": 28800,
+    "pst_sec": 0,
+    "ppt_sec": 28800,
+    "dtl_sec": 0,
+    "ot_sec": 28800,
+    "running_sec": 28800,
+    "speed_loss_sec": 0,
+    "net_ot_sec": 28800,
+    "quality_loss_sec": 0,
+    "fpt_sec": 28800
+  },
+  "apq": {
+    "availability_pct": 100,
+    "performance_pct": 100,
+    "quality_pct": 100,
+    "oee_pct": 100
+  },
+  "legacy": {
+    "oee": 100,
+    "availability": 100,
+    "performance": 100,
+    "quality": 100,
+    "speed_ratio_pct": null
+  },
+  "breakdown_summary": [
+    {
+      "bucket": "OT",
+      "reason": "RUNNING",
+      "status": "running",
+      "seconds": 28800,
+      "count": 1,
+      "pct_of_pot": 100
+    }
+  ],
+  "segment_count": 1,
+  "methodology": "waterfall_order_v1_demo",
+  "note": "PST/DTL phân loại heuristic từ PLC status (chưa có reason_codes). Ngưỡng DTL > 5 phút.",
+  "buckets_fmt": {
+    "pot": "8h 0m",
+    "pst": "0m 0s",
+    "ppt": "8h 0m",
+    "dtl": "0m 0s",
+    "ot": "8h 0m",
+    "running": "8h 0m",
+    "speed_loss": "0m 0s",
+    "net_ot": "8h 0m",
+    "quality_loss": "0m 0s",
+    "fpt": "8h 0m"
+  }
+}

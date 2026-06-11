@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OEE Waterfall — SH-02 (75-1) — 2026-06-04</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e8edf4;
+      --muted: #8b9cb3;
+      --pot: #3b82f6;
+      --pst: #6b7280;
+      --ppt: #2563eb;
+      --dtl: #f59e0b;
+      --ot: #10b981;
+      --speed: #eab308;
+      --net: #059669;
+      --qual: #ef4444;
+      --fpt: #22c55e;
+      --a: #38bdf8;
+      --p: #a78bfa;
+      --q: #f472b6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 { font-size: 1.5rem; font-weight: 600; }
+    .header .sub { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #1e3a5f;
+      color: #93c5fd;
+      margin-right: 6px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
+    .span-3 { grid-column: span 3; }
+    @media (max-width: 1100px) {
+      .span-8, .span-6, .span-4, .span-3 { grid-column: span 12; }
+    }
+
+    /* OEE headline */
+    .oee-hero {
+      text-align: center;
+      padding: 12px 0;
+    }
+    .oee-hero .value {
+      font-size: 3.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .oee-hero .label { color: var(--muted); font-size: 0.9rem; }
+
+    .apq-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .apq-item {
+      flex: 1;
+      min-width: 100px;
+      text-align: center;
+      padding: 14px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.25);
+    }
+    .apq-item .v { font-size: 1.75rem; font-weight: 700; }
+    .apq-item .l { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+    .apq-item.a .v { color: var(--a); }
+    .apq-item.p .v { color: var(--p); }
+    .apq-item.q .v { color: var(--q); }
+
+    /* Waterfall bars */
+    .waterfall {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 8px;
+      height: 280px;
+      padding: 20px 10px 0;
+      position: relative;
+    }
+    .wf-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      max-width: 72px;
+      height: 100%;
+      justify-content: flex-end;
+    }
+    .wf-bar-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      flex: 1;
+    }
+    .wf-bar {
+      width: 56px;
+      border-radius: 6px 6px 2px 2px;
+      min-height: 4px;
+      transition: height 0.5s ease;
+      position: relative;
+    }
+    .wf-loss {
+      width: 40px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+      opacity: 0.9;
+    }
+    .wf-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-top: 8px;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .wf-val {
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-top: 2px;
+      color: var(--text);
+    }
+    .wf-pct {
+      font-size: 0.6rem;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+
+    .formula-box {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      background: rgba(0,0,0,0.35);
+      padding: 14px;
+      border-radius: 8px;
+      line-height: 1.8;
+      color: #cbd5e1;
+    }
+    .formula-box em { color: #fbbf24; font-style: normal; }
+    .note {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 12px;
+      padding: 12px;
+      background: rgba(245,158,11,0.08);
+      border-left: 3px solid #f59e0b;
+      border-radius: 0 8px 8px 0;
+    }
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .compare-card {
+      padding: 14px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.2);
+    }
+    .compare-card h3 { font-size: 0.75rem; color: var(--muted); margin-bottom: 10px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+    .chart-wrap { height: 220px; position: relative; }
+    .shift-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .shift-tab {
+      padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--card); color: var(--muted); cursor: pointer; font-size: 0.8rem; font-weight: 600;
+    }
+    .shift-tab.active { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+    .proc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 8px; }
+    .proc-item { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
+    .proc-item .k { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; }
+    .proc-item .v { font-size: 0.9rem; font-weight: 600; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>OEE Waterfall Dashboard — SH-02 (75-1)</h1>
+      <p class="sub" id="subtitle"></p>
+      <div class="shift-tabs" id="shiftTabs"></div>
+    </div>
+    <div>
+      <span class="badge" id="methodBadge"></span>
+      <span class="badge" id="windowBadge"></span>
+      <span class="badge" style="background:#14532d;color:#86efac">Nguồn: line-processing report</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- OEE Hero -->
+    <div class="card span-4">
+      <h2>OEE Tổng (Waterfall)</h2>
+      <div class="oee-hero">
+        <div class="value" id="oeeValue">—</div>
+        <div class="label">OEE = A × P × Q</div>
+      </div>
+      <div class="apq-row">
+        <div class="apq-item a"><div class="v" id="aVal">—</div><div class="l">Availability</div></div>
+        <div class="apq-item p"><div class="v" id="pVal">—</div><div class="l">Performance</div></div>
+        <div class="apq-item q"><div class="v" id="qVal">—</div><div class="l">Quality</div></div>
+      </div>
+    </div>
+
+    <!-- Processing compare -->
+    <div class="card span-4">
+      <h2>Đối chiếu báo cáo Processing</h2>
+      <div class="compare-grid">
+        <div class="compare-card">
+          <h3>Waterfall (ngưỡng 5 phút)</h3>
+          <div id="newCompare"></div>
+        </div>
+        <div class="compare-card">
+          <h3>Processing report (tổng ca)</h3>
+          <div id="legacyCompare"></div>
+        </div>
+      </div>
+      <p class="note" id="compareNote"></p>
+    </div>
+
+    <!-- Formula -->
+    <div class="card span-4">
+      <h2>Công thức áp dụng</h2>
+      <div class="formula-box">
+        <div><em>POT</em> = order window (thời gian lệnh trong kỳ xét)</div>
+        <div><em>PPT</em> = POT − PST</div>
+        <div><em>OT</em>  = PPT − DTL  →  <em>A</em> = OT / PPT</div>
+        <div><em>Net OT</em> = OT − SpeedLoss  →  <em>P</em> = NetOT / OT</div>
+        <div><em>FPT</em> = NetOT − QualityLoss  →  <em>Q</em> = FPT / NetOT</div>
+      </div>
+    </div>
+
+    <!-- Waterfall chart visual -->
+    <div class="card span-8">
+      <h2>Biểu đồ Waterfall thời gian (TPM)</h2>
+      <div class="waterfall" id="waterfall"></div>
+    </div>
+
+    <!-- Doughnut loss -->
+    <div class="card span-4">
+      <h2>Cơ cấu tổn thất (% POT)</h2>
+      <div class="chart-wrap"><canvas id="lossChart"></canvas></div>
+    </div>
+
+    <!-- Bucket table -->
+    <div class="card span-6">
+      <h2>Bảng thông số thời gian (giây / hh:mm)</h2>
+      <table>
+        <thead><tr><th>Chỉ số</th><th>Giây</th><th>Thời lượng</th><th>% POT</th><th>Ý nghĩa</th></tr></thead>
+        <tbody id="bucketTable"></tbody>
+      </table>
+    </div>
+
+    <!-- Processing meta -->
+    <div class="card span-12">
+      <h2>Thông tin từ báo cáo Processing (line-processing)</h2>
+      <div class="proc-grid" id="procGrid"></div>
+    </div>
+
+    <!-- Breakdown -->
+    <div class="card span-6">
+      <h2>Phân rã theo trạng thái PLC (processing + waterfall)</h2>
+      <table>
+        <thead><tr><th>Bucket</th><th>Status</th><th>Reason</th><th>Giây</th><th>% POT</th><th>Số đoạn</th></tr></thead>
+        <tbody id="breakdownTable"></tbody>
+      </table>
+      <p class="note" id="dataNote"></p>
+    </div>
+  </div>
+
+  <script>
+    // Dữ liệu từ line-processing (2).html — máy SH-02 (75-1), ngày 2026-06-04
+    // Tổng running/idle lấy đúng báo cáo; DTL/Speed tách từ thanh Gantt + ngưỡng 5 phút
+    const MACHINE = {
+      id: 'SH-02', name: '75-1', area: 'sheathing',
+      material_code: '56000622', material_desc: 'CV 10c7-500V',
+      line_speed: 96, target_speed: null,
+    };
+
+    const SHIFTS = {
+      ca1: {
+        id: 'ca1', label: 'Ca 1 (06:00–14:00)',
+        periodStart: '2026-06-04T06:00:00', periodEnd: '2026-06-04T14:00:00',
+        processing: { running_sec: 21511, idle_sec: 7289, setup_sec: 0, slot_sec: 28800,
+          running_fmt: '5h 58m 31s', idle_fmt: '2h 1m 29s', setup_fmt: '0s' },
+        product_changes: [
+          { time: '2026-06-04T08:23:24', product: 'CX/WC 16c7-1kV', material: '56011657' },
+          { time: '2026-06-04T12:18:30', product: 'CX 16c7-1kV', material: '56007377' },
+        ],
+        buckets: { pot_sec:28800,pst_sec:0,ppt_sec:28800,dtl_sec:6799,ot_sec:22001,running_sec:21511,speed_loss_sec:490,net_ot_sec:21511,quality_loss_sec:0,fpt_sec:21511 },
+        apq: { availability_pct:76.4, performance_pct:97.8, quality_pct:100, oee_pct:74.7 },
+        breakdown_summary: [
+          { bucket:'DTL', reason:'IDLE_GT_5MIN', status:'idle', seconds:6799, count:3, pct_of_pot:23.6 },
+          { bucket:'SPEED_LOSS', reason:'MINOR_STOP', status:'idle', seconds:490, count:18, pct_of_pot:1.7 },
+          { bucket:'OT', reason:'RUNNING', status:'running', seconds:21511, count:1, pct_of_pot:74.7 },
+        ],
+        segment_count: 27,
+      },
+      ca2: {
+        id: 'ca2', label: 'Ca 2 (14:00–22:00)',
+        periodStart: '2026-06-04T14:00:00', periodEnd: '2026-06-04T22:00:00',
+        processing: { running_sec: 23009, idle_sec: 5791, setup_sec: 0, slot_sec: 28800,
+          running_fmt: '6h 23m 29s', idle_fmt: '1h 36m 31s', setup_fmt: '0s' },
+        product_changes: [],
+        buckets: { pot_sec:28800,pst_sec:0,ppt_sec:28800,dtl_sec:4691,ot_sec:24109,running_sec:23009,speed_loss_sec:1100,net_ot_sec:23009,quality_loss_sec:0,fpt_sec:23009 },
+        apq: { availability_pct:83.7, performance_pct:95.4, quality_pct:100, oee_pct:79.9 },
+        breakdown_summary: [
+          { bucket:'DTL', reason:'IDLE_GT_5MIN', status:'idle', seconds:4691, count:2, pct_of_pot:16.3 },
+          { bucket:'SPEED_LOSS', reason:'MINOR_STOP', status:'idle', seconds:1100, count:22, pct_of_pot:3.8 },
+          { bucket:'OT', reason:'RUNNING', status:'running', seconds:23009, count:1, pct_of_pot:79.9 },
+        ],
+        segment_count: 31,
+      },
+      ca3: {
+        id: 'ca3', label: 'Ca 3 (22:00–06:00)',
+        periodStart: '2026-06-04T22:00:00', periodEnd: '2026-06-05T06:00:00',
+        processing: { running_sec: 27166, idle_sec: 1634, setup_sec: 0, slot_sec: 28800,
+          running_fmt: '7h 32m 46s', idle_fmt: '27m 14s', setup_fmt: '0s' },
+        product_changes: [],
+        buckets: { pot_sec:28800,pst_sec:0,ppt_sec:28800,dtl_sec:1634,ot_sec:27166,running_sec:27166,speed_loss_sec:0,net_ot_sec:27166,quality_loss_sec:0,fpt_sec:27166 },
+        apq: { availability_pct:94.3, performance_pct:100, quality_pct:100, oee_pct:94.3 },
+        breakdown_summary: [
+          { bucket:'DTL', reason:'IDLE_GT_5MIN', status:'idle', seconds:1634, count:2, pct_of_pot:5.7 },
+          { bucket:'OT', reason:'RUNNING', status:'running', seconds:27166, count:1, pct_of_pot:94.3 },
+        ],
+        segment_count: 5,
+      },
+    };
+
+    let DATA = null;
+    let activeShift = 'ca1';
+    let lossChart = null;
+
+    const COLORS = {
+      POT: '#3b82f6', PST: '#6b7280', PPT: '#2563eb', DTL: '#f59e0b',
+      OT: '#10b981', SPEED_LOSS: '#eab308', NET_OT: '#059669',
+      QUALITY_LOSS: '#ef4444', FPT: '#22c55e'
+    };
+
+    const BUCKET_META = [
+      { key: 'pot_sec', label: 'POT', name: 'Plant Operating Time', color: COLORS.POT },
+      { key: 'pst_sec', label: 'PST', name: 'Planned Shutdown (−)', color: COLORS.PST, loss: true },
+      { key: 'ppt_sec', label: 'PPT', name: 'Planned Production Time', color: COLORS.PPT },
+      { key: 'dtl_sec', label: 'DTL', name: 'Downtime Loss >5ph (−)', color: COLORS.DTL, loss: true },
+      { key: 'ot_sec', label: 'OT', name: 'Operating Time', color: COLORS.OT },
+      { key: 'speed_loss_sec', label: 'Speed', name: 'Speed Loss (−)', color: COLORS.SPEED_LOSS, loss: true },
+      { key: 'net_ot_sec', label: 'Net OT', name: 'Net Operating Time', color: COLORS.NET_OT },
+      { key: 'quality_loss_sec', label: 'Quality', name: 'Quality Loss (−)', color: COLORS.QUALITY_LOSS, loss: true },
+      { key: 'fpt_sec', label: 'FPT', name: 'Fully Productive Time', color: COLORS.FPT },
+    ];
+
+    function fmtSec(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.round(sec % 60);
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m ${s}s`;
+    }
+
+    function fmtPct(v) { return v.toFixed(1) + '%'; }
+
+    function areaLabel(a) {
+      return { drawing: 'Kéo', stranding: 'Xoắn', armoring: 'Giáp', sheathing: 'Bọc' }[a] || a;
+    }
+
+    function buildData(shift) {
+      return {
+        machine: MACHINE,
+        shift,
+        periodStart: shift.periodStart,
+        periodEnd: shift.periodEnd,
+        window_label: shift.label + ' — 2026-06-04',
+        buckets: shift.buckets,
+        apq: shift.apq,
+        breakdown_summary: shift.breakdown_summary,
+        segment_count: shift.segment_count,
+        processing: shift.processing,
+        product_changes: shift.product_changes,
+        methodology: 'waterfall_shift_v1_from_processing',
+        note: 'Tổng running/idle/setup khớp báo cáo Processing. DTL = idle >5ph (từ Gantt); Speed loss = idle ≤5ph. Q=100% (chưa có NG).',
+      };
+    }
+
+    function render() {
+      DATA = buildData(SHIFTS[activeShift]);
+      const m = DATA.machine, s = DATA.shift, pr = DATA.processing;
+      const pot = DATA.buckets.pot_sec;
+
+      document.getElementById('subtitle').textContent =
+        `${areaLabel(m.area)} · Máy ${m.id} (${m.name}) · Mã VT ${m.material_code} — ${m.material_desc} · ${new Date(DATA.periodStart).toLocaleString('vi-VN')} → ${new Date(DATA.periodEnd).toLocaleString('vi-VN')}`;
+      document.getElementById('methodBadge').textContent = DATA.methodology;
+      document.getElementById('windowBadge').textContent = DATA.window_label;
+
+      document.getElementById('oeeValue').textContent = fmtPct(DATA.apq.oee_pct);
+      document.getElementById('aVal').textContent = fmtPct(DATA.apq.availability_pct);
+      document.getElementById('pVal').textContent = fmtPct(DATA.apq.performance_pct);
+      document.getElementById('qVal').textContent = fmtPct(DATA.apq.quality_pct);
+
+      const procA = (pr.running_sec / pr.slot_sec * 100).toFixed(1);
+      const procOee = (procA * 100 / 100).toFixed(1);
+      document.getElementById('newCompare').innerHTML =
+        `<div>OEE <b>${DATA.apq.oee_pct}%</b></div><div>A ${DATA.apq.availability_pct}% · P ${DATA.apq.performance_pct}% · Q ${DATA.apq.quality_pct}%</div>`;
+      document.getElementById('legacyCompare').innerHTML =
+        `<div>Chạy <b>${pr.running_fmt}</b> / ${fmtSec(pr.slot_sec)}</div>
+         <div>Dừng <b>${pr.idle_fmt}</b> · Setup ${pr.setup_fmt}</div>
+         <div>A đơn giản (running/POT) ≈ <b>${procA}%</b></div>`;
+      document.getElementById('compareNote').textContent =
+        'Processing gộp mọi idle vào "dừng khác". Waterfall tách idle >5ph (DTL → trừ A) và ≤5ph (Speed loss → trừ P). Tổng running/idle khớp báo cáo gốc.';
+
+      const procGrid = document.getElementById('procGrid');
+      procGrid.innerHTML = '';
+      const procItems = [
+        ['Mã vật tư (cuối ca)', m.material_code],
+        ['Mô tả vật tư', m.material_desc],
+        ['Tổng chạy (report)', pr.running_fmt],
+        ['Tổng dừng (report)', pr.idle_fmt],
+        ['Setup (report)', pr.setup_fmt],
+        ['Đổi SP trong ca (DB)', String(DATA.product_changes.length)],
+        ['Đoạn Gantt', String(DATA.segment_count)],
+      ];
+      procItems.forEach(([k, v]) => {
+        const d = document.createElement('div');
+        d.className = 'proc-item';
+        d.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+        procGrid.appendChild(d);
+      });
+      if (DATA.product_changes.length) {
+        DATA.product_changes.forEach((pc, i) => {
+          const d = document.createElement('div');
+          d.className = 'proc-item';
+          d.innerHTML = `<div class="k">Đổi SP #${i+1}</div><div class="v">${new Date(pc.time).toLocaleString('vi-VN')}<br>${pc.product} (${pc.material})</div>`;
+          procGrid.appendChild(d);
+        });
+      }
+
+      const tbody = document.getElementById('bucketTable');
+      tbody.innerHTML = '';
+      BUCKET_META.forEach(row => {
+        const sec = DATA.buckets[row.key] ?? 0;
+        const pct = pot > 0 ? (sec / pot * 100) : 0;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><span class="dot" style="background:${row.color}"></span><b>${row.label}</b> — ${row.name}</td>
+          <td class="num">${sec.toLocaleString()}</td><td class="num">${fmtSec(sec)}</td>
+          <td class="num">${pct.toFixed(1)}%</td>
+          <td>${row.loss ? 'Tổn thất trừ khỏi tầng trước' : 'Thời gian còn lại sau trừ loss'}</td>`;
+        tbody.appendChild(tr);
+      });
+      const trA = document.createElement('tr');
+      trA.style.background = 'rgba(56,189,248,0.1)';
+      trA.innerHTML = `<td colspan="5"><b>Availability</b> = OT / PPT = ${DATA.buckets.ot_sec.toLocaleString()} / ${DATA.buckets.ppt_sec.toLocaleString()} = <b>${fmtPct(DATA.apq.availability_pct)}</b> &nbsp;|&nbsp; <b>Performance</b> = NetOT / OT = ${DATA.buckets.net_ot_sec.toLocaleString()} / ${DATA.buckets.ot_sec.toLocaleString()} = <b>${fmtPct(DATA.apq.performance_pct)}</b></td>`;
+      tbody.appendChild(trA);
+
+      const bbody = document.getElementById('breakdownTable');
+      bbody.innerHTML = '';
+      DATA.breakdown_summary.forEach(b => {
+        const tr = document.createElement('tr');
+        const c = COLORS[b.bucket] || COLORS.DTL;
+        tr.innerHTML = `<td><span class="dot" style="background:${c}"></span>${b.bucket}</td>
+          <td>${b.status}</td><td>${b.reason}</td>
+          <td class="num">${Math.round(b.seconds).toLocaleString()}</td>
+          <td class="num">${b.pct_of_pot}%</td><td class="num">${b.count}</td>`;
+        bbody.appendChild(tr);
+      });
+      document.getElementById('dataNote').textContent =
+        `${DATA.segment_count} đoạn trên thanh Gantt · ${DATA.note}`;
+
+      const wf = document.getElementById('waterfall');
+      wf.innerHTML = '';
+      const maxH = 220;
+      const stages = [
+        { label: 'POT', sec: DATA.buckets.pot_sec, color: COLORS.POT, sub: '100%' },
+        { label: 'PST', sec: DATA.buckets.pst_sec, color: COLORS.PST, sub: '−' + fmtSec(DATA.buckets.pst_sec), isLoss: DATA.buckets.pst_sec > 0 },
+        { label: 'PPT', sec: DATA.buckets.ppt_sec, color: COLORS.PPT, sub: fmtPct(DATA.buckets.ppt_sec / pot * 100) },
+        { label: 'DTL', sec: DATA.buckets.dtl_sec, color: COLORS.DTL, sub: '−' + fmtSec(DATA.buckets.dtl_sec), isLoss: DATA.buckets.dtl_sec > 0 },
+        { label: 'OT', sec: DATA.buckets.ot_sec, color: COLORS.OT, sub: fmtPct(DATA.apq.availability_pct) },
+        { label: 'Speed', sec: DATA.buckets.speed_loss_sec, color: COLORS.SPEED_LOSS, sub: '−' + fmtSec(DATA.buckets.speed_loss_sec), isLoss: DATA.buckets.speed_loss_sec > 0 },
+        { label: 'Net OT', sec: DATA.buckets.net_ot_sec, color: COLORS.NET_OT, sub: fmtPct(DATA.apq.performance_pct) },
+        { label: 'Qual.', sec: DATA.buckets.quality_loss_sec, color: COLORS.QUALITY_LOSS, sub: '−' + fmtSec(DATA.buckets.quality_loss_sec), isLoss: DATA.buckets.quality_loss_sec > 0 },
+        { label: 'FPT', sec: DATA.buckets.fpt_sec, color: COLORS.FPT, sub: fmtPct(DATA.apq.quality_pct) },
+      ];
+      stages.forEach(st => {
+        const col = document.createElement('div');
+        col.className = 'wf-col';
+        const h = Math.max(4, (st.sec / pot) * maxH);
+        col.innerHTML = `
+          <div class="wf-bar-wrap">
+            ${st.isLoss ? `<div class="wf-loss" style="height:${Math.max(4,h)}px;background:${st.color}"></div>` : ''}
+            ${!st.isLoss ? `<div class="wf-bar" style="height:${Math.max(4,h)}px;background:${st.color}"></div>` : ''}
+          </div>
+          <div class="wf-label">${st.label}</div>
+          <div class="wf-val">${fmtSec(st.sec)}</div>
+          <div class="wf-pct">${st.sub}</div>`;
+        wf.appendChild(col);
+      });
+
+      const lossLabels = [], lossData = [], lossColors = [];
+      if (DATA.buckets.pst_sec > 0) { lossLabels.push('PST'); lossData.push(DATA.buckets.pst_sec); lossColors.push(COLORS.PST); }
+      if (DATA.buckets.dtl_sec > 0) { lossLabels.push('DTL'); lossData.push(DATA.buckets.dtl_sec); lossColors.push(COLORS.DTL); }
+      if (DATA.buckets.speed_loss_sec > 0) { lossLabels.push('Speed Loss'); lossData.push(DATA.buckets.speed_loss_sec); lossColors.push(COLORS.SPEED_LOSS); }
+      if (DATA.buckets.quality_loss_sec > 0) { lossLabels.push('Quality'); lossData.push(DATA.buckets.quality_loss_sec); lossColors.push(COLORS.QUALITY_LOSS); }
+      lossLabels.push('FPT (productive)'); lossData.push(DATA.buckets.fpt_sec); lossColors.push(COLORS.FPT);
+
+      if (lossChart) lossChart.destroy();
+      lossChart = new Chart(document.getElementById('lossChart'), {
+        type: 'doughnut',
+        data: { labels: lossLabels, datasets: [{ data: lossData, backgroundColor: lossColors, borderWidth: 0 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#8b9cb3', font: { size: 10 }, boxWidth: 12 } },
+            tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtSec(ctx.raw)} (${(ctx.raw/pot*100).toFixed(1)}% POT)` } }
+          }
+        }
+      });
+    }
+
+    const tabsEl = document.getElementById('shiftTabs');
+    Object.values(SHIFTS).forEach(s => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'shift-tab' + (s.id === activeShift ? ' active' : '');
+      btn.textContent = s.label;
+      btn.onclick = () => {
+        activeShift = s.id;
+        tabsEl.querySelectorAll('.shift-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        render();
+      };
+      tabsEl.appendChild(btn);
+    });
+
+    render();
+  </script>
+</body>
+</html>

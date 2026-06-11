@@ -127,6 +127,8 @@
 
 **Chi tiet day du (Phase 1 — muc 6.1 & 6.2 da ban hanh):** [oee-rulebook-realtime-vs-settled.md](./oee-rulebook-realtime-vs-settled.md)
 
+**Kich ban chuyen waterfall (POT theo lenh, PST/DTL, 5 phut, lich trien khai):** [OEE_WATERFALL_MIGRATION_SCENARIO.md](./OEE_WATERFALL_MIGRATION_SCENARIO.md)
+
 ## 6.1 Rulebook A/P/Q (de xuat)
 - Availability:
   - Realtime: cho phep preliminary flag.

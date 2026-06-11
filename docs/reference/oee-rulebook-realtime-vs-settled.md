@@ -193,6 +193,7 @@ Enum **data_quality** (đề xuất tối thiểu): `OK`, `MISSING_TARGET`, `INS
 
 - Phân tích GAP và roadmap code: [OEE_GAP_ANALYSIS_AVEVA_HYDRA.md](./OEE_GAP_ANALYSIS_AVEVA_HYDRA.md)
 - Brief lãnh đạo: [OEE_EXECUTIVE_BRIEF_TP_MES.md](./OEE_EXECUTIVE_BRIEF_TP_MES.md)
+- Kịch bản chuyển waterfall (POT theo lệnh, PST/DTL, triển khai phase): [OEE_WATERFALL_MIGRATION_SCENARIO.md](./OEE_WATERFALL_MIGRATION_SCENARIO.md)
 
 ---
 

@@ -1,53 +1,53 @@
-# Executive Brief - OEE chuan AVEVA/Hydra + TPM
+# Executive Brief - OEE chuẩn AVEVA/Hydra + TPM
 
-## Thong diep 1 dong
-He thong da co nen tang OEE tot, nhung can chuan hoa KPI settlement de tranh "OEE dep so" do fallback du lieu, dac biet o Performance va Quality.
+## Thông điệp 1 dòng
+Hệ thống đã có nền tảng OEE tốt, nhưng cần chuẩn hóa KPI settlement để tránh "OEE đẹp số" do fallback dữ liệu, đặc biệt ở Performance và Quality.
 
-## 1) Hien trang nhanh
-- OEE dang tinh theo cong thuc dung: `OEE = A x P x Q`.
-- Availability da di theo huong shift-based va co aggregation.
-- Tuy nhien, con mot so fallback co the lam KPI lac quan:
-  - targetSpeed thieu -> Performance = 100.
-  - Quality: **chinh sach phase hien tai** — mac dinh 100% **truoc khi tich hop NG**, nhung **bat buoc** co cờ `ASSUMED_100_PENDING_NG_INTEGRATION` va chu thich tren UI/bao cao (khong giau giong fallback Performance).
+## 1) Hiện trạng nhanh
+- OEE đang tính theo công thức đúng: `OEE = A x P x Q`.
+- Availability đã đi theo hướng shift-based và có aggregation.
+- Tuy nhiên, còn một số fallback có thể làm KPI lạc quan:
+  - targetSpeed thiếu -> Performance = 100.
+  - Quality: **chính sách phase hiện tại** — mặc định 100% **trước khi tích hợp NG**, nhưng **bắt buộc** có cờ `ASSUMED_100_PENDING_NG_INTEGRATION` và chú thích trên UI/báo cáo (không giấu giống fallback Performance).
 
-## 2) Rui ro quan tri neu giu nguyen
-- KPI OEE cao hon thuc te, uu tien cai tien sai.
-- Pareto losses co the khong phan anh dung nguyen nhan goc.
-- Tranh cai giua bo phan van hanh, bao tri, chat luong khi doi chieu so.
+## 2) Rủi ro quản trị nếu giữ nguyên
+- KPI OEE cao hơn thực tế, ưu tiên cải tiến sai.
+- Pareto losses có thể không phản ánh đúng nguyên nhân gốc.
+- Tranh cãi giữa bộ phận vận hành, bảo trì, chất lượng khi đối chiếu số.
 
-## 3) Chuan muc de xuat
-- Tach `Realtime KPI` va `Settled KPI` (official).
-- Settled KPI KHONG cho phep fallback "mac dinh tot" khi thieu du lieu.
-- Chuan hoa reason-code va mapping Six Big Losses toan nha may.
-- Data quality flags bat buoc tren tung he so A/P/Q.
+## 3) Chuẩn mực đề xuất
+- Tách `Realtime KPI` và `Settled KPI` (official).
+- Settled KPI KHÔNG cho phép fallback "mặc định tốt" khi thiếu dữ liệu.
+- Chuẩn hóa reason-code và mapping Six Big Losses toàn nhà máy.
+- Data quality flags bắt buộc trên từng hệ số A/P/Q.
 
-**Rulebook chi tiet (6.1 + 6.2 — ban hanh Phase 1):** [oee-rulebook-realtime-vs-settled.md](./oee-rulebook-realtime-vs-settled.md)
+**Rulebook chi tiết (6.1 + 6.2 — ban hành Phase 1):** [oee-rulebook-realtime-vs-settled.md](./oee-rulebook-realtime-vs-settled.md)
 
-## 4) Ke hoach hanh dong uu tien
+## 4) Kế hoạch hành động ưu tiên
 
-### 0-30 ngay (P0)
-- Chot rulebook KPI:
+### 0-30 ngày (P0)
+- Chốt rulebook KPI:
   - Performance missing targetSpeed -> `null + dataQualityIssue`.
-  - Quality (truoc NG): mac dinh 100% + cờ `ASSUMED_100_PENDING_NG_INTEGRATION`; sau NG -> khong mac dinh, thieu OK/NG -> `INSUFFICIENT_QUALITY_DATA`.
-- Chinh API/dashboard de hien thi realtime vs settled tach biet.
-- Dong bo docs theo logic shift-based hien tai.
+  - Quality (trước NG): mặc định 100% + cờ `ASSUMED_100_PENDING_NG_INTEGRATION`; sau NG -> không mặc định, thiếu OK/NG -> `INSUFFICIENT_QUALITY_DATA`.
+- Chỉnh API/dashboard để hiển thị realtime vs settled tách biệt.
+- Đồng bộ docs theo logic shift-based hiện tại.
 
-### 30-60 ngay (P1)
-- Ban hanh danh muc reason-code chuan.
-- Chuan hoa mapping status/reason -> six big losses.
-- Them dashboard theo doi do tin cay KPI (data completeness).
+### 30-60 ngày (P1)
+- Ban hành danh mục reason-code chuẩn.
+- Chuẩn hóa mapping status/reason -> six big losses.
+- Thêm dashboard theo dõi độ tin cậy KPI (data completeness).
 
-### 60-90 ngay (P2)
-- Chot settlement theo production order va startup/yield losses.
-- Co che review va phe duyet exception du lieu.
+### 60-90 ngày (P2)
+- Chốt settlement theo production order và startup/yield losses.
+- Cơ chế review và phê duyệt exception dữ liệu.
 
-## 5) KPI mong doi sau chuan hoa
-- OEE settled phan anh dung nang luc thiet bi.
-- Loss Pareto co tinh hanh dong ro rang.
-- Giam tranh cai KPI lien phong ban.
-- Tang toc do ra quyet dinh cai tien OEE theo ca/ngay/tuan.
+## 5) KPI mong đợi sau chuẩn hóa
+- OEE settled phản ánh đúng năng lực thiết bị.
+- Loss Pareto có tính hành động rõ ràng.
+- Giảm tranh cãi KPI liên phòng ban.
+- Tăng tốc độ ra quyết định cải tiến OEE theo ca/ngày/tuần.
 
-## 6) Quyết định can TP MES chot
-1. Co thong nhat tach KPI realtime va settled tu thang nay khong?
-2. Co thong nhat khong su dung fallback 100% cho settlement KPI khong?
-3. Co giao mot owner cho bo reason-code six losses cap nha may khong?
+## 6) Quyết định cần TP MES chốt
+1. Có thống nhất tách KPI realtime và settled từ tháng này không?
+2. Có thống nhất không sử dụng fallback 100% cho settlement KPI không?
+3. Có giao một owner cho bộ reason-code six losses cấp nhà máy không?
