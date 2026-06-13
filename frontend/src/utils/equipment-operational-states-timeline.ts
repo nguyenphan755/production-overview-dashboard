@@ -3,6 +3,7 @@ import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
 import {
   addDaysToYmd,
   formatYmdLocal,
+  getCurrentShiftWindow,
   getFactoryShiftWindowsForCalendarDay,
   getProductionDayLabelDate,
   getProductionDayWindow,
@@ -51,7 +52,7 @@ const LONG_SCOPE_MODES: EquipmentOeeMode[] = ['day', 'yesterday', 'week'];
 export function buildOperationalStatesTimeline(
   mode: EquipmentOeeMode,
   referenceDate: string,
-  _pastIsoShiftNumber: 1 | 2 | 3,
+  pastIsoShiftNumber: 1 | 2 | 3,
   scope: EquipmentOeeAnalyticsScope,
   now: Date = new Date()
 ): {
@@ -146,11 +147,28 @@ export function buildOperationalStatesTimeline(
     factoryRows = getFactoryShiftWindowsForCalendarDay(ymd);
     sectionSubtitle = `${equipmentOeeModeLabelVi(mode)} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))}`;
   } else if (mode === 'shift_1' || mode === 'shift_2' || mode === 'shift_3' || mode === 'past_shift') {
-    factoryRows = getFactoryShiftWindowsForCalendarDay(referenceDate);
+    const allShifts = getFactoryShiftWindowsForCalendarDay(referenceDate);
+    if (mode === 'past_shift') {
+      factoryRows = allShifts.filter((w) => w.shiftNumber === pastIsoShiftNumber);
+    } else {
+      const n = mode === 'shift_1' ? 1 : mode === 'shift_2' ? 2 : 3;
+      factoryRows = allShifts.filter((w) => w.shiftNumber === n);
+    }
     sectionSubtitle =
       mode === 'past_shift'
         ? `${equipmentOeeModeLabelVi(mode)} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))}`
         : `${equipmentOeeModeLabelVi(mode)} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))}`;
+  } else if (mode === 'shift_live') {
+    const live = getCurrentShiftWindow(now);
+    factoryRows = [
+      {
+        key: `shift${live.shift}`,
+        shiftNumber: live.shift as 1 | 2 | 3,
+        start: live.start,
+        end: live.end,
+      },
+    ];
+    sectionSubtitle = `${equipmentOeeModeLabelVi(mode)} — Ca ${live.shift}`;
   } else {
     factoryRows = getRollingFactoryShiftWindows(now);
     sectionSubtitle = equipmentOeeModeLabelVi(mode);
@@ -166,9 +184,15 @@ export function buildOperationalStatesTimeline(
   let queryStart = new Date(Math.min(...rows.map((r) => r.start.getTime())));
   let queryEnd = new Date(Math.max(...rows.map((r) => r.end.getTime())));
 
-  if (mode === 'calendar_day' && scope?.start && scope?.end) {
+  if (scope?.start && scope?.end) {
     queryStart = new Date(scope.start);
     queryEnd = new Date(scope.end);
+    const liveModes: EquipmentOeeMode[] = ['shift_live', 'day', 'yesterday', 'week', 'realtime'];
+    if (liveModes.includes(mode) && queryEnd.getTime() > now.getTime()) {
+      queryEnd = now;
+    }
+  } else if (mode === 'shift_live') {
+    queryEnd = now;
   }
 
   const pollMs = queryEnd.getTime() > now.getTime() - 60_000 ? 30_000 : null;

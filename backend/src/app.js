@@ -175,6 +175,17 @@ app.use((req, res) => {
 });
 
 // Start server - listen on all interfaces (0.0.0.0) for remote access via Tailscale/VPN
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use — another backend instance is running.`);
+    console.error('   Stop it first, then run npm run start again:');
+    console.error(`   netstat -ano | findstr :${PORT}`);
+    console.error('   taskkill /PID <pid> /F');
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);

@@ -85,7 +85,37 @@ function findStatusAt(segments, timeMs, nowMs = Date.now()) {
   return 'idle';
 }
 
-async function fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucketSec) {
+async function fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucketSec, limit = null) {
+  const limitN = limit != null && Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 5000) : null;
+
+  if (limitN != null) {
+    const result = await query(
+      `SELECT bucket, actual_speed, target_speed, performance FROM (
+         SELECT
+           to_timestamp(floor(extract(epoch from calculation_timestamp) / $4) * $4) AS bucket,
+           AVG(actual_speed)::float AS actual_speed,
+           AVG(target_speed)::float AS target_speed,
+           AVG(performance)::float AS performance
+         FROM oee_calculations
+         WHERE machine_id = $1
+           AND calculation_timestamp >= $2
+           AND calculation_timestamp <= $3
+         GROUP BY bucket
+       ) sub
+       ORDER BY bucket DESC
+       LIMIT $5`,
+      [machineId, rangeStart, rangeEnd, bucketSec, limitN]
+    );
+    return result.rows
+      .reverse()
+      .map((row) => ({
+        timestamp: new Date(row.bucket),
+        actualSpeed: parseFloat(row.actual_speed || 0),
+        targetSpeed: parseFloat(row.target_speed || 0),
+        performance: parseFloat(row.performance || 0),
+      }));
+  }
+
   const result = await query(
     `SELECT
        to_timestamp(floor(extract(epoch from calculation_timestamp) / $4) * $4) AS bucket,
@@ -108,7 +138,36 @@ async function fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucketS
   }));
 }
 
-async function fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucketSec) {
+async function fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucketSec, limit = null) {
+  const limitN = limit != null && Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 5000) : null;
+
+  if (limitN != null) {
+    const result = await query(
+      `SELECT bucket, actual_speed, target_speed FROM (
+         SELECT
+           to_timestamp(floor(extract(epoch from sampled_at) / $4) * $4) AS bucket,
+           AVG(line_speed)::float AS actual_speed,
+           AVG(target_speed)::float AS target_speed
+         FROM machine_line_telemetry
+         WHERE machine_id = $1
+           AND sampled_at >= $2
+           AND sampled_at <= $3
+         GROUP BY bucket
+       ) sub
+       ORDER BY bucket DESC
+       LIMIT $5`,
+      [machineId, rangeStart, rangeEnd, bucketSec, limitN]
+    );
+    return result.rows
+      .reverse()
+      .map((row) => ({
+        timestamp: new Date(row.bucket),
+        actualSpeed: parseFloat(row.actual_speed || 0),
+        targetSpeed: parseFloat(row.target_speed || 0),
+        performance: null,
+      }));
+  }
+
   const result = await query(
     `SELECT
        to_timestamp(floor(extract(epoch from sampled_at) / $4) * $4) AS bucket,
@@ -300,7 +359,7 @@ function buildSummary(points, bucketSec, machineTargetSpeed = null) {
 /**
  * Speed time-series from oee_calculations (fallback: machine_line_telemetry) with phase classification.
  */
-export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec = 60) {
+export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec = 60, limit = null) {
   if (!(rangeStart instanceof Date) || !(rangeEnd instanceof Date)) {
     throw new Error('rangeStart and rangeEnd must be Date objects');
   }
@@ -323,12 +382,12 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
   ]);
   const speedFloor = speedFloorForArea(machineInfo.area);
 
-  let buckets = await fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucket);
+  let buckets = await fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucket, limit);
   let source = 'oee_calculations';
   let fallbackUsed = false;
 
   if (buckets.length === 0) {
-    buckets = await fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucket);
+    buckets = await fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucket, limit);
     source = 'machine_line_telemetry';
     fallbackUsed = true;
   }
@@ -356,6 +415,9 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
       pointCount: points.length,
       speedFloor,
       area: machineInfo.area,
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+      limitApplied: limit != null && limit > 0 ? Math.min(Math.floor(limit), 5000) : null,
     },
   };
 }

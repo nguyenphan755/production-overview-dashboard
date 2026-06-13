@@ -25,6 +25,7 @@ type EquipmentSpeedTrendChartProps = {
   rows: SpeedChartRow[];
   data: SpeedHistoryResponse;
   yDomain: [number, number];
+  xDomain: [number, number];
   stableSegments: StableSpeedSegment[];
   refs: SpeedReferenceLines;
 };
@@ -50,15 +51,14 @@ export function EquipmentSpeedTrendChart({
   rows,
   data,
   yDomain,
+  xDomain,
   stableSegments,
   refs,
 }: EquipmentSpeedTrendChartProps) {
   const unit = speedUnitForArea(data.meta.area);
   const productNotes = data.productNotes ?? [];
-  const longSpan =
-    rows.length >= 2
-      ? rows[rows.length - 1].timestampMs - rows[0].timestampMs > 36 * 3600 * 1000
-      : false;
+  const spanMs = xDomain[1] - xDomain[0];
+  const longSpan = spanMs > 36 * 3600 * 1000;
 
   const tickCount = Math.min(10, Math.max(5, Math.floor(rows.length / 80)));
 
@@ -131,8 +131,8 @@ export function EquipmentSpeedTrendChart({
             <XAxis
               dataKey="timestampMs"
               type="number"
-              domain={['dataMin', 'dataMax']}
-              scale="time"
+              domain={xDomain}
+              scale="linear"
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
               tickCount={tickCount}

@@ -736,7 +736,7 @@ router.get('/:machineId/status-history', async (req, res) => {
 router.get('/:machineId/speed-history', async (req, res) => {
   try {
     const { machineId } = req.params;
-    const { start: startQ, end: endQ, bucketSec: bucketSecQ } = req.query;
+    const { start: startQ, end: endQ, bucketSec: bucketSecQ, limit: limitQ } = req.query;
 
     if (startQ == null || String(startQ).trim() === '' || endQ == null || String(endQ).trim() === '') {
       return res.status(400).json({
@@ -750,8 +750,9 @@ router.get('/:machineId/speed-history', async (req, res) => {
     const rangeStart = new Date(String(startQ));
     const rangeEnd = new Date(String(endQ));
     const bucketSec = bucketSecQ != null ? parseInt(String(bucketSecQ), 10) : 60;
+    const limit = limitQ != null ? parseInt(String(limitQ), 10) : null;
 
-    const data = await getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec);
+    const data = await getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec, limit);
 
     res.json({
       data,

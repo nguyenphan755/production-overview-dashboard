@@ -280,12 +280,15 @@ class APIClient {
 
   async getMachineSpeedHistory(
     machineId: string,
-    options: { start: string; end: string; bucketSec?: number },
+    options: { start: string; end: string; bucketSec?: number; limit?: number },
     init?: { signal?: AbortSignal }
   ): Promise<APIResponse<import('../utils/equipment-speed-analysis-chart').SpeedHistoryResponse>> {
     const q = new URLSearchParams({ start: options.start, end: options.end });
     if (options.bucketSec != null) {
       q.set('bucketSec', String(options.bucketSec));
+    }
+    if (options.limit != null && options.limit > 0) {
+      q.set('limit', String(options.limit));
     }
     return this.request(`/machines/${machineId}/speed-history?${q.toString()}`, {
       signal: init?.signal,

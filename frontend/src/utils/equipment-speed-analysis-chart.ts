@@ -30,6 +30,9 @@ export type SpeedHistoryMeta = {
   pointCount: number;
   speedFloor: number;
   area: string | null;
+  rangeStart?: string;
+  rangeEnd?: string;
+  limitApplied?: number | null;
 };
 
 export type SpeedHistoryResponse = {

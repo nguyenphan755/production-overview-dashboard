@@ -21,6 +21,7 @@ import {
   buildOperationalStatesTimeline,
   type OperationalStatesGanttRow,
 } from '../../utils/equipment-operational-states-timeline';
+import { buildEquipmentSpeedHistoryQuery } from '../../utils/equipment-speed-history-query';
 import {
   allocateEnergyByOrderOverlap,
   buildMeterDeltaBarChartFromTrend,
@@ -31,7 +32,6 @@ import {
   calculateSpeedTrendYDomain,
   findStableRunningSegments,
   formatSpeedDuration,
-  resolveSpeedBucketSec,
   resolveSpeedReferenceLines,
   speedUnitForArea,
   SPEED_PHASE_LEGEND,
@@ -189,17 +189,35 @@ export function EquipmentDetail({
     timelineMinuteKey,
   ]);
 
-  const speedBucketSec = useMemo(
-    () => resolveSpeedBucketSec(operationalTimeline.queryStart, operationalTimeline.queryEnd),
-    [operationalTimeline.queryStart, operationalTimeline.queryEnd]
-  );
+  const speedHistoryQuery = useMemo(() => {
+    const anchorNow = rollingTimelineModes
+      ? new Date(timelineMinuteKey * 60_000)
+      : new Date();
+    return buildEquipmentSpeedHistoryQuery(
+      equipmentOeeMode,
+      referenceDate,
+      pastIsoShiftNumber,
+      equipmentOeeScope,
+      anchorNow
+    );
+  }, [
+    equipmentOeeMode,
+    referenceDate,
+    pastIsoShiftNumber,
+    equipmentOeeScope?.start,
+    equipmentOeeScope?.end,
+    equipmentOeeScope?.dayDate,
+    rollingTimelineModes,
+    timelineMinuteKey,
+  ]);
 
   const speedHistory = useEquipmentSpeedHistory({
     machineId,
-    queryStart: operationalTimeline.queryStart,
-    queryEnd: operationalTimeline.queryEnd,
-    pollMs: operationalTimeline.pollMs,
-    bucketSec: speedBucketSec,
+    queryStart: speedHistoryQuery.queryStart,
+    queryEnd: speedHistoryQuery.queryEnd,
+    pollMs: speedHistoryQuery.pollMs,
+    bucketSec: speedHistoryQuery.bucketSec,
+    pointLimit: speedHistoryQuery.pointLimit,
   });
 
   const energyAnchorNow = useMemo(() => {
@@ -302,14 +320,21 @@ export function EquipmentDetail({
     if (!speedHistory.data?.points.length) return [];
     return buildSpeedChartRows(
       speedHistory.data.points,
-      operationalTimeline.queryStart,
-      operationalTimeline.queryEnd
+      speedHistoryQuery.queryStart,
+      speedHistoryQuery.queryEnd
     );
   }, [
     speedHistory.data?.points,
-    operationalTimeline.queryStart,
-    operationalTimeline.queryEnd,
+    speedHistoryQuery.queryStart,
+    speedHistoryQuery.queryEnd,
   ]);
+
+  const speedChartXDomain = useMemo((): [number, number] => {
+    return [
+      speedHistoryQuery.queryStart.getTime(),
+      speedHistoryQuery.queryEnd.getTime(),
+    ];
+  }, [speedHistoryQuery.queryStart, speedHistoryQuery.queryEnd]);
 
   const speedAnalysisRefs = useMemo(
     () =>
@@ -827,15 +852,15 @@ export function EquipmentDetail({
         )}
       </div>
 
-      {/* Speed Analysis — oee_calculations time-series (same OEE window as Gantt) */}
+      {/* Speed Analysis — oee_calculations time-series (OEE filter window) */}
       <div className="equipment-speed-panel mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
         <div className="flex items-start gap-2 mb-4 flex-wrap">
           <Gauge className="w-5 h-5 text-[#4FFFBC] shrink-0 mt-0.5" strokeWidth={2.5} />
           <div className="min-w-0">
             <h2 className="text-xl text-white">Trend tốc độ</h2>
-            {operationalTimeline.sectionSubtitle ? (
+            {speedHistoryQuery.sectionSubtitle ? (
               <p className="text-sm speed-text-muted mt-1">
-                {operationalTimeline.sectionSubtitle}
+                {speedHistoryQuery.sectionSubtitle}
                 {speedHistory.data?.meta ? (
                   <span className="speed-text-subtle">
                     {' '}
@@ -921,6 +946,7 @@ export function EquipmentDetail({
                 rows={speedAnalysisChartRows}
                 data={speedHistory.data}
                 yDomain={speedTrendYDomain}
+                xDomain={speedChartXDomain}
                 stableSegments={speedStableSegments}
                 refs={speedAnalysisRefs}
               />
