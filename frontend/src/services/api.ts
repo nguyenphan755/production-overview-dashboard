@@ -278,6 +278,20 @@ class APIClient {
     });
   }
 
+  async getMachineSpeedHistory(
+    machineId: string,
+    options: { start: string; end: string; bucketSec?: number },
+    init?: { signal?: AbortSignal }
+  ): Promise<APIResponse<import('../utils/equipment-speed-analysis-chart').SpeedHistoryResponse>> {
+    const q = new URLSearchParams({ start: options.start, end: options.end });
+    if (options.bucketSec != null) {
+      q.set('bucketSec', String(options.bucketSec));
+    }
+    return this.request(`/machines/${machineId}/speed-history?${q.toString()}`, {
+      signal: init?.signal,
+    });
+  }
+
   // Production Orders
   async getProductionOrders(): Promise<APIResponse<ProductionOrder[]>> {
     return this.request<ProductionOrder[]>('/orders');

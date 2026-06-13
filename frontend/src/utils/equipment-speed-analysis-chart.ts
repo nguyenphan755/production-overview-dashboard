@@ -1,0 +1,227 @@
+export type SpeedAnalysisPhase =
+  | 'stable_running'
+  | 'variable_running'
+  | 'setup'
+  | 'stopped'
+  | 'idle';
+
+export type SpeedHistoryPoint = {
+  timestamp: string;
+  actualSpeed: number;
+  targetSpeed: number;
+  performance: number | null;
+  phase: SpeedAnalysisPhase;
+};
+
+export type SpeedHistorySummary = {
+  stableRunningMedian: number | null;
+  stableRunningP90: number | null;
+  setupAvgSpeed: number | null;
+  stoppedDurationSec: number;
+  proposedTargetSpeed: number | null;
+  currentTargetSpeed: number | null;
+  deltaVsTargetPct: number | null;
+};
+
+export type SpeedHistoryMeta = {
+  bucketSec: number;
+  source: string;
+  fallbackUsed: boolean;
+  pointCount: number;
+  speedFloor: number;
+  area: string | null;
+};
+
+export type SpeedHistoryResponse = {
+  points: SpeedHistoryPoint[];
+  summary: SpeedHistorySummary;
+  meta: SpeedHistoryMeta;
+};
+
+export type SpeedChartRow = SpeedHistoryPoint & {
+  time: string;
+  timestampMs: number;
+  phaseColor: string;
+};
+
+export type SpeedReferenceLines = {
+  vKtcn: number | null;
+  vDesign: number | null;
+};
+
+export type StableSpeedSegment = {
+  xStart: number;
+  xEnd: number;
+};
+
+const DESIGN_SPEED_FACTOR = 1.15;
+/** Extend stable band to cover full bucket on the right edge. */
+export function extendStableSegmentEnd(xEndMs: number, bucketSec: number): number {
+  return xEndMs + bucketSec * 1000;
+}
+
+const PHASE_COLORS: Record<SpeedAnalysisPhase, string> = {
+  stable_running: '#22C55E',
+  variable_running: '#4FFFBC',
+  setup: '#FFB86C',
+  stopped: '#34E7F8',
+  idle: '#64748B',
+};
+
+const PHASE_LABELS_VI: Record<SpeedAnalysisPhase, string> = {
+  stable_running: 'Chạy ổn định',
+  variable_running: 'Chạy biến thiên',
+  setup: 'Setup',
+  stopped: 'Dừng',
+  idle: 'Idle',
+};
+
+export function speedPhaseColor(phase: SpeedAnalysisPhase): string {
+  return PHASE_COLORS[phase] ?? PHASE_COLORS.idle;
+}
+
+export function speedPhaseLabelVi(phase: SpeedAnalysisPhase): string {
+  return PHASE_LABELS_VI[phase] ?? phase;
+}
+
+export function formatSpeedDuration(seconds: number): string {
+  if (seconds <= 0) return '0 phút';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m} phút`;
+}
+
+export function formatSpeedChartTime(iso: string, longSpan: boolean): string {
+  const d = new Date(iso);
+  if (longSpan) {
+    return d.toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+
+export function buildSpeedChartRows(
+  points: SpeedHistoryPoint[],
+  rangeStart: Date,
+  rangeEnd: Date
+): SpeedChartRow[] {
+  const longSpan = rangeEnd.getTime() - rangeStart.getTime() > 36 * 3600 * 1000;
+  return points.map((p) => ({
+    ...p,
+    time: formatSpeedChartTime(p.timestamp, longSpan),
+    timestampMs: new Date(p.timestamp).getTime(),
+    phaseColor: speedPhaseColor(p.phase),
+  }));
+}
+
+/** Bucket size by OEE window span — finer detail for shift, coarser for week. */
+export function resolveSpeedBucketSec(rangeStart: Date, rangeEnd: Date): number {
+  const spanHours = (rangeEnd.getTime() - rangeStart.getTime()) / 3_600_000;
+  if (spanHours <= 9) return 15;
+  if (spanHours <= 24) return 30;
+  if (spanHours <= 72) return 60;
+  return 300;
+}
+
+export function resolveSpeedReferenceLines(
+  points: SpeedHistoryPoint[],
+  currentTargetSpeed: number | null
+): SpeedReferenceLines {
+  const targetFromPoints = points.map((p) => p.targetSpeed).filter((v) => v > 0);
+  const vKtcn =
+    (currentTargetSpeed != null && currentTargetSpeed > 0 ? currentTargetSpeed : null)
+    ?? (targetFromPoints.length ? targetFromPoints[targetFromPoints.length - 1] : null);
+
+  const peakActual = points.reduce((m, p) => Math.max(m, p.actualSpeed), 0);
+  let vDesign: number | null = null;
+  if (vKtcn != null && vKtcn > 0) {
+    vDesign = Math.max(vKtcn * DESIGN_SPEED_FACTOR, peakActual * 1.02);
+  } else if (peakActual > 0) {
+    vDesign = peakActual * 1.15;
+  }
+
+  return { vKtcn, vDesign };
+}
+
+export function findStableRunningSegments(
+  points: SpeedHistoryPoint[],
+  bucketSec = 60
+): StableSpeedSegment[] {
+  const segments: StableSpeedSegment[] = [];
+  let runStartMs: number | null = null;
+  let runEndMs: number | null = null;
+
+  const flush = () => {
+    if (runStartMs != null && runEndMs != null && runEndMs >= runStartMs) {
+      segments.push({
+        xStart: runStartMs,
+        xEnd: extendStableSegmentEnd(runEndMs, bucketSec),
+      });
+    }
+    runStartMs = null;
+    runEndMs = null;
+  };
+
+  for (const p of points) {
+    const ms = new Date(p.timestamp).getTime();
+    if (p.phase === 'stable_running') {
+      if (runStartMs == null) runStartMs = ms;
+      runEndMs = ms;
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return segments;
+}
+
+export function calculateSpeedTrendYDomain(
+  points: SpeedHistoryPoint[],
+  refs: SpeedReferenceLines,
+  isDrawing: boolean
+): [number, number] {
+  const cap = isDrawing ? 50 : 2000;
+  const peakActual = points.reduce((m, p) => Math.max(m, p.actualSpeed), 0);
+  const top = Math.max(refs.vDesign ?? 0, peakActual, refs.vKtcn ?? 0);
+  if (top <= 0) {
+    return isDrawing ? [0, 10] : [0, 200];
+  }
+  const padded = Math.min(cap, top * 1.08);
+  return [0, padded];
+}
+
+export function calculateSpeedAnalysisDomain(
+  points: SpeedHistoryPoint[],
+  proposedTargetSpeed: number | null,
+  isDrawing: boolean
+): [number, number] {
+  const values = points.flatMap((p) => [p.actualSpeed, p.targetSpeed]).filter((v) => v > 0);
+  if (proposedTargetSpeed != null && proposedTargetSpeed > 0) {
+    values.push(proposedTargetSpeed);
+  }
+  if (!values.length) {
+    return isDrawing ? [0, 10] : [0, 200];
+  }
+  const maxVal = Math.max(...values);
+  const minVal = Math.min(...values);
+  const margin = Math.max(maxVal * 0.15, 1);
+  const cap = isDrawing ? 50 : 2000;
+  return [Math.max(0, minVal - margin), Math.min(cap, maxVal + margin)];
+}
+
+export function speedUnitForArea(area: string | null | undefined): string {
+  return area === 'drawing' ? 'm/s' : 'm/min';
+}
+
+export const SPEED_PHASE_LEGEND: { phase: SpeedAnalysisPhase; label: string; color: string }[] = [
+  { phase: 'stable_running', label: PHASE_LABELS_VI.stable_running, color: PHASE_COLORS.stable_running },
+  { phase: 'variable_running', label: PHASE_LABELS_VI.variable_running, color: PHASE_COLORS.variable_running },
+  { phase: 'setup', label: PHASE_LABELS_VI.setup, color: PHASE_COLORS.setup },
+  { phase: 'stopped', label: PHASE_LABELS_VI.stopped, color: PHASE_COLORS.stopped },
+  { phase: 'idle', label: PHASE_LABELS_VI.idle, color: PHASE_COLORS.idle },
+];

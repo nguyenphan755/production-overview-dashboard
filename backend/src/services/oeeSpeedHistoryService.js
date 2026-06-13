@@ -1,0 +1,265 @@
+import { query } from '../../database/connection.js';
+
+const STABLE_CV_THRESHOLD = 0.05;
+const STABLE_WINDOW_BUCKETS = 5;
+const STOPPED_STATUSES = new Set(['stopped', 'error']);
+const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+
+function speedFloorForArea(area) {
+  return area === 'drawing' ? 0.01 : 0.5;
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+}
+
+function mean(values) {
+  if (!values.length) return 0;
+  return values.reduce((s, v) => s + v, 0) / values.length;
+}
+
+function stddev(values) {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  const variance = values.reduce((s, v) => s + (v - m) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+async function fetchMachineArea(machineId) {
+  const result = await query('SELECT area, target_speed FROM machines WHERE id = $1', [machineId]);
+  const row = result.rows[0];
+  return {
+    area: row?.area ?? null,
+    targetSpeed: row?.target_speed != null ? parseFloat(row.target_speed) : null,
+  };
+}
+
+async function fetchStatusSegments(machineId, rangeStart, rangeEnd) {
+  const rangeSpanMs = rangeEnd.getTime() - rangeStart.getTime();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const maxLookbackMs = 400 * DAY_MS;
+  const minLookbackMs = 14 * DAY_MS;
+  const lookbackMs = Math.min(maxLookbackMs, Math.max(minLookbackMs, rangeSpanMs * 3));
+  const lowerBoundStart = new Date(rangeStart.getTime() - lookbackMs);
+
+  const statusSql = `
+    SELECT * FROM (
+      SELECT status, status_start_time, status_end_time
+      FROM machine_status_history
+      WHERE machine_id = $1
+        AND status_end_time IS NOT NULL
+        AND status_start_time <= $3
+        AND status_start_time >= $4
+        AND status_end_time >= $2
+      UNION ALL
+      SELECT status, status_start_time, status_end_time
+      FROM machine_status_history
+      WHERE machine_id = $1
+        AND status_end_time IS NULL
+        AND status_start_time <= $3
+    ) AS msh
+    ORDER BY msh.status_start_time ASC`;
+
+  const result = await query(statusSql, [machineId, rangeStart, rangeEnd, lowerBoundStart]);
+  return result.rows;
+}
+
+function findStatusAt(segments, timeMs, nowMs = Date.now()) {
+  for (const seg of segments) {
+    const start = new Date(seg.status_start_time).getTime();
+    const end = seg.status_end_time ? new Date(seg.status_end_time).getTime() : nowMs;
+    if (timeMs >= start && timeMs < end) {
+      return String(seg.status || 'idle').toLowerCase();
+    }
+  }
+  return 'idle';
+}
+
+async function fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucketSec) {
+  const result = await query(
+    `SELECT
+       to_timestamp(floor(extract(epoch from calculation_timestamp) / $4) * $4) AS bucket,
+       AVG(actual_speed)::float AS actual_speed,
+       AVG(target_speed)::float AS target_speed,
+       AVG(performance)::float AS performance
+     FROM oee_calculations
+     WHERE machine_id = $1
+       AND calculation_timestamp >= $2
+       AND calculation_timestamp <= $3
+     GROUP BY bucket
+     ORDER BY bucket ASC`,
+    [machineId, rangeStart, rangeEnd, bucketSec]
+  );
+  return result.rows.map((row) => ({
+    timestamp: new Date(row.bucket),
+    actualSpeed: parseFloat(row.actual_speed || 0),
+    targetSpeed: parseFloat(row.target_speed || 0),
+    performance: parseFloat(row.performance || 0),
+  }));
+}
+
+async function fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucketSec) {
+  const result = await query(
+    `SELECT
+       to_timestamp(floor(extract(epoch from sampled_at) / $4) * $4) AS bucket,
+       AVG(line_speed)::float AS actual_speed,
+       AVG(target_speed)::float AS target_speed
+     FROM machine_line_telemetry
+     WHERE machine_id = $1
+       AND sampled_at >= $2
+       AND sampled_at <= $3
+     GROUP BY bucket
+     ORDER BY bucket ASC`,
+    [machineId, rangeStart, rangeEnd, bucketSec]
+  );
+  return result.rows.map((row) => ({
+    timestamp: new Date(row.bucket),
+    actualSpeed: parseFloat(row.actual_speed || 0),
+    targetSpeed: parseFloat(row.target_speed || 0),
+    performance: null,
+  }));
+}
+
+function classifyPhases(buckets, segments, bucketSec, speedFloor) {
+  const nowMs = Date.now();
+  const basePhases = buckets.map((b) => {
+    const midMs = b.timestamp.getTime() + (bucketSec * 1000) / 2;
+    const status = findStatusAt(segments, midMs, nowMs);
+    const speed = b.actualSpeed;
+
+    if (status === 'setup') {
+      return { ...b, phase: 'setup' };
+    }
+    if (STOPPED_STATUSES.has(status) || speed < speedFloor) {
+      return { ...b, phase: 'stopped' };
+    }
+    if (status === 'idle' || status === 'warning') {
+      return { ...b, phase: status === 'warning' ? 'idle' : 'idle' };
+    }
+    if (status === 'running') {
+      return { ...b, phase: 'running_pending' };
+    }
+    return { ...b, phase: 'idle' };
+  });
+
+  return basePhases.map((point, idx) => {
+    if (point.phase !== 'running_pending') {
+      return point;
+    }
+
+    const windowStart = Math.max(0, idx - STABLE_WINDOW_BUCKETS + 1);
+    const window = basePhases.slice(windowStart, idx + 1).filter((p) => p.phase === 'running_pending');
+    const speeds = window.map((p) => p.actualSpeed).filter((s) => s >= speedFloor);
+
+    if (speeds.length < 2) {
+      return { ...point, phase: 'variable_running' };
+    }
+
+    const m = mean(speeds);
+    const cv = m > 0 ? stddev(speeds) / m : 1;
+    const phase = cv < STABLE_CV_THRESHOLD && m > speedFloor ? 'stable_running' : 'variable_running';
+    return { ...point, phase };
+  });
+}
+
+function buildSummary(points, bucketSec, machineTargetSpeed = null) {
+  const stableSpeeds = points.filter((p) => p.phase === 'stable_running').map((p) => p.actualSpeed);
+  const setupSpeeds = points.filter((p) => p.phase === 'setup').map((p) => p.actualSpeed);
+  const stoppedBuckets = points.filter((p) => p.phase === 'stopped').length;
+
+  const proposedTargetSpeed = median(stableSpeeds);
+  const lastTarget = points.length ? points[points.length - 1].targetSpeed : null;
+  const currentTargetSpeed = (lastTarget != null && lastTarget > 0)
+    ? lastTarget
+    : (points.find((p) => p.targetSpeed > 0)?.targetSpeed
+      ?? (machineTargetSpeed != null && machineTargetSpeed > 0 ? machineTargetSpeed : null));
+
+  let deltaVsTargetPct = null;
+  if (proposedTargetSpeed != null && currentTargetSpeed != null && currentTargetSpeed > 0) {
+    deltaVsTargetPct = Math.round(((proposedTargetSpeed - currentTargetSpeed) / currentTargetSpeed) * 1000) / 10;
+  }
+
+  return {
+    stableRunningMedian: proposedTargetSpeed != null ? Math.round(proposedTargetSpeed * 100) / 100 : null,
+    stableRunningP90: stableSpeeds.length
+      ? Math.round((percentile(stableSpeeds, 90) ?? 0) * 100) / 100
+      : null,
+    setupAvgSpeed: setupSpeeds.length
+      ? Math.round(mean(setupSpeeds) * 100) / 100
+      : null,
+    stoppedDurationSec: stoppedBuckets * bucketSec,
+    proposedTargetSpeed: proposedTargetSpeed != null ? Math.round(proposedTargetSpeed * 100) / 100 : null,
+    currentTargetSpeed: currentTargetSpeed != null ? Math.round(currentTargetSpeed * 100) / 100 : null,
+    deltaVsTargetPct,
+  };
+}
+
+/**
+ * Speed time-series from oee_calculations (fallback: machine_line_telemetry) with phase classification.
+ */
+export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec = 60) {
+  if (!(rangeStart instanceof Date) || !(rangeEnd instanceof Date)) {
+    throw new Error('rangeStart and rangeEnd must be Date objects');
+  }
+  if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+    throw new Error('Invalid date range');
+  }
+  if (rangeStart >= rangeEnd) {
+    throw new Error('start must be before end');
+  }
+  if (rangeEnd.getTime() - rangeStart.getTime() > MAX_RANGE_MS) {
+    throw new Error('Requested time range exceeds 31 days');
+  }
+
+  const bucket = Math.min(Math.max(parseInt(String(bucketSec), 10) || 60, 10), 3600);
+
+  const [machineInfo, segments] = await Promise.all([
+    fetchMachineArea(machineId),
+    fetchStatusSegments(machineId, rangeStart, rangeEnd),
+  ]);
+  const speedFloor = speedFloorForArea(machineInfo.area);
+
+  let buckets = await fetchSpeedBucketsFromOee(machineId, rangeStart, rangeEnd, bucket);
+  let source = 'oee_calculations';
+  let fallbackUsed = false;
+
+  if (buckets.length === 0) {
+    buckets = await fetchSpeedBucketsFromTelemetry(machineId, rangeStart, rangeEnd, bucket);
+    source = 'machine_line_telemetry';
+    fallbackUsed = true;
+  }
+
+  const classified = classifyPhases(buckets, segments, bucket, speedFloor);
+  const points = classified.map((p) => ({
+    timestamp: p.timestamp.toISOString(),
+    actualSpeed: Math.round(p.actualSpeed * 100) / 100,
+    targetSpeed: Math.round(p.targetSpeed * 100) / 100,
+    performance: p.performance != null ? Math.round(p.performance * 100) / 100 : null,
+    phase: p.phase,
+  }));
+
+  const summary = buildSummary(classified, bucket, machineInfo.targetSpeed);
+
+  return {
+    points,
+    summary,
+    meta: {
+      bucketSec: bucket,
+      source,
+      fallbackUsed,
+      pointCount: points.length,
+      speedFloor,
+      area: machineInfo.area,
+    },
+  };
+}

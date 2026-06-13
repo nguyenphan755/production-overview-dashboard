@@ -3,6 +3,7 @@ import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, The
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
 import { useMachineDetailTrends } from '../../hooks/useMachineDetailTrends';
+import { useEquipmentSpeedHistory } from '../../hooks/useEquipmentSpeedHistory';
 import { useBobbinCutDetector, mergeCutsForOrder } from '../../hooks/useBobbinCutRecordsFixed';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 import { apiClient } from '../../services/api';
@@ -25,6 +26,17 @@ import {
   buildMeterDeltaBarChartFromTrend,
   resolveEnergyChartContext,
 } from '../../utils/equipment-energy-chart';
+import {
+  buildSpeedChartRows,
+  calculateSpeedTrendYDomain,
+  findStableRunningSegments,
+  formatSpeedDuration,
+  resolveSpeedBucketSec,
+  resolveSpeedReferenceLines,
+  speedUnitForArea,
+  SPEED_PHASE_LEGEND,
+} from '../../utils/equipment-speed-analysis-chart';
+import { EquipmentSpeedTrendChart } from '../EquipmentSpeedTrendChart';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -175,6 +187,19 @@ export function EquipmentDetail({
     timelineMinuteKey,
   ]);
 
+  const speedBucketSec = useMemo(
+    () => resolveSpeedBucketSec(operationalTimeline.queryStart, operationalTimeline.queryEnd),
+    [operationalTimeline.queryStart, operationalTimeline.queryEnd]
+  );
+
+  const speedHistory = useEquipmentSpeedHistory({
+    machineId,
+    queryStart: operationalTimeline.queryStart,
+    queryEnd: operationalTimeline.queryEnd,
+    pollMs: operationalTimeline.pollMs,
+    bucketSec: speedBucketSec,
+  });
+
   const energyAnchorNow = useMemo(() => {
     if (rollingTimelineModes) return new Date(timelineMinuteKey * 60_000);
     return new Date();
@@ -270,6 +295,44 @@ export function EquipmentDetail({
       ? realTimeTrends.speed 
       : (machine.speedTrend || []);
   }, [realTimeTrends.speed, machine?.speedTrend]);
+
+  const speedAnalysisChartRows = useMemo(() => {
+    if (!speedHistory.data?.points.length) return [];
+    return buildSpeedChartRows(
+      speedHistory.data.points,
+      operationalTimeline.queryStart,
+      operationalTimeline.queryEnd
+    );
+  }, [
+    speedHistory.data?.points,
+    operationalTimeline.queryStart,
+    operationalTimeline.queryEnd,
+  ]);
+
+  const speedAnalysisRefs = useMemo(
+    () =>
+      resolveSpeedReferenceLines(
+        speedHistory.data?.points ?? [],
+        speedHistory.data?.summary.currentTargetSpeed ?? null
+      ),
+    [speedHistory.data?.points, speedHistory.data?.summary.currentTargetSpeed]
+  );
+
+  const speedStableSegments = useMemo(
+    () => findStableRunningSegments(speedHistory.data?.points ?? [], speedHistory.data?.meta.bucketSec ?? 60),
+    [speedHistory.data?.points, speedHistory.data?.meta.bucketSec]
+  );
+
+  const speedTrendYDomain = useMemo(() => {
+    const isDrawing = machine?.area === 'drawing';
+    return calculateSpeedTrendYDomain(
+      speedHistory.data?.points ?? [],
+      speedAnalysisRefs,
+      isDrawing
+    );
+  }, [machine?.area, speedHistory.data?.points, speedAnalysisRefs]);
+
+  const speedAnalysisUnit = speedUnitForArea(speedHistory.data?.meta.area ?? machine?.area);
 
   const currentData = useMemo(() => {
     if (!machine) return [];
@@ -759,6 +822,106 @@ export function EquipmentDetail({
           </div>
         ) : (
           <ShiftGanttChart data={statusHistory.length > 0 ? statusHistory : []} rows={operationalTimeline.rows} />
+        )}
+      </div>
+
+      {/* Speed Analysis — oee_calculations time-series (same OEE window as Gantt) */}
+      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
+        <div className="flex items-start gap-2 mb-4 flex-wrap">
+          <Gauge className="w-5 h-5 text-[#4FFFBC] shrink-0 mt-0.5" strokeWidth={2.5} />
+          <div className="min-w-0">
+            <h2 className="text-xl text-white">Trend tốc độ</h2>
+            {operationalTimeline.sectionSubtitle ? (
+              <p className="text-sm text-white/55 mt-1">
+                {operationalTimeline.sectionSubtitle}
+                {speedHistory.data?.meta ? (
+                  <span className="text-white/40">
+                    {' '}
+                    — bucket {speedHistory.data.meta.bucketSec}s · {speedHistory.data.meta.pointCount} điểm
+                    · {speedHistory.data.meta.source}
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        {speedHistory.loading && speedAnalysisChartRows.length === 0 ? (
+          <div className="flex items-center justify-center h-40 text-white/60">
+            Đang tải lịch sử tốc độ…
+          </div>
+        ) : speedHistory.error && speedAnalysisChartRows.length === 0 ? (
+          <div className="flex items-center justify-center h-40 text-[#EF4444]/90 text-sm">
+            {speedHistory.error}
+          </div>
+        ) : speedAnalysisChartRows.length === 0 ? (
+          <div className="flex items-center justify-center h-40 text-white/60 text-sm text-center px-4">
+            Chưa có dữ liệu tốc độ trong cửa sổ đã chọn (oee_calculations).
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 mb-4 responsive-grid-4">
+              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="text-white/60 text-xs mb-1">Tốc độ ổn định (median)</div>
+                <div className="text-xl text-[#22C55E]">
+                  {speedHistory.data?.summary.stableRunningMedian != null
+                    ? `${speedHistory.data.summary.stableRunningMedian.toFixed(2)} ${speedAnalysisUnit}`
+                    : '—'}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="text-white/60 text-xs mb-1">TB tốc độ setup</div>
+                <div className="text-xl text-[#FFB86C]">
+                  {speedHistory.data?.summary.setupAvgSpeed != null
+                    ? `${speedHistory.data.summary.setupAvgSpeed.toFixed(2)} ${speedAnalysisUnit}`
+                    : '—'}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="text-white/60 text-xs mb-1">Thời gian dừng</div>
+                <div className="text-xl text-[#34E7F8]">
+                  {formatSpeedDuration(speedHistory.data?.summary.stoppedDurationSec ?? 0)}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-white/5 border border-[#F59E0B]/30">
+                <div className="text-white/60 text-xs mb-1">ICT đề xuất (read-only)</div>
+                <div className="text-xl text-[#F59E0B]">
+                  {speedHistory.data?.summary.proposedTargetSpeed != null
+                    ? `${speedHistory.data.summary.proposedTargetSpeed.toFixed(2)} ${speedAnalysisUnit}`
+                    : '—'}
+                </div>
+                {speedHistory.data?.summary.deltaVsTargetPct != null ? (
+                  <div className="text-xs text-white/50 mt-1">
+                    vs ICT hiện tại ({speedHistory.data.summary.currentTargetSpeed?.toFixed(2) ?? '—'}):{' '}
+                    {speedHistory.data.summary.deltaVsTargetPct > 0 ? '+' : ''}
+                    {speedHistory.data.summary.deltaVsTargetPct}%
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {speedHistory.data ? (
+              <EquipmentSpeedTrendChart
+                rows={speedAnalysisChartRows}
+                data={speedHistory.data}
+                yDomain={speedTrendYDomain}
+                stableSegments={speedStableSegments}
+                refs={speedAnalysisRefs}
+              />
+            ) : null}
+
+            <div className="flex flex-wrap gap-3 pt-2 border-t border-white/10">
+              {SPEED_PHASE_LEGEND.map((item) => (
+                <div key={item.phase} className="flex items-center gap-1.5 text-xs text-white/70">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

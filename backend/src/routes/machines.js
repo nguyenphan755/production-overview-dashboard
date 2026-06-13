@@ -11,6 +11,7 @@ import { applyLengthCounterUpdate } from '../services/productionLengthService.js
 import { authenticateToken } from '../middleware/auth.js';
 import { broadcast } from '../websocket/broadcast.js';
 import { calculateOEE } from '../services/oeeCalculator.js';
+import { getMachineSpeedHistory } from '../services/oeeSpeedHistoryService.js';
 import { ensureAvailabilityCalculated } from '../services/availabilityAggregator.js';
 import { 
   hasStatusChanged, 
@@ -723,6 +724,44 @@ router.get('/:machineId/status-history', async (req, res) => {
   } catch (error) {
     console.error('Error fetching status history:', error);
     res.status(500).json({
+      data: null,
+      timestamp: new Date().toISOString(),
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// GET /api/machines/:machineId/speed-history - Speed time-series from oee_calculations
+router.get('/:machineId/speed-history', async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { start: startQ, end: endQ, bucketSec: bucketSecQ } = req.query;
+
+    if (startQ == null || String(startQ).trim() === '' || endQ == null || String(endQ).trim() === '') {
+      return res.status(400).json({
+        data: null,
+        timestamp: new Date().toISOString(),
+        success: false,
+        message: 'start and end query params are required (ISO 8601)',
+      });
+    }
+
+    const rangeStart = new Date(String(startQ));
+    const rangeEnd = new Date(String(endQ));
+    const bucketSec = bucketSecQ != null ? parseInt(String(bucketSecQ), 10) : 60;
+
+    const data = await getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bucketSec);
+
+    res.json({
+      data,
+      timestamp: new Date().toISOString(),
+      success: true,
+    });
+  } catch (error) {
+    const isClient = /must be before|Invalid date|exceeds 31 days|required/i.test(error.message || '');
+    console.error('Error fetching speed history:', error);
+    res.status(isClient ? 400 : 500).json({
       data: null,
       timestamp: new Date().toISOString(),
       success: false,
