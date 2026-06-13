@@ -35,7 +35,23 @@ export type SpeedHistoryMeta = {
 export type SpeedHistoryResponse = {
   points: SpeedHistoryPoint[];
   summary: SpeedHistorySummary;
+  productNotes?: ProductSpeedNote[];
   meta: SpeedHistoryMeta;
+};
+
+export type ProductSpeedNote = {
+  orderId: string | null;
+  orderName: string | null;
+  productName: string;
+  segmentStart: string;
+  segmentEnd: string;
+  stableSpeedMedian: number | null;
+  avgRunningSpeed: number | null;
+  ictMedian: number | null;
+  proposedIct: number | null;
+  pointCount: number;
+  durationSec: number;
+  status: string | null;
 };
 
 export type SpeedChartRow = SpeedHistoryPoint & {
@@ -225,3 +241,38 @@ export const SPEED_PHASE_LEGEND: { phase: SpeedAnalysisPhase; label: string; col
   { phase: 'stopped', label: PHASE_LABELS_VI.stopped, color: PHASE_COLORS.stopped },
   { phase: 'idle', label: PHASE_LABELS_VI.idle, color: PHASE_COLORS.idle },
 ];
+
+export const PRODUCT_NOTE_BAND_COLORS = [
+  '#A78BFA',
+  '#F472B6',
+  '#34D399',
+  '#60A5FA',
+  '#FB923C',
+  '#E879F9',
+  '#2DD4BF',
+];
+
+export function productNoteBandColor(index: number): string {
+  return PRODUCT_NOTE_BAND_COLORS[index % PRODUCT_NOTE_BAND_COLORS.length];
+}
+
+export function findProductNoteAtTime(
+  notes: ProductSpeedNote[] | undefined,
+  timestampMs: number
+): ProductSpeedNote | null {
+  if (!notes?.length) return null;
+  for (const note of notes) {
+    const start = new Date(note.segmentStart).getTime();
+    const end = new Date(note.segmentEnd).getTime();
+    if (timestampMs >= start && timestampMs < end) {
+      return note;
+    }
+  }
+  return null;
+}
+
+export function formatProductNoteTimeRange(startIso: string, endIso: string, longSpan: boolean): string {
+  const a = formatSpeedChartTime(startIso, longSpan);
+  const b = formatSpeedChartTime(endIso, longSpan);
+  return `${a} → ${b}`;
+}

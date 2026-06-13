@@ -147,3 +147,51 @@ export function getShiftId(shift, date = new Date()) {
   
   return `shift-${shift}-${year}-${month}-${day}`;
 }
+
+export function formatYmdLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseDayDateYmd(ymd) {
+  const [year, month, day] = String(ymd).split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1, 12, 0, 0, 0);
+}
+
+/** Before 06:00 local = still previous production day (Ca 3). */
+export function getProductionDayLabelDate(now = new Date()) {
+  const d = new Date(now);
+  if (d.getHours() < 6) {
+    d.setDate(d.getDate() - 1);
+  }
+  return formatYmdLocal(d);
+}
+
+export function addDaysToYmd(ymd, deltaDays) {
+  const anchor = parseDayDateYmd(ymd);
+  anchor.setDate(anchor.getDate() + deltaDays);
+  return formatYmdLocal(anchor);
+}
+
+/**
+ * Production day = 3 factory shifts: Ca1 06:00 → Ca3 ends 06:00 next calendar day.
+ * @param {string} dayDate YYYY-MM-DD (label date = calendar day Ca1 starts)
+ * @param {Date} [now]
+ */
+export function getProductionDayWindow(dayDate, now = new Date()) {
+  const anchor = parseDayDateYmd(dayDate);
+  const start = getShiftWindow(1, anchor).start;
+  const endFull = getShiftWindow(3, anchor).end;
+  const currentLabel = getProductionDayLabelDate(now);
+
+  let end = endFull;
+  if (dayDate > currentLabel) {
+    end = new Date(start.getTime());
+  } else if (dayDate === currentLabel) {
+    end = new Date(Math.min(now.getTime(), endFull.getTime()));
+  }
+
+  return { start, end, dayDate, productionDay: dayDate };
+}

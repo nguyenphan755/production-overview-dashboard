@@ -145,6 +145,39 @@ export function getFactoryShiftWindowsForCalendarDay(ymd: string): FactoryShiftW
   });
 }
 
+/** Before 06:00 local = still previous production day (Ca 3). */
+export function getProductionDayLabelDate(now: Date = new Date()): string {
+  const d = new Date(now);
+  if (d.getHours() < 6) {
+    d.setDate(d.getDate() - 1);
+  }
+  return formatYmdLocal(d);
+}
+
+export function addDaysToYmd(ymd: string, deltaDays: number): string {
+  const anchor = parseShiftDateToAnchor(ymd);
+  anchor.setDate(anchor.getDate() + deltaDays);
+  return formatYmdLocal(anchor);
+}
+
+/** Production day window: Ca1 06:00 → Ca3 ends 06:00 next calendar day. */
+export function getProductionDayWindow(
+  dayDate: string,
+  now: Date = new Date()
+): { start: Date; end: Date; dayDate: string } {
+  const anchor = parseShiftDateToAnchor(dayDate);
+  const start = getShiftWindow(1, anchor).start;
+  const endFull = getShiftWindow(3, anchor).end;
+  const currentLabel = getProductionDayLabelDate(now);
+  let end = endFull;
+  if (dayDate > currentLabel) {
+    end = new Date(start.getTime());
+  } else if (dayDate === currentLabel) {
+    end = new Date(Math.min(now.getTime(), endFull.getTime()));
+  }
+  return { start, end, dayDate };
+}
+
 /**
  * Last three consecutive 8h shift windows ending at the current shift’s start
  * (same layout as legacy EquipmentDetail Gantt).

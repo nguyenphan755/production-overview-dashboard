@@ -4,7 +4,14 @@
  */
 
 import { query } from '../../database/connection.js';
-import { getCurrentShiftWindow, getShiftId, getShiftWindow } from '../utils/shiftCalculator.js';
+import {
+  addDaysToYmd,
+  getCurrentShiftWindow,
+  getProductionDayLabelDate,
+  getProductionDayWindow,
+  getShiftId,
+  getShiftWindow,
+} from '../utils/shiftCalculator.js';
 import {
   buildRollupQualityPercentByMachine,
   computeRollupOeeRows,
@@ -20,15 +27,11 @@ const floorToMinute = (date) => new Date(Math.floor(date.getTime() / 60000) * 60
 const getRangeWindow = (range, now = new Date(), options = {}) => {
   const normalizedEnd = floorToMinute(now);
   if (range === 'calendar_day' && options.dayDate) {
-    const [year, month, day] = String(options.dayDate).split('-').map(Number);
-    const start = new Date(year, (month || 1) - 1, day || 1, 0, 0, 0, 0);
-    const endExclusive = new Date(year, (month || 1) - 1, (day || 1) + 1, 0, 0, 0, 0);
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const end = start.getTime() === todayStart.getTime() ? normalizedEnd : endExclusive;
+    const w = getProductionDayWindow(options.dayDate, now);
     return {
       range: 'calendar_day',
-      start,
-      end,
+      start: w.start,
+      end: floorToMinute(w.end),
       dayDate: options.dayDate,
     };
   }
@@ -58,14 +61,15 @@ const getRangeWindow = (range, now = new Date(), options = {}) => {
   }
 
   if (range === 'today') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return { range, start, end: normalizedEnd };
+    const label = getProductionDayLabelDate(now);
+    const w = getProductionDayWindow(label, now);
+    return { range, start: w.start, end: floorToMinute(w.end), dayDate: label };
   }
 
   if (range === 'yesterday') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return { range, start, end };
+    const prev = addDaysToYmd(getProductionDayLabelDate(now), -1);
+    const w = getProductionDayWindow(prev, now);
+    return { range, start: w.start, end: floorToMinute(w.end), dayDate: prev };
   }
 
   if (range === 'last7' || range === 'week') {
@@ -78,7 +82,9 @@ const getRangeWindow = (range, now = new Date(), options = {}) => {
     return { range, start, end: normalizedEnd };
   }
 
-  return { range: 'today', start: new Date(now.getFullYear(), now.getMonth(), now.getDate()), end: normalizedEnd };
+  const label = getProductionDayLabelDate(now);
+  const w = getProductionDayWindow(label, now);
+  return { range: 'today', start: w.start, end: floorToMinute(w.end), dayDate: label };
 };
 
 const normalizeMachineSpeed = (machine) => {

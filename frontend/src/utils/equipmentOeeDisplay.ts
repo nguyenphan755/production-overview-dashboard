@@ -93,13 +93,13 @@ export function equipmentOeeModeLabelVi(mode: EquipmentOeeMode): string {
     case 'shift_3':
       return 'Ca 3';
     case 'day':
-      return 'Hôm nay';
+      return 'Hôm nay (3 ca)';
     case 'yesterday':
-      return 'Hôm qua';
+      return 'Hôm qua (3 ca)';
     case 'week':
       return '7 ngày';
     case 'calendar_day':
-      return 'OEE theo ngày';
+      return 'OEE theo ngày (3 ca)';
     case 'past_shift':
       return 'Ca đã qua (ISO)';
     default:

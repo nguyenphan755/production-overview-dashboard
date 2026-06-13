@@ -107,8 +107,8 @@ export function resolveEnergyChartContext(
       windowEnd,
       bucketDurationMs: HOUR_MS,
       bucketCount,
-      kpiSubtitle: `Tổng trong ngày xưởng (3 ca) — ${ymd}`,
-      xAxisLabel: 'Giờ (24 h)',
+      kpiSubtitle: `Tổng ngày sản xuất (3 ca) — ${ymd}`,
+      xAxisLabel: 'Giờ (3 ca)',
       aggregation: 'hour',
     };
   }

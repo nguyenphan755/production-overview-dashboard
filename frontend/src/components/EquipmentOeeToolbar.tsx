@@ -75,7 +75,11 @@ function formatScopeHint(scope: EquipmentOeeAnalyticsScope, mode: EquipmentOeeMo
       minute: '2-digit',
     });
     if (mode === 'calendar_day' && scope.dayDate) {
-      return `Ngày ${scope.dayDate} (00:00–${scope.dayDate === formatTodayYmd() ? 'hiện tại' : '24:00'}) · ${df.format(a)} → ${df.format(b)}`;
+      return `Ngày sản xuất ${scope.dayDate} (3 ca · 06:00→06:00) · ${df.format(a)} → ${df.format(b)}`;
+    }
+    if ((mode === 'day' || mode === 'yesterday') && scope.dayDate) {
+      const label = mode === 'day' ? 'Hôm nay' : 'Hôm qua';
+      return `${label} — ngày sản xuất ${scope.dayDate} (3 ca) · ${df.format(a)} → ${df.format(b)}`;
     }
     const shiftLike: EquipmentOeeMode[] = ['shift_live', 'shift_1', 'shift_2', 'shift_3', 'past_shift'];
     if (shiftLike.includes(mode) && scope.shiftId) {

@@ -9,7 +9,12 @@ import {
   ReferenceArea,
 } from 'recharts';
 import type { SpeedChartRow, SpeedHistoryResponse, StableSpeedSegment } from '../utils/equipment-speed-analysis-chart';
-import { speedPhaseLabelVi, speedUnitForArea } from '../utils/equipment-speed-analysis-chart';
+import {
+  findProductNoteAtTime,
+  productNoteBandColor,
+  speedPhaseLabelVi,
+  speedUnitForArea,
+} from '../utils/equipment-speed-analysis-chart';
 
 type SpeedReferenceLines = {
   vKtcn: number | null;
@@ -49,6 +54,7 @@ export function EquipmentSpeedTrendChart({
   refs,
 }: EquipmentSpeedTrendChartProps) {
   const unit = speedUnitForArea(data.meta.area);
+  const productNotes = data.productNotes ?? [];
   const longSpan =
     rows.length >= 2
       ? rows[rows.length - 1].timestampMs - rows[0].timestampMs > 36 * 3600 * 1000
@@ -72,6 +78,24 @@ export function EquipmentSpeedTrendChart({
             margin={{ top: 20, right: 20, left: 8, bottom: 8 }}
             isAnimationActive={false}
           >
+            {productNotes.map((note, i) => {
+              const x1 = new Date(note.segmentStart).getTime();
+              const x2 = new Date(note.segmentEnd).getTime();
+              if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return null;
+              return (
+                <ReferenceArea
+                  key={`product-${note.orderId ?? 'x'}-${x1}-${i}`}
+                  x1={x1}
+                  x2={x2}
+                  fill={productNoteBandColor(i)}
+                  fillOpacity={0.07}
+                  stroke={productNoteBandColor(i)}
+                  strokeOpacity={0.25}
+                  ifOverflow="hidden"
+                />
+              );
+            })}
+
             {refs.vKtcn != null && refs.vKtcn > 0 ? (
               <ReferenceArea
                 y1={0}
@@ -142,11 +166,21 @@ export function EquipmentSpeedTrendChart({
                 if (!active || !payload?.length) return null;
                 const row = payload[0]?.payload as SpeedChartRow;
                 if (!row) return null;
+                const productNote = findProductNoteAtTime(productNotes, row.timestampMs);
                 return (
                   <div className="rounded-lg border border-white/20 bg-[#0E2F4F] px-3 py-2 text-xs text-white shadow-lg max-w-xs">
                     <div className="text-white/70 mb-1.5 font-medium">
                       {formatAxisTime(row.timestampMs, longSpan)}
                     </div>
+                    {productNote ? (
+                      <div className="mb-1.5 pb-1.5 border-b border-white/10">
+                        <span className="text-white/50">Sản phẩm: </span>
+                        <span className="text-[#22C55E] font-medium">{productNote.productName}</span>
+                        {productNote.orderName ? (
+                          <div className="text-[10px] text-white/40 font-mono mt-0.5">{productNote.orderName}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div>
                       Thực tế:{' '}
                       <span className="text-white font-semibold">
@@ -263,6 +297,11 @@ export function EquipmentSpeedTrendChart({
           <span className="inline-block w-3 h-2 rounded-sm bg-[#34E7F8]/25 mr-1 align-middle" />
           Đoạn chạy ổn định
         </span>
+        {productNotes.length > 0 ? (
+          <span className="text-white/40">
+            Dải màu = PO / sản phẩm
+          </span>
+        ) : null}
       </div>
     </div>
   );

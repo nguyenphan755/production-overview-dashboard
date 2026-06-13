@@ -1,8 +1,11 @@
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from './equipmentOeeDisplay';
 import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
 import {
+  addDaysToYmd,
   formatYmdLocal,
   getFactoryShiftWindowsForCalendarDay,
+  getProductionDayLabelDate,
+  getProductionDayWindow,
   getRollingFactoryShiftWindows,
   parseShiftDateToAnchor,
   type FactoryShiftWindowRow,
@@ -62,6 +65,25 @@ export function buildOperationalStatesTimeline(
     if (scope?.start && scope?.end) {
       const start = new Date(scope.start);
       const end = new Date(scope.end);
+
+      if (scope.dayDate && (mode === 'day' || mode === 'yesterday')) {
+        const factoryRows = getFactoryShiftWindowsForCalendarDay(scope.dayDate);
+        const rows: OperationalStatesGanttRow[] = factoryRows.map((w) => ({
+          key: w.key,
+          label: shiftRowLabel(w),
+          start: w.start,
+          end: w.end,
+        }));
+        const pollMs = end.getTime() > now.getTime() - 60_000 ? 30_000 : null;
+        return {
+          rows,
+          queryStart: start,
+          queryEnd: end,
+          sectionSubtitle: equipmentOeeModeLabelVi(mode),
+          pollMs,
+        };
+      }
+
       const sameCalendarDay = formatYmdLocal(start) === formatYmdLocal(end);
       const dateSuffix = sameCalendarDay
         ? formatDdMmYyyy(start)
@@ -75,6 +97,27 @@ export function buildOperationalStatesTimeline(
         queryEnd: end,
         sectionSubtitle: equipmentOeeModeLabelVi(mode),
         pollMs,
+      };
+    }
+    if (mode === 'day' || mode === 'yesterday') {
+      const label =
+        mode === 'day'
+          ? getProductionDayLabelDate(now)
+          : addDaysToYmd(getProductionDayLabelDate(now), -1);
+      const factoryRows = getFactoryShiftWindowsForCalendarDay(label);
+      const { start, end } = getProductionDayWindow(label, now);
+      const rows: OperationalStatesGanttRow[] = factoryRows.map((w) => ({
+        key: w.key,
+        label: shiftRowLabel(w),
+        start: w.start,
+        end: w.end,
+      }));
+      return {
+        rows,
+        queryStart: start,
+        queryEnd: end,
+        sectionSubtitle: `${equipmentOeeModeLabelVi(mode)} — chờ phạm vi OEE`,
+        pollMs: 30_000,
       };
     }
     const factoryRows = getRollingFactoryShiftWindows(now);
@@ -120,8 +163,14 @@ export function buildOperationalStatesTimeline(
     end: w.end,
   }));
 
-  const queryStart = new Date(Math.min(...rows.map((r) => r.start.getTime())));
-  const queryEnd = new Date(Math.max(...rows.map((r) => r.end.getTime())));
+  let queryStart = new Date(Math.min(...rows.map((r) => r.start.getTime())));
+  let queryEnd = new Date(Math.max(...rows.map((r) => r.end.getTime())));
+
+  if (mode === 'calendar_day' && scope?.start && scope?.end) {
+    queryStart = new Date(scope.start);
+    queryEnd = new Date(scope.end);
+  }
+
   const pollMs = queryEnd.getTime() > now.getTime() - 60_000 ? 30_000 : null;
 
   return { rows, queryStart, queryEnd, sectionSubtitle, pollMs };

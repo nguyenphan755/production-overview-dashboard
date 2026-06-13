@@ -172,6 +172,99 @@ function classifyPhases(buckets, segments, bucketSec, speedFloor) {
   });
 }
 
+async function fetchOverlappingOrders(machineId, rangeStart, rangeEnd) {
+  const result = await query(
+    `SELECT id, name, product_name, start_time, end_time, status
+     FROM production_orders
+     WHERE machine_id = $1
+       AND start_time < $3
+       AND (end_time IS NULL OR end_time > $2)
+     ORDER BY start_time ASC`,
+    [machineId, rangeStart, rangeEnd]
+  );
+  return result.rows;
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function buildProductNotes(orders, classifiedPoints, rangeStart, rangeEnd, now = new Date()) {
+  const rangeStartMs = rangeStart.getTime();
+  const rangeEndMs = rangeEnd.getTime();
+  const nowMs = now.getTime();
+  const notes = [];
+  const assignedMs = new Set();
+
+  for (const order of orders) {
+    const oStart = Math.max(rangeStartMs, new Date(order.start_time).getTime());
+    const oEnd = Math.min(rangeEndMs, order.end_time ? new Date(order.end_time).getTime() : nowMs);
+    if (oEnd <= oStart) continue;
+
+    const segPoints = classifiedPoints.filter((p) => {
+      const t = p.timestamp.getTime();
+      return t >= oStart && t < oEnd;
+    });
+
+    for (const p of segPoints) {
+      assignedMs.add(p.timestamp.getTime());
+    }
+
+    const stableSpeeds = segPoints
+      .filter((p) => p.phase === 'stable_running')
+      .map((p) => p.actualSpeed);
+    const runSpeeds = segPoints
+      .filter((p) => (p.phase === 'stable_running' || p.phase === 'variable_running') && p.actualSpeed > 0)
+      .map((p) => p.actualSpeed);
+    const targets = segPoints.map((p) => p.targetSpeed).filter((v) => v > 0);
+
+    notes.push({
+      orderId: order.id,
+      orderName: order.name,
+      productName: String(order.product_name || '').trim() || '—',
+      segmentStart: new Date(oStart).toISOString(),
+      segmentEnd: new Date(oEnd).toISOString(),
+      stableSpeedMedian: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+      avgRunningSpeed: runSpeeds.length ? round2(mean(runSpeeds)) : null,
+      ictMedian: targets.length ? round2(median(targets)) : null,
+      proposedIct: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+      pointCount: segPoints.length,
+      durationSec: Math.round((oEnd - oStart) / 1000),
+      status: order.status,
+    });
+  }
+
+  const unassigned = classifiedPoints.filter((p) => !assignedMs.has(p.timestamp.getTime()));
+  if (unassigned.length > 0) {
+    const stableSpeeds = unassigned
+      .filter((p) => p.phase === 'stable_running')
+      .map((p) => p.actualSpeed);
+    const runSpeeds = unassigned
+      .filter((p) => (p.phase === 'stable_running' || p.phase === 'variable_running') && p.actualSpeed > 0)
+      .map((p) => p.actualSpeed);
+    const targets = unassigned.map((p) => p.targetSpeed).filter((v) => v > 0);
+    const uStart = Math.min(...unassigned.map((p) => p.timestamp.getTime()));
+    const uEnd = Math.max(...unassigned.map((p) => p.timestamp.getTime()));
+
+    notes.push({
+      orderId: null,
+      orderName: null,
+      productName: 'Chưa gán PO / không xác định',
+      segmentStart: new Date(Math.max(uStart, rangeStartMs)).toISOString(),
+      segmentEnd: new Date(Math.min(uEnd + 1, rangeEndMs)).toISOString(),
+      stableSpeedMedian: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+      avgRunningSpeed: runSpeeds.length ? round2(mean(runSpeeds)) : null,
+      ictMedian: targets.length ? round2(median(targets)) : null,
+      proposedIct: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+      pointCount: unassigned.length,
+      durationSec: Math.round((Math.min(uEnd, rangeEndMs) - Math.max(uStart, rangeStartMs)) / 1000),
+      status: null,
+    });
+  }
+
+  return notes;
+}
+
 function buildSummary(points, bucketSec, machineTargetSpeed = null) {
   const stableSpeeds = points.filter((p) => p.phase === 'stable_running').map((p) => p.actualSpeed);
   const setupSpeeds = points.filter((p) => p.phase === 'setup').map((p) => p.actualSpeed);
@@ -223,9 +316,10 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
 
   const bucket = Math.min(Math.max(parseInt(String(bucketSec), 10) || 60, 10), 3600);
 
-  const [machineInfo, segments] = await Promise.all([
+  const [machineInfo, segments, orders] = await Promise.all([
     fetchMachineArea(machineId),
     fetchStatusSegments(machineId, rangeStart, rangeEnd),
+    fetchOverlappingOrders(machineId, rangeStart, rangeEnd),
   ]);
   const speedFloor = speedFloorForArea(machineInfo.area);
 
@@ -249,10 +343,12 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
   }));
 
   const summary = buildSummary(classified, bucket, machineInfo.targetSpeed);
+  const productNotes = buildProductNotes(orders, classified, rangeStart, rangeEnd, new Date());
 
   return {
     points,
     summary,
+    productNotes,
     meta: {
       bucketSec: bucket,
       source,

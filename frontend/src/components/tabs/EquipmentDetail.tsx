@@ -37,6 +37,7 @@ import {
   SPEED_PHASE_LEGEND,
 } from '../../utils/equipment-speed-analysis-chart';
 import { EquipmentSpeedTrendChart } from '../EquipmentSpeedTrendChart';
+import { EquipmentSpeedProductNotes } from '../EquipmentSpeedProductNotes';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -899,6 +900,20 @@ export function EquipmentDetail({
                 ) : null}
               </div>
             </div>
+
+            {speedHistory.data?.productNotes ? (
+              <EquipmentSpeedProductNotes
+                notes={speedHistory.data.productNotes}
+                unit={speedAnalysisUnit}
+                longSpan={
+                  speedAnalysisChartRows.length >= 2
+                    ? speedAnalysisChartRows[speedAnalysisChartRows.length - 1].timestampMs -
+                        speedAnalysisChartRows[0].timestampMs >
+                      36 * 3600 * 1000
+                    : false
+                }
+              />
+            ) : null}
 
             {speedHistory.data ? (
               <EquipmentSpeedTrendChart
