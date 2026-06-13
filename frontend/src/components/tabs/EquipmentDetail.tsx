@@ -38,6 +38,7 @@ import {
 } from '../../utils/equipment-speed-analysis-chart';
 import { EquipmentSpeedTrendChart } from '../EquipmentSpeedTrendChart';
 import { EquipmentSpeedProductNotes } from '../EquipmentSpeedProductNotes';
+import '../../styles/equipment-speed-panel.css';
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -827,16 +828,16 @@ export function EquipmentDetail({
       </div>
 
       {/* Speed Analysis — oee_calculations time-series (same OEE window as Gantt) */}
-      <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
+      <div className="equipment-speed-panel mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
         <div className="flex items-start gap-2 mb-4 flex-wrap">
           <Gauge className="w-5 h-5 text-[#4FFFBC] shrink-0 mt-0.5" strokeWidth={2.5} />
           <div className="min-w-0">
             <h2 className="text-xl text-white">Trend tốc độ</h2>
             {operationalTimeline.sectionSubtitle ? (
-              <p className="text-sm text-white/55 mt-1">
+              <p className="text-sm speed-text-muted mt-1">
                 {operationalTimeline.sectionSubtitle}
                 {speedHistory.data?.meta ? (
-                  <span className="text-white/40">
+                  <span className="speed-text-subtle">
                     {' '}
                     — bucket {speedHistory.data.meta.bucketSec}s · {speedHistory.data.meta.pointCount} điểm
                     · {speedHistory.data.meta.source}
@@ -863,30 +864,30 @@ export function EquipmentDetail({
           <>
             <div className="grid gap-3 mb-4 responsive-grid-4">
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <div className="text-white/60 text-xs mb-1">Tốc độ ổn định (median)</div>
-                <div className="text-xl text-[#22C55E]">
+                <div className="speed-text-muted text-xs mb-1">Tốc độ ổn định (median)</div>
+                <div className="text-xl speed-accent-green">
                   {speedHistory.data?.summary.stableRunningMedian != null
                     ? `${speedHistory.data.summary.stableRunningMedian.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <div className="text-white/60 text-xs mb-1">TB tốc độ setup</div>
-                <div className="text-xl text-[#FFB86C]">
+                <div className="speed-text-muted text-xs mb-1">TB tốc độ setup</div>
+                <div className="text-xl speed-accent-orange">
                   {speedHistory.data?.summary.setupAvgSpeed != null
                     ? `${speedHistory.data.summary.setupAvgSpeed.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <div className="text-white/60 text-xs mb-1">Thời gian dừng</div>
-                <div className="text-xl text-[#34E7F8]">
+                <div className="speed-text-muted text-xs mb-1">Thời gian dừng</div>
+                <div className="text-xl speed-accent-cyan">
                   {formatSpeedDuration(speedHistory.data?.summary.stoppedDurationSec ?? 0)}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-[#F59E0B]/30">
-                <div className="text-white/60 text-xs mb-1">ICT đề xuất (read-only)</div>
-                <div className="text-xl text-[#F59E0B]">
+                <div className="speed-text-muted text-xs mb-1">ICT đề xuất (read-only)</div>
+                <div className="text-xl speed-accent-ict">
                   {speedHistory.data?.summary.proposedTargetSpeed != null
                     ? `${speedHistory.data.summary.proposedTargetSpeed.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
@@ -927,7 +928,7 @@ export function EquipmentDetail({
 
             <div className="flex flex-wrap gap-3 pt-2 border-t border-white/10">
               {SPEED_PHASE_LEGEND.map((item) => (
-                <div key={item.phase} className="flex items-center gap-1.5 text-xs text-white/70">
+                <div key={item.phase} className="flex items-center gap-1.5 text-xs speed-text-soft">
                   <span
                     className="inline-block w-2.5 h-2.5 rounded-full"
                     style={{ backgroundColor: item.color }}

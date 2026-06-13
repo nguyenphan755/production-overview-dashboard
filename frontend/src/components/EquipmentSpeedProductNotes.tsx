@@ -29,8 +29,8 @@ export function EquipmentSpeedProductNotes({
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-2">
-        <Package className="w-4 h-4 text-[#A78BFA]" strokeWidth={2.5} />
-        <h3 className="text-sm text-white/90 font-medium">
+        <Package className="w-4 h-4 speed-accent-purple" strokeWidth={2.5} />
+        <h3 className="text-sm speed-text-soft font-medium">
           Sản phẩm &amp; tốc độ chuyên môn (theo PO)
         </h3>
       </div>
@@ -42,9 +42,9 @@ export function EquipmentSpeedProductNotes({
             style={{ borderLeftWidth: 3, borderLeftColor: productNoteBandColor(i) }}
           >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-1.5">
-              <span className="text-sm font-medium text-[#22C55E]">{note.productName}</span>
+              <span className="text-sm font-medium speed-accent-green">{note.productName}</span>
               {note.orderName ? (
-                <span className="text-[10px] text-white/45 font-mono">{note.orderName}</span>
+                <span className="text-[10px] speed-text-subtle font-mono">{note.orderName}</span>
               ) : null}
               <span className="text-[10px] text-white/40">
                 {formatProductNoteTimeRange(note.segmentStart, note.segmentEnd, longSpan)}
@@ -60,28 +60,28 @@ export function EquipmentSpeedProductNotes({
               </div>
               <div>
                 <span className="text-white/50">TB chạy: </span>
-                <span className="text-white/90">
+                <span className="speed-text-soft">
                   {note.avgRunningSpeed != null ? `${note.avgRunningSpeed.toFixed(2)} ${unit}` : '—'}
                 </span>
               </div>
               <div>
                 <span className="text-white/50">ICT (median): </span>
-                <span className="text-[#22C55E]">
+                <span className="speed-accent-green">
                   {note.ictMedian != null ? `${note.ictMedian.toFixed(2)} ${unit}` : '—'}
                 </span>
               </div>
               <div>
                 <span className="text-white/50">ICT đề xuất: </span>
-                <span className="text-[#F59E0B] font-medium">
+                <span className="speed-accent-ict font-medium">
                   {note.proposedIct != null ? `${note.proposedIct.toFixed(2)} ${unit}` : '—'}
                 </span>
               </div>
             </div>
             {note.stableSpeedMedian != null && note.ictMedian != null && note.ictMedian > 0 ? (
-              <p className="mt-1.5 text-[10px] text-white/45 leading-snug">
+              <p className="mt-1.5 text-[10px] speed-text-subtle leading-snug">
                 Ghi chú: trên máy này,{' '}
-                <span className="text-white/70">{note.productName}</span> thường chạy ổn định ~{' '}
-                <span className="text-[#F59E0B]">{note.stableSpeedMedian.toFixed(2)} {unit}</span>
+                <span className="speed-text-soft">{note.productName}</span> thường chạy ổn định ~{' '}
+                <span className="speed-accent-orange">{note.stableSpeedMedian.toFixed(2)} {unit}</span>
                 {note.proposedIct !== note.ictMedian ? (
                   <>
                     {' '}

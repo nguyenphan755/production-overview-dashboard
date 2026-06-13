@@ -77,8 +77,8 @@ export function extendStableSegmentEnd(xEndMs: number, bucketSec: number): numbe
 }
 
 const PHASE_COLORS: Record<SpeedAnalysisPhase, string> = {
-  stable_running: '#22C55E',
-  variable_running: '#4FFFBC',
+  stable_running: '#4FFFBC',
+  variable_running: '#22C55E',
   setup: '#FFB86C',
   stopped: '#34E7F8',
   idle: '#64748B',

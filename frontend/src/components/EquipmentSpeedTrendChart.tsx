@@ -63,10 +63,10 @@ export function EquipmentSpeedTrendChart({
   const tickCount = Math.min(10, Math.max(5, Math.floor(rows.length / 80)));
 
   return (
-    <div className="mb-3">
+    <div className="mb-3 speed-trend-chart">
       <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-        <h3 className="text-sm text-white/90 font-medium">Speed Trend — chi tiết tốc độ</h3>
-        <span className="text-[10px] text-white/45">
+        <h3 className="text-sm speed-text-soft font-medium">Speed Trend — chi tiết tốc độ</h3>
+        <span className="text-[10px] speed-text-subtle">
           Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm
         </span>
       </div>
@@ -100,7 +100,7 @@ export function EquipmentSpeedTrendChart({
               <ReferenceArea
                 y1={0}
                 y2={refs.vKtcn}
-                fill="#22C55E"
+                fill="#4FFFBC"
                 fillOpacity={0.14}
                 ifOverflow="extendDomain"
               />
@@ -169,13 +169,13 @@ export function EquipmentSpeedTrendChart({
                 const productNote = findProductNoteAtTime(productNotes, row.timestampMs);
                 return (
                   <div className="rounded-lg border border-white/20 bg-[#0E2F4F] px-3 py-2 text-xs text-white shadow-lg max-w-xs">
-                    <div className="text-white/70 mb-1.5 font-medium">
+                    <div className="speed-text-soft mb-1.5 font-medium">
                       {formatAxisTime(row.timestampMs, longSpan)}
                     </div>
                     {productNote ? (
                       <div className="mb-1.5 pb-1.5 border-b border-white/10">
                         <span className="text-white/50">Sản phẩm: </span>
-                        <span className="text-[#22C55E] font-medium">{productNote.productName}</span>
+                        <span className="speed-accent-green font-medium">{productNote.productName}</span>
                         {productNote.orderName ? (
                           <div className="text-[10px] text-white/40 font-mono mt-0.5">{productNote.orderName}</div>
                         ) : null}
@@ -189,7 +189,7 @@ export function EquipmentSpeedTrendChart({
                     </div>
                     <div>
                       V<sub>KTCN</sub> (ICT):{' '}
-                      <span className="text-[#22C55E]">{row.targetSpeed.toFixed(2)} {unit}</span>
+                      <span className="speed-accent-green">{row.targetSpeed.toFixed(2)} {unit}</span>
                     </div>
                     {refs.vDesign != null ? (
                       <div className="text-white/60">
@@ -199,13 +199,13 @@ export function EquipmentSpeedTrendChart({
                     {data.summary.proposedTargetSpeed != null ? (
                       <div>
                         ICT đề xuất:{' '}
-                        <span className="text-[#F59E0B] font-medium">
+                        <span className="speed-accent-ict font-medium">
                           {data.summary.proposedTargetSpeed.toFixed(2)} {unit}
                         </span>
                       </div>
                     ) : null}
                     {row.performance != null ? (
-                      <div className="text-white/70">P: {row.performance.toFixed(1)}%</div>
+                      <div className="speed-text-soft">P: {row.performance.toFixed(1)}%</div>
                     ) : null}
                     <div className="mt-1 pt-1 border-t border-white/10">
                       Phase:{' '}
@@ -233,11 +233,11 @@ export function EquipmentSpeedTrendChart({
             {refs.vKtcn != null && refs.vKtcn > 0 ? (
               <ReferenceLine
                 y={refs.vKtcn}
-                stroke="#22C55E"
+                stroke="#4FFFBC"
                 strokeWidth={2}
                 label={{
                   value: 'V_KTCN',
-                  fill: '#22C55E',
+                  fill: '#4FFFBC',
                   fontSize: 11,
                   position: 'right',
                 }}
@@ -247,12 +247,12 @@ export function EquipmentSpeedTrendChart({
             {data.summary.proposedTargetSpeed != null ? (
               <ReferenceLine
                 y={data.summary.proposedTargetSpeed}
-                stroke="#F59E0B"
+                stroke="#FFB86C"
                 strokeDasharray="5 5"
                 strokeWidth={1.5}
                 label={{
                   value: 'ICT đề xuất',
-                  fill: '#F59E0B',
+                  fill: '#FFB86C',
                   fontSize: 10,
                   position: 'insideTopRight',
                 }}
@@ -262,7 +262,7 @@ export function EquipmentSpeedTrendChart({
             <Line
               type="monotone"
               dataKey="targetSpeed"
-              stroke="#22C55E55"
+              stroke="#4FFFBC55"
               strokeWidth={1}
               strokeDasharray="4 4"
               dot={false}
@@ -286,7 +286,10 @@ export function EquipmentSpeedTrendChart({
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] text-white/50">
         <span>
-          <span className="inline-block w-3 h-2 rounded-sm bg-[#22C55E]/35 mr-1 align-middle" />
+          <span
+            className="inline-block w-3 h-2 rounded-sm mr-1 align-middle"
+            style={{ backgroundColor: 'rgba(79, 255, 188, 0.35)' }}
+          />
           Vùng tốc độ chuẩn (0 → V_KTCN)
         </span>
         <span>
