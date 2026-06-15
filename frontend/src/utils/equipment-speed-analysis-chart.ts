@@ -1,3 +1,5 @@
+import { FACTORY_TIME_ZONE } from './shiftCalculator';
+
 export type SpeedAnalysisPhase =
   | 'stable_running'
   | 'variable_running'
@@ -115,13 +117,18 @@ export function formatSpeedChartTime(iso: string, longSpan: boolean): string {
   const d = new Date(iso);
   if (longSpan) {
     return d.toLocaleString('vi-VN', {
+      timeZone: FACTORY_TIME_ZONE,
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
     });
   }
-  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('vi-VN', {
+    timeZone: FACTORY_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function buildSpeedChartRows(
@@ -130,6 +137,8 @@ export function buildSpeedChartRows(
   rangeEnd: Date
 ): SpeedChartRow[] {
   const longSpan = rangeEnd.getTime() - rangeStart.getTime() > 36 * 3600 * 1000;
+  const startMs = rangeStart.getTime();
+  const endMs = rangeEnd.getTime();
   return points
     .map((p) => ({
       ...p,
@@ -137,25 +146,16 @@ export function buildSpeedChartRows(
       timestampMs: new Date(p.timestamp).getTime(),
       phaseColor: speedPhaseColor(p.phase),
     }))
-    .filter((row) => Number.isFinite(row.timestampMs))
+    .filter((row) => Number.isFinite(row.timestampMs) && row.timestampMs >= startMs && row.timestampMs <= endMs)
     .sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
-/** OEE filter window merged with fetched points so Recharts always draws the line. */
+/** X-axis strictly follows the OEE filter window (ICT). */
 export function resolveSpeedChartXDomain(
   windowStartMs: number,
-  windowEndMs: number,
-  rows: SpeedChartRow[]
+  windowEndMs: number
 ): [number, number] {
-  let start = windowStartMs;
-  let end = Math.max(windowEndMs, windowStartMs + 60_000);
-  if (rows.length > 0) {
-    const dataMin = rows[0].timestampMs;
-    const dataMax = rows[rows.length - 1].timestampMs;
-    start = Math.min(start, dataMin);
-    end = Math.max(end, dataMax);
-  }
-  return [start, end];
+  return [windowStartMs, Math.max(windowEndMs, windowStartMs + 60_000)];
 }
 
 /** Evenly spaced X-axis ticks so Recharts shows the full OEE filter window. */

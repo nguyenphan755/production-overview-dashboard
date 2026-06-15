@@ -376,22 +376,16 @@ export function EquipmentDetail({
     speedHistoryQuery.queryEnd,
   ]);
 
-  const speedChartWindow = useMemo(() => {
-    let startMs = speedHistoryQuery.queryStart.getTime();
-    let endMs = speedHistoryQuery.queryEnd.getTime();
-    if (activeSpeedHistory?.meta?.rangeStart && activeSpeedHistory.meta.rangeEnd) {
-      const metaStart = new Date(activeSpeedHistory.meta.rangeStart).getTime();
-      const metaEnd = new Date(activeSpeedHistory.meta.rangeEnd).getTime();
-      if (Number.isFinite(metaStart)) startMs = Math.min(startMs, metaStart);
-      if (Number.isFinite(metaEnd)) endMs = Math.max(endMs, metaEnd);
-    }
-    return { startMs, endMs: Math.max(endMs, startMs + 60_000) };
-  }, [
-    speedHistoryQuery.queryStart,
-    speedHistoryQuery.queryEnd,
-    activeSpeedHistory?.meta?.rangeStart,
-    activeSpeedHistory?.meta?.rangeEnd,
-  ]);
+  const speedChartWindow = useMemo(
+    () => ({
+      startMs: speedHistoryQuery.queryStart.getTime(),
+      endMs: Math.max(
+        speedHistoryQuery.queryEnd.getTime(),
+        speedHistoryQuery.queryStart.getTime() + 60_000
+      ),
+    }),
+    [speedHistoryQuery.queryStart, speedHistoryQuery.queryEnd]
+  );
 
   const speedAnalysisRefs = useMemo(
     () =>

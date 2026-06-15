@@ -1,38 +1,96 @@
 /**
  * Mirror backend/src/utils/shiftCalculator.js — factory shifts:
  * 1: 06:00–14:00, 2: 14:00–22:00, 3: 22:00–06:00 (next day)
+ * All wall-clock math uses Asia/Ho_Chi_Minh (ICT, UTC+7).
  */
 
-export function getCurrentShift(date: Date = new Date()): 1 | 2 | 3 {
-  const hour = date.getHours();
+export const FACTORY_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+
+type FactoryClock = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+};
+
+export function getFactoryClock(date: Date = new Date()): FactoryClock {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: FACTORY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(date);
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === type)?.value ?? '0');
+  return {
+    year: pick('year'),
+    month: pick('month'),
+    day: pick('day'),
+    hour: pick('hour'),
+    minute: pick('minute'),
+  };
+}
+
+/** Instant for factory wall-clock (ICT). */
+export function factoryZonedDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute = 0,
+  second = 0
+): Date {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return new Date(
+    `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}+07:00`
+  );
+}
+
+function factoryDatePlusDays(year: number, month: number, day: number, delta: number): FactoryClock {
+  const noon = factoryZonedDate(year, month, day, 12, 0);
+  return getFactoryClock(new Date(noon.getTime() + delta * 86_400_000));
+}
+
+function shiftFromHour(hour: number): 1 | 2 | 3 {
   if (hour >= 6 && hour < 14) return 1;
   if (hour >= 14 && hour < 22) return 2;
   return 3;
+}
+
+export function getCurrentShift(date: Date = new Date()): 1 | 2 | 3 {
+  return shiftFromHour(getFactoryClock(date).hour);
 }
 
 export function getShiftWindow(
   shift: number,
   date: Date = new Date()
 ): { shift: number; start: Date; end: Date } {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const day = date.getDate();
+  const { year, month, day } = getFactoryClock(date);
 
   let shiftStart: Date;
   let shiftEnd: Date;
 
   switch (shift) {
     case 1:
-      shiftStart = new Date(year, month, day, 6, 0, 0, 0);
-      shiftEnd = new Date(year, month, day, 14, 0, 0, 0);
+      shiftStart = factoryZonedDate(year, month, day, 6, 0);
+      shiftEnd = factoryZonedDate(year, month, day, 14, 0);
       break;
     case 2:
-      shiftStart = new Date(year, month, day, 14, 0, 0, 0);
-      shiftEnd = new Date(year, month, day, 22, 0, 0, 0);
+      shiftStart = factoryZonedDate(year, month, day, 14, 0);
+      shiftEnd = factoryZonedDate(year, month, day, 22, 0);
       break;
     case 3:
-      shiftStart = new Date(year, month, day, 22, 0, 0, 0);
-      shiftEnd = new Date(year, month, day + 1, 6, 0, 0, 0);
+      shiftStart = factoryZonedDate(year, month, day, 22, 0);
+      shiftEnd = (() => {
+        const next = factoryDatePlusDays(year, month, day, 1);
+        return factoryZonedDate(next.year, next.month, next.day, 6, 0);
+      })();
       break;
     default:
       throw new Error(`Invalid shift number: ${shift}`);
@@ -42,57 +100,47 @@ export function getShiftWindow(
 }
 
 export function getCurrentShiftWindow(date: Date = new Date()) {
-  const shift = getCurrentShift(date);
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const day = date.getDate();
+  const clock = getFactoryClock(date);
+  const shift = shiftFromHour(clock.hour);
 
-  let shiftStart: Date;
+  if (shift === 3 && clock.hour < 6) {
+    const prev = factoryDatePlusDays(clock.year, clock.month, clock.day, -1);
+    return {
+      shift,
+      start: factoryZonedDate(prev.year, prev.month, prev.day, 22, 0),
+      end: factoryZonedDate(clock.year, clock.month, clock.day, 6, 0),
+    };
+  }
+
+  const startHour = shift === 1 ? 6 : shift === 2 ? 14 : 22;
+  const shiftStart = factoryZonedDate(clock.year, clock.month, clock.day, startHour, 0);
   let shiftEnd: Date;
-
-  switch (shift) {
-    case 1:
-      shiftStart = new Date(year, month, day, 6, 0, 0, 0);
-      shiftEnd = new Date(year, month, day, 14, 0, 0, 0);
-      break;
-    case 2:
-      shiftStart = new Date(year, month, day, 14, 0, 0, 0);
-      shiftEnd = new Date(year, month, day, 22, 0, 0, 0);
-      break;
-    case 3:
-      shiftStart = new Date(year, month, day, 22, 0, 0, 0);
-      if (date.getHours() < 6) {
-        shiftStart = new Date(year, month, day - 1, 22, 0, 0, 0);
-        shiftEnd = new Date(year, month, day, 6, 0, 0, 0);
-      } else {
-        shiftEnd = new Date(year, month, day + 1, 6, 0, 0, 0);
-      }
-      break;
-    default:
-      shiftStart = new Date(year, month, day, 6, 0, 0, 0);
-      shiftEnd = new Date(year, month, day, 14, 0, 0, 0);
+  if (shift === 3) {
+    const next = factoryDatePlusDays(clock.year, clock.month, clock.day, 1);
+    shiftEnd = factoryZonedDate(next.year, next.month, next.day, 6, 0);
+  } else {
+    shiftEnd = new Date(shiftStart.getTime() + 8 * 3_600_000);
   }
 
   return { shift, start: shiftStart, end: shiftEnd };
 }
 
 export function formatYmdLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const { year, month, day } = getFactoryClock(d);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /**
  * `shiftDate` query param for GET /api/oee-settled/shift — calendar day that defines the shift window via backend anchor noon.
  */
 export function shiftApiDateFromCompletedWindow(shiftNumber: 1 | 2 | 3, windowStart: Date): string {
-  if (shiftNumber === 3 && windowStart.getHours() >= 22) {
+  const clock = getFactoryClock(windowStart);
+  if (shiftNumber === 3 && clock.hour >= 22) {
     return formatYmdLocal(windowStart);
   }
-  if (shiftNumber === 3 && windowStart.getHours() < 6) {
-    const prev = new Date(windowStart.getFullYear(), windowStart.getMonth(), windowStart.getDate() - 1);
-    return formatYmdLocal(prev);
+  if (shiftNumber === 3 && clock.hour < 6) {
+    const prev = factoryDatePlusDays(clock.year, clock.month, clock.day, -1);
+    return `${prev.year}-${String(prev.month).padStart(2, '0')}-${String(prev.day).padStart(2, '0')}`;
   }
   return formatYmdLocal(windowStart);
 }
@@ -114,7 +162,7 @@ export function parseShiftDateToAnchor(shiftDate: string): Date {
   const year = parts[0] ?? new Date().getFullYear();
   const month = parts[1] ?? 1;
   const day = parts[2] ?? 1;
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
+  return factoryZonedDate(year, month, day, 12, 0);
 }
 
 /** True when shift window [start,end] ends before `now` (closed period — valid for report). */
@@ -145,13 +193,14 @@ export function getFactoryShiftWindowsForCalendarDay(ymd: string): FactoryShiftW
   });
 }
 
-/** Before 06:00 local = still previous production day (Ca 3). */
+/** Before 06:00 ICT = still previous production day (Ca 3). */
 export function getProductionDayLabelDate(now: Date = new Date()): string {
-  const d = new Date(now);
-  if (d.getHours() < 6) {
-    d.setDate(d.getDate() - 1);
+  const clock = getFactoryClock(now);
+  if (clock.hour < 6) {
+    const prev = factoryDatePlusDays(clock.year, clock.month, clock.day, -1);
+    return `${prev.year}-${String(prev.month).padStart(2, '0')}-${String(prev.day).padStart(2, '0')}`;
   }
-  return formatYmdLocal(d);
+  return `${clock.year}-${String(clock.month).padStart(2, '0')}-${String(clock.day).padStart(2, '0')}`;
 }
 
 export function addDaysToYmd(ymd: string, deltaDays: number): string {
@@ -183,24 +232,15 @@ export function getProductionDayWindow(
  * (same layout as legacy EquipmentDetail Gantt).
  */
 export function getRollingFactoryShiftWindows(now: Date = new Date()): FactoryShiftWindowRow[] {
-  const currentShiftStart = new Date(now);
-  if (now.getHours() >= 6 && now.getHours() < 14) {
-    currentShiftStart.setHours(6, 0, 0, 0);
-  } else if (now.getHours() >= 14 && now.getHours() < 22) {
-    currentShiftStart.setHours(14, 0, 0, 0);
-  } else {
-    if (now.getHours() < 6) {
-      currentShiftStart.setDate(currentShiftStart.getDate() - 1);
-    }
-    currentShiftStart.setHours(22, 0, 0, 0);
-  }
+  const live = getCurrentShiftWindow(now);
+  const currentShiftStart = live.start;
 
   const rows: FactoryShiftWindowRow[] = [];
   for (let i = 2; i >= 0; i -= 1) {
     const start = new Date(currentShiftStart.getTime() - i * 8 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 8 * 60 * 60 * 1000);
-    const h = start.getHours();
-    const shiftNumber = (h === 6 ? 1 : h === 14 ? 2 : 3) as 1 | 2 | 3;
+    const { hour } = getFactoryClock(start);
+    const shiftNumber = (hour === 6 ? 1 : hour === 14 ? 2 : 3) as 1 | 2 | 3;
     rows.push({
       key: `rolling-${start.getTime()}`,
       shiftNumber,

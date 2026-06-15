@@ -19,6 +19,7 @@ import {
   speedPhaseLabelVi,
   speedUnitForArea,
 } from '../utils/equipment-speed-analysis-chart';
+import { FACTORY_TIME_ZONE } from '../utils/shiftCalculator';
 
 type SpeedReferenceLines = {
   vKtcn: number | null;
@@ -39,6 +40,7 @@ function formatAxisTime(ms: number, longSpan: boolean): string {
   const d = new Date(ms);
   if (longSpan) {
     return d.toLocaleString('vi-VN', {
+      timeZone: FACTORY_TIME_ZONE,
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
@@ -46,6 +48,7 @@ function formatAxisTime(ms: number, longSpan: boolean): string {
     });
   }
   return d.toLocaleTimeString('vi-VN', {
+    timeZone: FACTORY_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -68,7 +71,7 @@ export function EquipmentSpeedTrendChart({
     return null;
   }
 
-  const xDomain = resolveSpeedChartXDomain(windowStartMs, windowEndMs, rows);
+  const xDomain = resolveSpeedChartXDomain(windowStartMs, windowEndMs);
   const spanMs = xDomain[1] - xDomain[0];
   const longSpan = spanMs > 36 * 3600 * 1000;
   const tickCount = longSpan > 72 * 3600 * 1000 ? 8 : longSpan > 24 * 3600 * 1000 ? 7 : 6;

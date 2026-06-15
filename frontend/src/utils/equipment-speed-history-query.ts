@@ -6,6 +6,7 @@
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from './equipmentOeeDisplay';
 import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
 import {
+  FACTORY_TIME_ZONE,
   getCurrentShiftWindow,
   getFactoryShiftWindowsForCalendarDay,
   getProductionDayLabelDate,
@@ -26,7 +27,8 @@ export type EquipmentSpeedHistoryQuery = {
   sectionSubtitle: string;
 };
 
-const clock12 = new Intl.DateTimeFormat('en-US', {
+const clock12 = new Intl.DateTimeFormat('vi-VN', {
+  timeZone: FACTORY_TIME_ZONE,
   hour: 'numeric',
   minute: '2-digit',
   hour12: true,
@@ -37,7 +39,12 @@ function formatTimeShort(d: Date): string {
 }
 
 function formatDdMmYyyy(d: Date): string {
-  return d.toLocaleDateString('en-GB');
+  return d.toLocaleDateString('vi-VN', {
+    timeZone: FACTORY_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 function formatScopeTimeRange(start: Date, end: Date): string {
