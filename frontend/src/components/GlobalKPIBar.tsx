@@ -56,13 +56,13 @@ export function GlobalKPIBar() {
                 <Icon className="w-5 h-5" strokeWidth={2.5} />
               </div>
               <div>
-                <div className="text-white/60 text-sm tracking-wider mb-0.5">{kpi.label}</div>
+                <div className="mes-kpi-label text-sm tracking-wider mb-0.5">{kpi.label}</div>
                 <div className="flex items-baseline gap-1">
-                  <span className={`text-3xl tracking-tight ${kpi.color}`}>
+                  <span className={`text-3xl tracking-tight font-semibold ${kpi.color}`}>
                     {kpi.value}
                   </span>
                   {kpi.unit && (
-                    <span className="text-white/40 text-sm">{kpi.unit}</span>
+                    <span className="mes-kpi-unit text-sm">{kpi.unit}</span>
                   )}
                 </div>
               </div>

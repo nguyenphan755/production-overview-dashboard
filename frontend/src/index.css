@@ -2201,3 +2201,59 @@ body {
   animation: presence-breath-sun 2.6s ease-in-out infinite;
   border-radius: 9999px;
 }
+
+/* MES dashboard — higher contrast labels & secondary data on dark UI */
+.mes-dashboard {
+  color: rgb(255 255 255 / 0.92);
+}
+
+@layer components {
+  .mes-kpi-label {
+    color: rgb(255 255 255 / 0.85);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .mes-kpi-unit {
+    color: rgb(255 255 255 / 0.75);
+  }
+
+  .mes-data-secondary {
+    color: rgb(255 255 255 / 0.82);
+  }
+
+  .mes-data-muted {
+    color: rgb(255 255 255 / 0.72);
+  }
+}
+
+/* Opacity variants used in dashboard but not always picked up by Tailwind scan */
+@layer utilities {
+  .text-white\/30 {
+    color: rgb(255 255 255 / 0.55);
+  }
+
+  .text-white\/35 {
+    color: rgb(255 255 255 / 0.6);
+  }
+
+  .text-white\/45 {
+    color: rgb(255 255 255 / 0.72);
+  }
+
+  .text-white\/55 {
+    color: rgb(255 255 255 / 0.78);
+  }
+
+  .text-white\/70 {
+    color: rgb(255 255 255 / 0.85);
+  }
+
+  .text-white\/75 {
+    color: rgb(255 255 255 / 0.88);
+  }
+
+  .text-white\/90 {
+    color: rgb(255 255 255 / 0.95);
+  }
+}

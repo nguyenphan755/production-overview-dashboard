@@ -208,7 +208,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
 
   return (
     <UserPresenceProvider token={token}>
-      <div className="min-h-screen bg-gradient-to-br from-[#0A1E3A] via-[#0E2F4F] to-[#0A1E3A] p-3 mobile-bottom-padding">
+      <div className="mes-dashboard min-h-screen bg-gradient-to-br from-[#0A1E3A] via-[#0E2F4F] to-[#0A1E3A] p-3 mobile-bottom-padding">
         <CompanyHeader onLogout={onLogout} />
       <TabNavigation
         activeTab={activeTab}

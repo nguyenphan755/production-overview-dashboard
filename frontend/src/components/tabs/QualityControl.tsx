@@ -29,10 +29,10 @@ export function QualityControl() {
             <div className="p-2 rounded-xl bg-[#4FFFBC]/20">
               <CheckCircle2 className="w-5 h-5 text-[#4FFFBC]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">PASS RATE</span>
+            <span className="mes-kpi-label text-xs tracking-wider">PASS RATE</span>
           </div>
           <div className="text-3xl text-[#4FFFBC]">99.6%</div>
-          <div className="text-white/40 text-xs mt-1">↑ 0.2% vs yesterday</div>
+          <div className="mes-data-muted text-xs mt-1">↑ 0.2% vs yesterday</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -40,10 +40,10 @@ export function QualityControl() {
             <div className="p-2 rounded-xl bg-[#FF4C4C]/20">
               <XCircle className="w-5 h-5 text-[#FF4C4C]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">DEFECTS</span>
+            <span className="mes-kpi-label text-xs tracking-wider">DEFECTS</span>
           </div>
           <div className="text-3xl text-[#FF4C4C]">53</div>
-          <div className="text-white/40 text-xs mt-1">Today's total</div>
+          <div className="mes-data-muted text-xs mt-1">Today's total</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -51,10 +51,10 @@ export function QualityControl() {
             <div className="p-2 rounded-xl bg-[#34E7F8]/20">
               <ClipboardList className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">INSPECTIONS</span>
+            <span className="mes-kpi-label text-xs tracking-wider">INSPECTIONS</span>
           </div>
           <div className="text-3xl text-[#34E7F8]">156</div>
-          <div className="text-white/40 text-xs mt-1">Last 8 hours</div>
+          <div className="mes-data-muted text-xs mt-1">Last 8 hours</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -62,10 +62,10 @@ export function QualityControl() {
             <div className="p-2 rounded-xl bg-[#FFB86C]/20">
               <Target className="w-5 h-5 text-[#FFB86C]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">FIRST PASS YIELD</span>
+            <span className="mes-kpi-label text-xs tracking-wider">FIRST PASS YIELD</span>
           </div>
           <div className="text-3xl text-[#FFB86C]">98.2%</div>
-          <div className="text-white/40 text-xs mt-1">Target: 98.5%</div>
+          <div className="mes-data-muted text-xs mt-1">Target: 98.5%</div>
         </div>
       </div>
 
@@ -144,7 +144,7 @@ export function QualityControl() {
               <TrendingDown className="w-5 h-5 text-[#FF4C4C]" />
               <span>Defect Rate by Area</span>
             </div>
-            <span className="text-white/60 text-xs">Tap to expand</span>
+            <span className="mes-kpi-label text-xs">Tap to expand</span>
           </summary>
           <div className="h-48 mt-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -163,7 +163,7 @@ export function QualityControl() {
               <AlertTriangle className="w-5 h-5 text-[#FFB86C]" />
               <span>Defect Types Distribution</span>
             </div>
-            <span className="text-white/60 text-xs">Tap to expand</span>
+            <span className="mes-kpi-label text-xs">Tap to expand</span>
           </summary>
           <div className="mt-4 space-y-4">
             <div className="h-40">
@@ -214,15 +214,15 @@ export function QualityControl() {
                 } shadow-lg`} />
                 <div>
                   <div className="text-white">{inspection.area}</div>
-                  <div className="text-white/40 text-sm">{inspection.inspector}</div>
+                  <div className="mes-data-muted text-sm">{inspection.inspector}</div>
                 </div>
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-center">
-                  <div className="text-white/60 text-xs">SAMPLES</div>
+                  <div className="mes-kpi-label text-xs">SAMPLES</div>
                   <div className="text-xl text-[#34E7F8]">{inspection.samples}</div>
                 </div>
-                <div className="text-white/40 text-sm">{inspection.time}</div>
+                <div className="mes-data-muted text-sm">{inspection.time}</div>
               </div>
             </div>
           ))}
@@ -233,7 +233,7 @@ export function QualityControl() {
         <details className="mobile-accordion">
           <summary className="flex items-center justify-between text-white">
             <span>Recent Inspections</span>
-            <span className="text-white/60 text-xs">Tap to expand</span>
+            <span className="mes-kpi-label text-xs">Tap to expand</span>
           </summary>
           <div className="space-y-3 mt-4">
             {inspectionStatus.map((inspection, index) => (
@@ -245,9 +245,9 @@ export function QualityControl() {
                     }`} />
                     <div className="text-white">{inspection.area}</div>
                   </div>
-                  <div className="text-white/40 text-xs">{inspection.time}</div>
+                  <div className="mes-data-muted text-xs">{inspection.time}</div>
                 </div>
-                <div className="text-white/60 text-xs">{inspection.inspector}</div>
+                <div className="mes-kpi-label text-xs">{inspection.inspector}</div>
                 <div className="mt-2 text-[#34E7F8] text-lg">{inspection.samples} samples</div>
               </div>
             ))}

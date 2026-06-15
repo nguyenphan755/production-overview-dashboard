@@ -272,7 +272,7 @@ export function EquipmentOeeToolbar({
       ) : null}
 
       {mode === 'past_shift' ? (
-        <div className="mt-2 text-white/40 text-[11px] leading-snug space-y-1">
+        <div className="mt-2 mes-data-muted text-[11px] leading-snug space-y-1">
           <p>
             <strong className="text-white/55">Chuẩn báo cáo (TPM / ISO 22400):</strong> OEE = Availability × Performance ×
             Quality trên ca đã hoàn thành. Ưu tiên{' '}
@@ -281,12 +281,12 @@ export function EquipmentOeeToolbar({
           </p>
         </div>
       ) : mode === 'shift_live' ? (
-        <div className="mt-2 text-white/40 text-[11px] leading-snug">
+        <div className="mt-2 mes-data-muted text-[11px] leading-snug">
           Ca đang chạy — rollup đến phút hiện tại (cửa sổ chưa khóa hoàn toàn). Ca 1–3 theo ngày chọn là cửa sổ đủ 8h đã
           định nghĩa.
         </div>
       ) : mode !== 'realtime' ? (
-        <div className="mt-2 text-white/40 text-[11px] leading-snug">
+        <div className="mt-2 mes-data-muted text-[11px] leading-snug">
           A/P/Q theo rollup máy trong cửa sổ đã chọn. Khác snapshot realtime PLC/MES.
         </div>
       ) : null}

@@ -52,12 +52,12 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-1.5">
             <h2 className="text-lg text-white tracking-wide">{area.name}</h2>
-            <span className="text-white/40 text-sm">{area.nameEn}</span>
+            <span className="mes-data-muted text-sm">{area.nameEn}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-[#4FFFBC]" />
-            <span className="text-2xl text-[#4FFFBC]">{area.running}</span>
-            <span className="text-white/40 text-sm">/ {area.total}</span>
+            <span className="text-2xl font-semibold text-[#4FFFBC]">{area.running}</span>
+            <span className="mes-data-muted text-sm">/ {area.total}</span>
           </div>
         </div>
       </div>
@@ -67,31 +67,31 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
         <div>
           <div className="flex items-center gap-1 mb-0.5">
             <Package className="w-3 h-3 text-[#34E7F8]" />
-            <span className="text-white/60 text-sm">OUTPUT</span>
+            <span className="mes-kpi-label text-sm">OUTPUT</span>
           </div>
-          <div className="text-2xl text-[#34E7F8]">{(area.output / 1000).toFixed(1)}K</div>
+          <div className="text-2xl font-semibold text-[#34E7F8]">{(area.output / 1000).toFixed(1)}K</div>
         </div>
         <div>
           <div className="flex items-center gap-1 mb-0.5">
             <Gauge className="w-3 h-3 text-[#4FFFBC]" />
-            <span className="text-white/60 text-sm">SPEED</span>
+            <span className="mes-kpi-label text-sm">SPEED</span>
           </div>
-          <div className="text-2xl text-[#4FFFBC]">
+          <div className="text-2xl font-semibold text-[#4FFFBC]">
             {area.id === 'drawing' ? (area.speedAvg / 60.0).toFixed(1) : area.speedAvg.toFixed(1)}
           </div>
         </div>
         <div>
           <div className="flex items-center gap-1 mb-0.5">
             <AlertTriangle className="w-3 h-3 text-[#FF4C4C]" />
-            <span className="text-white/60 text-sm">ALARMS</span>
+            <span className="mes-kpi-label text-sm">ALARMS</span>
           </div>
-          <div className="text-2xl text-[#FF4C4C]">{area.alarms}</div>
+          <div className="text-2xl font-semibold text-[#FF4C4C]">{area.alarms}</div>
         </div>
       </div>
 
       {/* All Machines - Always show 10 lines with status indicators */}
       <div className="p-2 border-b border-white/10">
-        <div className="text-white/60 text-sm mb-1.5">ALL MACHINES</div>
+        <div className="mes-kpi-label text-sm mb-1.5">ALL MACHINES</div>
         <div className="space-y-1">
           {Array.from({ length: 10 }).map((_, index) => {
             const machine = machinesToDisplay[index];
@@ -113,8 +113,8 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
                     />
                     <div className="min-w-0 flex-1 flex items-center gap-1.5">
                       <span
-                        className={`text-lg sm:text-xl font-medium leading-tight shrink-0 transition-colors duration-500 ${
-                          running ? 'text-white' : 'text-white/60'
+                        className={`text-lg sm:text-xl font-semibold leading-tight shrink-0 transition-colors duration-500 ${
+                          running ? 'text-white' : 'mes-data-secondary'
                         }`}
                       >
                         {machine.name}
@@ -130,8 +130,8 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
                           <span
                             className={`text-sm sm:text-base font-semibold leading-tight truncate min-w-0 transition-colors duration-500 ${
                               running && !isUnknownLikeProductName(productLabel)
-                                ? 'text-[#22C55E]'
-                                : 'text-white/60'
+                                ? 'text-[#4FFFBC]'
+                                : 'mes-data-secondary'
                             }`}
                             style={running ? unknownLikeProductInlineStyle(productLabel) : undefined}
                             title={productLabel}
@@ -143,23 +143,23 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
                     </div>
                   </div>
                   <div
-                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight whitespace-nowrap pl-1 transition-colors duration-500 ${
+                    className={`shrink-0 text-right text-lg sm:text-xl font-bold leading-tight whitespace-nowrap pl-1 transition-colors duration-500 ${
                       running
                         ? machine.status === 'running'
-                          ? 'text-[#22C55E]'
+                          ? 'text-[#4FFFBC]'
                           : machine.status === 'idle' || machine.status === 'warning'
                             ? 'text-[#F59E0B]'
                             : machine.status === 'error' || machine.status === 'stopped'
                               ? 'text-[#EF4444]'
                               : 'text-[#34E7F8]'
-                        : 'text-white/60'
+                        : 'mes-data-secondary'
                     }`}
                   >
                     {displaySpeed > 0 
                       ? (area.id === 'drawing' ? `${(displaySpeed / 60.0).toFixed(2)}` : `${displaySpeed}`)
                       : '0'
                     }{' '}
-                    <span className="text-sm text-white/60 transition-colors duration-500">
+                    <span className={`text-sm font-medium ${running ? 'mes-kpi-unit' : 'mes-data-muted'}`}>
                       {area.id === 'drawing' ? 'm/s' : 'm/min'}
                     </span>
                   </div>
@@ -168,12 +168,12 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
             } else {
               // Empty placeholder to reserve space for standby/backup machines
               return (
-                <div key={index} className="flex items-center justify-between opacity-30">
+                <div key={index} className="flex items-center justify-between opacity-40">
                   <div className="flex items-center gap-2">
-                    <div className="w-3.5 h-3.5 rounded-full bg-white/20"></div>
-                    <span className="text-white/40 text-xl">--</span>
+                    <div className="w-3.5 h-3.5 rounded-full bg-white/25"></div>
+                    <span className="mes-data-muted text-base">--</span>
                   </div>
-                  <div className="text-white/20 text-xl">--</div>
+                  <div className="mes-data-muted text-base opacity-70">--</div>
                 </div>
               );
             }

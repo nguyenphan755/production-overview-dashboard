@@ -165,7 +165,7 @@ export function EquipmentStatus({
       {/* Summary Bar */}
       <div className="mb-6 grid gap-4 responsive-grid-5">
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-red/5 backdrop-blur-xl border border-white/20 p-5">
-          <div className="text-white/60 tracking-wider mb-2 text-sm">TOTAL MACHINES</div>
+          <div className="mes-kpi-label tracking-wider mb-2 text-sm">TOTAL MACHINES</div>
           <div className="text-4xl text-white tracking-tight">{totalMachines}</div>
         </div>
 
@@ -175,7 +175,7 @@ export function EquipmentStatus({
             <div className="text-white/80 tracking-wider text-sm">RUNNING</div>
           </div>
           <div className="text-4xl text-[#22C55E] tracking-tight">{runningCount}</div>
-          <div className="text-white/40 text-sm mt-1">{((runningCount / totalMachines) * 100).toFixed(1)}%</div>
+          <div className="mes-data-muted text-sm mt-1">{((runningCount / totalMachines) * 100).toFixed(1)}%</div>
         </div>
 
         <div className="rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 p-5">
@@ -183,8 +183,8 @@ export function EquipmentStatus({
             <div className="w-3 h-3 rounded-full bg-[#64748B] shadow-lg" />
             <div className="text-white/80 tracking-wider text-sm">IDLE</div>
           </div>
-          <div className="text-4xl text-[#64748B] tracking-tight">{idleCount}</div>
-          <div className="text-white/40 text-sm mt-1">{((idleCount / totalMachines) * 100).toFixed(1)}%</div>
+          <div className="text-4xl text-white/80 tracking-tight font-semibold">{idleCount}</div>
+          <div className="mes-data-muted text-sm mt-1">{((idleCount / totalMachines) * 100).toFixed(1)}%</div>
         </div>
 
         <div className="rounded-xl bg-gradient-to-br from-[#F59E0B]/20 to-[#F59E0B]/5 backdrop-blur-xl border border-[#F59E0B]/30 p-5">
@@ -193,7 +193,7 @@ export function EquipmentStatus({
             <div className="text-white/80 tracking-wider text-sm">WARNING</div>
           </div>
           <div className="text-4xl text-[#F59E0B] tracking-tight">{warningCount}</div>
-          <div className="text-white/40 text-sm mt-1">{((warningCount / totalMachines) * 100).toFixed(1)}%</div>
+          <div className="mes-data-muted text-sm mt-1">{((warningCount / totalMachines) * 100).toFixed(1)}%</div>
         </div>
 
         <div className="rounded-xl bg-gradient-to-br from-[#EF4444]/20 to-[#EF4444]/5 backdrop-blur-xl border border-[#EF4444]/30 p-5">
@@ -202,7 +202,7 @@ export function EquipmentStatus({
             <div className="text-white/80 tracking-wider text-sm">ERROR</div>
           </div>
           <div className="text-4xl text-[#EF4444] tracking-tight">{errorCount}</div>
-          <div className="text-white/40 text-sm mt-1">{((errorCount / totalMachines) * 100).toFixed(1)}%</div>
+          <div className="mes-data-muted text-sm mt-1">{((errorCount / totalMachines) * 100).toFixed(1)}%</div>
         </div>
       </div>
 
@@ -245,7 +245,7 @@ export function EquipmentStatus({
                         {exportBusyArea === area.id ? 'Đang xuất…' : 'HTML Processing'}
                       </button>
                     ) : null}
-                    <div className="text-white/60 text-xs">
+                    <div className="mes-kpi-label text-xs">
                       {area.machines.filter(m => m.status === 'running').length} / {area.machines.length} Running
                     </div>
                   </div>
@@ -313,7 +313,7 @@ export function EquipmentStatus({
                         <div className="flex items-start justify-between mb-2" style={{ minHeight: '45px' }}>
                           <div className="flex-1 min-w-0">
                             <div className={`${isRunning ? 'text-xl' : 'text-lg'} ${isRunning ? 'text-white font-semibold' : 'text-white'} tracking-tight mb-0.5`}>{machine.name}</div>
-                          <div className="text-white/60 text-xs leading-tight">
+                          <div className="mes-kpi-label text-xs leading-tight">
                               {(() => {
                                 const order =
                                   activeOrderByMachineId.get(machine.id) ??
@@ -367,9 +367,9 @@ export function EquipmentStatus({
                                 title={isExpanded ? 'Collapse details' : 'Expand details'}
                               >
                                 {isExpanded ? (
-                                  <ChevronUp className="w-4 h-4 text-white/60" />
+                                  <ChevronUp className="w-4 h-4 mes-kpi-label" />
                                 ) : (
-                                  <ChevronDown className="w-4 h-4 text-white/60" />
+                                  <ChevronDown className="w-4 h-4 mes-kpi-label" />
                                 )}
                               </button>
                             )}
@@ -390,7 +390,7 @@ export function EquipmentStatus({
                         <div className="mb-2 pb-2 border-b border-white/10">
                           <div className="flex items-center gap-1 mb-1">
                             <Ruler className="w-3 h-3 text-[#34E7F8]" strokeWidth={2} />
-                            <span className="text-white/50 text-[10px] tracking-wide">LENGTH</span>
+                            <span className="mes-data-secondary text-[10px] tracking-wide">LENGTH</span>
                           </div>
                           <div className="flex items-baseline justify-between gap-2 mb-1.5">
                             <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
@@ -399,13 +399,13 @@ export function EquipmentStatus({
                               >
                                 {producedLength.toLocaleString()}
                               </span>
-                              <span className="text-white/40 text-sm">
+                              <span className="mes-data-muted text-sm">
                                 / {targetLength > 0 ? targetLength.toLocaleString() : '—'}
                               </span>
-                              <span className="text-white/50 text-xs">m</span>
+                              <span className="mes-data-secondary text-xs">m</span>
                             </div>
                             <span
-                              className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} text-white/60 flex-shrink-0`}
+                              className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} mes-kpi-label flex-shrink-0`}
                             >
                               {targetLength > 0 ? `${lengthProgressPct.toFixed(0)}%` : '—'}
                             </span>
@@ -429,10 +429,10 @@ export function EquipmentStatus({
                               <span className={`${isRunning ? 'text-3xl font-bold' : 'text-xl'} tracking-tight`} style={{ color: isRunning ? '#22C55E' : statusColor }}>
                                 {machine.area === 'drawing' ? (machine.lineSpeed || 0).toFixed(2) : (machine.lineSpeed || 0)}
                               </span>
-                              <span className="text-white/40 text-xs">/ {machine.area === 'drawing' ? (machine.targetSpeed || 0).toFixed(2) : (machine.targetSpeed || 0)}</span>
-                              <span className="text-white/60 text-xs">{machine.area === 'drawing' ? 'm/s' : 'm/min'}</span>
+                              <span className="mes-data-muted text-xs">/ {machine.area === 'drawing' ? (machine.targetSpeed || 0).toFixed(2) : (machine.targetSpeed || 0)}</span>
+                              <span className="mes-kpi-label text-xs">{machine.area === 'drawing' ? 'm/s' : 'm/min'}</span>
                             </div>
-                            <span className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} text-white/60`}>{speedPercentage.toFixed(0)}%</span>
+                            <span className={`${isRunning ? 'text-base font-semibold' : 'text-sm'} mes-kpi-label`}>{speedPercentage.toFixed(0)}%</span>
                           </div>
                           <div className={`${isRunning ? 'h-2.5' : 'h-1.5'} bg-white/10 rounded-full overflow-hidden`}>
                             <div 
@@ -453,10 +453,10 @@ export function EquipmentStatus({
                           <div>
                             <div className="flex items-center gap-1 mb-0.5">
                               <Zap className="w-3 h-3 text-[#FFB86C]" strokeWidth={2} />
-                              <span className="text-white/50 text-[10px] tracking-wide">CURRENT</span>
+                              <span className="mes-data-secondary text-[10px] tracking-wide">CURRENT</span>
                             </div>
                             <div className="text-base text-white tracking-tight mb-0.5">{(machine.current || 0).toFixed(1)}</div>
-                            <div className="text-white/40 text-[10px] mb-0.5">A</div>
+                            <div className="mes-data-muted text-[10px] mb-0.5">A</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.current || []} 
                               color="#FFB86C" 
@@ -468,10 +468,10 @@ export function EquipmentStatus({
                           <div>
                             <div className="flex items-center gap-1 mb-0.5">
                               <Circle className="w-3 h-3 text-[#4FFFBC]" strokeWidth={2} fill="currentColor" />
-                              <span className="text-white/50 text-[10px] tracking-wide">POWER</span>
+                              <span className="mes-data-secondary text-[10px] tracking-wide">POWER</span>
                             </div>
                             <div className="text-base text-white tracking-tight mb-0.5">{(machine.power || 0).toFixed(1)}</div>
-                            <div className="text-white/40 text-[10px] mb-0.5">kW</div>
+                            <div className="mes-data-muted text-[10px] mb-0.5">kW</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.power || []} 
                               color="#4FFFBC" 
@@ -484,10 +484,10 @@ export function EquipmentStatus({
                           <div>
                             <div className="flex items-center gap-1 mb-0.5">
                               <Thermometer className="w-3 h-3" style={{ color: getTempColor(machine.temperature || 0) }} strokeWidth={2} />
-                              <span className="text-white/50 text-[10px] tracking-wide">TEMP</span>
+                              <span className="mes-data-secondary text-[10px] tracking-wide">TEMP</span>
                             </div>
                             <div className="text-base text-white tracking-tight mb-0.5">{Math.round(machine.temperature || 0)}</div>
-                            <div className="text-white/40 text-[10px] mb-0.5">°C</div>
+                            <div className="mes-data-muted text-[10px] mb-0.5">°C</div>
                             <MachineTrendChart 
                               data={trends[machine.id]?.temperature || []} 
                               color={getTempColor(machine.temperature || 0)} 
@@ -504,9 +504,9 @@ export function EquipmentStatus({
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-1">
                               <Gauge className="w-3 h-3 text-[#34E7F8]" strokeWidth={2} />
-                              <span className="text-white/50 text-[10px] tracking-wide">SPEED</span>
+                              <span className="mes-data-secondary text-[10px] tracking-wide">SPEED</span>
                             </div>
-                            <span className="text-white/60 text-[10px]">
+                            <span className="mes-kpi-label text-[10px]">
                               {machine.area === 'drawing' ? (machine.lineSpeed || 0).toFixed(2) : (machine.lineSpeed || 0)} {machine.area === 'drawing' ? 'm/s' : 'm/min'}
                             </span>
                           </div>
@@ -524,7 +524,7 @@ export function EquipmentStatus({
                           <div className="mt-2 pt-2 border-t border-white/10" style={{ minHeight: '50px' }}>
                             <div className="flex items-center gap-1 mb-1">
                               <Target className="w-2.5 h-2.5 text-[#34E7F8]" strokeWidth={2} />
-                              <div className="text-white/50 text-[9px] tracking-wide">OEE</div>
+                              <div className="mes-data-secondary text-[9px] tracking-wide">OEE</div>
                             </div>
                             {(() => {
                               const oeeDisp = pickMachineOee(machine, equipmentOeeMode, equipmentOeeRollupByMachine);
@@ -536,7 +536,7 @@ export function EquipmentStatus({
                             <div className="grid gap-1 responsive-grid-4">
                               {/* OEE */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">OEE</div>
+                                <div className="mes-kpi-label text-[9px] mb-0.5 tracking-wider">OEE</div>
                                 <div 
                                   className={`${isRunning ? 'text-base' : 'text-sm'} tracking-tight mb-0.5`}
                                   style={{ color: getOEEColor(oeeVal) }}
@@ -556,7 +556,7 @@ export function EquipmentStatus({
 
                               {/* Availability */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">A</div>
+                                <div className="mes-kpi-label text-[9px] mb-0.5 tracking-wider">A</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#4FFFBC] tracking-tight mb-0.5`}>
                                   {aVal}%
                                 </div>
@@ -570,7 +570,7 @@ export function EquipmentStatus({
 
                               {/* Performance */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">P</div>
+                                <div className="mes-kpi-label text-[9px] mb-0.5 tracking-wider">P</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#FFB86C] tracking-tight mb-0.5`}>
                                   {pVal}%
                                 </div>
@@ -584,7 +584,7 @@ export function EquipmentStatus({
 
                               {/* Quality */}
                               <div className="p-1 rounded-lg bg-gradient-to-br from-white/8 to-white/3 border border-white/10">
-                                <div className="text-white/60 text-[9px] mb-0.5 tracking-wider">Q</div>
+                                <div className="mes-kpi-label text-[9px] mb-0.5 tracking-wider">Q</div>
                                 <div className={`${isRunning ? 'text-base' : 'text-sm'} text-[#34E7F8] tracking-tight mb-0.5`}>
                                   {qVal}%
                                 </div>

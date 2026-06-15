@@ -46,14 +46,14 @@ export const MachineGrid = memo(function MachineGrid({
   };
 
   const getSpeedColor = (status: string) => {
-    switch (status) {
+    switch (String(status ?? '').toLowerCase()) {
       case 'running': return 'text-[#4FFFBC]';
       case 'setup': return 'text-[#FFB86C]';
       case 'error': return 'text-[#FF4C4C]';
       case 'stopped': return 'text-[#34E7F8]';
-      case 'idle': return 'text-white/40';
+      case 'idle': return 'mes-data-secondary';
       case 'warning': return 'text-[#FFB86C]';
-      default: return 'text-white/40';
+      default: return 'mes-data-secondary';
     }
   };
 
@@ -85,17 +85,17 @@ export const MachineGrid = memo(function MachineGrid({
               <summary className="flex items-center justify-between gap-3 cursor-pointer">
                 <div className="min-w-0">
                   <div className="text-white text-base truncate">{machine.name}</div>
-                  <div className="text-white/50 text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
+                  <div className="mes-data-muted text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
                 </div>
                 <div className="text-right">
-                  <div className={`text-2xl ${getSpeedColor(machine.status)} tracking-tight`}>
+                  <div className={`text-2xl font-bold ${getSpeedColor(machine.status)} tracking-tight`}>
                     {(machine.lineSpeed || 0).toFixed(1)}
                   </div>
-                  <div className="text-white/40 text-xs">Line speed</div>
+                  <div className="mes-data-muted text-xs">Line speed</div>
                 </div>
               </summary>
               <div className="mt-3 border-t border-white/10 pt-3 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-white/60 text-xs">
+                <div className="flex items-center gap-2 mes-data-secondary text-xs">
                   <div className={`w-2 h-2 rounded-full ${getStatusDot(machine.status)}`}></div>
                   <span>Status: {machine.status.toUpperCase()}</span>
                 </div>
@@ -130,7 +130,7 @@ export const MachineGrid = memo(function MachineGrid({
               <div
                 key={machine.id}
                 onClick={() => onMachineClick?.(machine.id)}
-                className={`rounded-lg border-2 ${getStatusColor(machine.status)} backdrop-blur-sm p-2 transition-all duration-300 hover:scale-105 hover:shadow-lg cursor-pointer`}
+                className={`rounded-lg border-2 ${getStatusColor(machine.status)} backdrop-blur-sm p-2 transition-all duration-300 hover:scale-105 hover:shadow-lg cursor-pointer text-white`}
               >
                 <div className="flex items-start justify-between mb-1.5">
                   <div className="text-white text-sm tracking-wide line-clamp-2">{machine.name}</div>
@@ -138,12 +138,12 @@ export const MachineGrid = memo(function MachineGrid({
                 </div>
                 
                 <div className="mb-1">
-                  <div className={`text-2xl ${getSpeedColor(machine.status)} tracking-tight`}>
+                  <div className={`text-2xl font-bold ${getSpeedColor(machine.status)} tracking-tight`}>
                     {(machine.lineSpeed || 0).toFixed(1)}
                   </div>
                 </div>
 
-                <div className="text-white/40 text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
+                <div className="mes-data-muted text-xs">{machine.id} • {areaNames[machine.area] || machine.area}</div>
               </div>
             ))
           )}
@@ -154,19 +154,19 @@ export const MachineGrid = memo(function MachineGrid({
       <div className="desktop-only flex items-center gap-4 mt-3 pt-3 border-t border-white/10">
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-[#4FFFBC]"></div>
-          <span className="text-white/60 text-sm">Running</span>
+          <span className="mes-kpi-label text-sm">Running</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-[#FFB86C]"></div>
-          <span className="text-white/60 text-sm">Setup</span>
+          <span className="mes-kpi-label text-sm">Setup</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-[#FF4C4C]"></div>
-          <span className="text-white/60 text-sm">Error</span>
+          <span className="mes-kpi-label text-sm">Error</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-[#34E7F8]"></div>
-          <span className="text-white/60 text-sm">Stopped</span>
+          <span className="mes-kpi-label text-sm">Stopped</span>
         </div>
       </div>
     </div>

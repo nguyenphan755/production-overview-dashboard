@@ -124,7 +124,7 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
         <h3 className="text-white">{title}</h3>
       </div>
       {list.length === 0 ? (
-        <div className="text-white/50 text-sm">No executions available.</div>
+        <div className="mes-data-secondary text-sm">No executions available.</div>
       ) : (
         <div className="space-y-3">
           {list.map(order => {
@@ -144,7 +144,7 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <span className="text-white/60 text-sm">{order.id}</span>
+                        <span className="mes-kpi-label text-sm">{order.id}</span>
                         <span
                           className="px-2 py-0.5 rounded-full text-xs border"
                           style={{
@@ -165,17 +165,17 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
                         </span>
                       </div>
                       <div className="text-white text-xl mb-1">{productName || 'Not entered yet'}</div>
-                      <div className="text-white/60 text-sm">{order.customer}</div>
+                      <div className="mes-kpi-label text-sm">{order.customer}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-3xl text-[#34E7F8]">{progress.toFixed(0)}%</div>
-                      <div className="text-white/40 text-xs">Complete</div>
+                      <div className="mes-data-muted text-xs">Complete</div>
                     </div>
                   </div>
 
                   <div className="mb-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-white/60 text-sm">Progress</span>
+                      <span className="mes-kpi-label text-sm">Progress</span>
                       <span className="text-white text-sm">
                         {producedLength.toLocaleString()} / {targetLength.toLocaleString()} m
                       </span>
@@ -190,20 +190,20 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
 
                   <div className="grid gap-4 responsive-grid-4">
                     <div>
-                      <div className="text-white/60 text-xs mb-1">MACHINE</div>
+                      <div className="mes-kpi-label text-xs mb-1">MACHINE</div>
                       <div className="text-white">{machineName}</div>
-                      <div className="text-white/40 text-xs">{order.machineId}</div>
+                      <div className="mes-data-muted text-xs">{order.machineId}</div>
                     </div>
                     <div>
-                      <div className="text-white/60 text-xs mb-1">START</div>
+                      <div className="mes-kpi-label text-xs mb-1">START</div>
                       <div className="text-white">{formatTime(order.startTime)}</div>
                     </div>
                     <div>
-                      <div className="text-white/60 text-xs mb-1">END</div>
+                      <div className="mes-kpi-label text-xs mb-1">END</div>
                       <div className="text-white">{formatTime(order.endTime)}</div>
                     </div>
                     <div>
-                      <div className="text-white/60 text-xs mb-1">PRODUCT</div>
+                      <div className="mes-kpi-label text-xs mb-1">PRODUCT</div>
                       <div className="text-[#34E7F8] text-sm">{productLabel}</div>
                     </div>
                   </div>
@@ -212,13 +212,13 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
                 <details className="mobile-only mobile-accordion rounded-xl bg-white/5 border border-white/10 p-4">
                   <summary className="flex items-start justify-between gap-3 text-white cursor-pointer">
                     <div className="min-w-0">
-                      <div className="text-white/60 text-xs">{order.id}</div>
+                      <div className="mes-kpi-label text-xs">{order.id}</div>
                       <div className="text-white text-base truncate">{productName || 'Not entered yet'}</div>
-                      <div className="text-white/40 text-xs">{order.customer}</div>
+                      <div className="mes-data-muted text-xs">{order.customer}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-2xl text-[#34E7F8]">{progress.toFixed(0)}%</div>
-                      <div className="text-white/40 text-xs">Complete</div>
+                      <div className="mes-data-muted text-xs">Complete</div>
                     </div>
                   </summary>
                   <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
@@ -243,33 +243,33 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
                       </span>
                     </div>
                     <div>
-                      <div className="text-white/60 text-xs mb-1">Progress</div>
+                      <div className="mes-kpi-label text-xs mb-1">Progress</div>
                       <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-gradient-to-r from-[#34E7F8] to-[#4FFFBC] rounded-full"
                           style={{ width: `${Math.min(progress, 100)}%` }}
                         />
                       </div>
-                      <div className="text-white/60 text-xs mt-1">
+                      <div className="mes-kpi-label text-xs mt-1">
                         {producedLength.toLocaleString()} / {targetLength.toLocaleString()} m
                       </div>
                     </div>
                     <div className="grid gap-3 responsive-grid-2">
                       <div>
-                        <div className="text-white/60 text-xs mb-1">MACHINE</div>
+                        <div className="mes-kpi-label text-xs mb-1">MACHINE</div>
                         <div className="text-white">{machineName}</div>
-                        <div className="text-white/40 text-xs">{order.machineId}</div>
+                        <div className="mes-data-muted text-xs">{order.machineId}</div>
                       </div>
                       <div>
-                        <div className="text-white/60 text-xs mb-1">START</div>
+                        <div className="mes-kpi-label text-xs mb-1">START</div>
                         <div className="text-white">{formatTime(order.startTime)}</div>
                       </div>
                       <div>
-                        <div className="text-white/60 text-xs mb-1">END</div>
+                        <div className="mes-kpi-label text-xs mb-1">END</div>
                         <div className="text-white">{formatTime(order.endTime)}</div>
                       </div>
                       <div>
-                        <div className="text-white/60 text-xs mb-1">PRODUCT</div>
+                        <div className="mes-kpi-label text-xs mb-1">PRODUCT</div>
                         <div className="text-[#34E7F8] text-sm">{productLabel}</div>
                       </div>
                     </div>
@@ -292,10 +292,10 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
             <div className="p-2 rounded-xl bg-[#34E7F8]/20">
               <Clock className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">RUNNING</span>
+            <span className="mes-kpi-label text-xs tracking-wider">RUNNING</span>
           </div>
           <div className="text-3xl text-[#34E7F8]">{runningOrders.length}</div>
-          <div className="text-white/40 text-xs mt-1">Executions</div>
+          <div className="mes-data-muted text-xs mt-1">Executions</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -303,10 +303,10 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
             <div className="p-2 rounded-xl bg-[#4FFFBC]/20">
               <CheckCircle2 className="w-5 h-5 text-[#4FFFBC]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">COMPLETED</span>
+            <span className="mes-kpi-label text-xs tracking-wider">COMPLETED</span>
           </div>
           <div className="text-3xl text-[#4FFFBC]">{completedOrders.length}</div>
-          <div className="text-white/40 text-xs mt-1">Executions</div>
+          <div className="mes-data-muted text-xs mt-1">Executions</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -314,10 +314,10 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
             <div className="p-2 rounded-xl bg-[#FFB86C]/20">
               <AlertCircle className="w-5 h-5 text-[#FFB86C]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">INTERRUPTED</span>
+            <span className="mes-kpi-label text-xs tracking-wider">INTERRUPTED</span>
           </div>
           <div className="text-3xl text-[#FFB86C]">{interruptedOrders.length}</div>
-          <div className="text-white/40 text-xs mt-1">Executions</div>
+          <div className="mes-data-muted text-xs mt-1">Executions</div>
         </div>
 
         <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
@@ -325,14 +325,14 @@ export function ProductionSchedule({ machines }: ProductionScheduleProps) {
             <div className="p-2 rounded-xl bg-[#6366F1]/20">
               <Package className="w-5 h-5 text-[#6366F1]" strokeWidth={2.5} />
             </div>
-            <span className="text-white/60 text-xs tracking-wider">TOTAL</span>
+            <span className="mes-kpi-label text-xs tracking-wider">TOTAL</span>
           </div>
           <div className="text-3xl text-[#6366F1]">{effectiveOrders.length}</div>
-          <div className="text-white/40 text-xs mt-1">Executions</div>
+          <div className="mes-data-muted text-xs mt-1">Executions</div>
         </div>
       </div>
 
-      {loading && <div className="text-white/60">Loading execution data...</div>}
+      {loading && <div className="mes-kpi-label">Loading execution data...</div>}
       {error && <div className="text-[#EF4444]">{error}</div>}
       {!loading && !error && (
         <>
