@@ -111,7 +111,7 @@ export function EquipmentStatus({
   );
 
   // Group machines by area
-  const productionAreas = (['drawing', 'stranding', 'armoring', 'sheathing'] as ProductionArea[]).map((areaId) => {
+  const productionAreas = (['sheathing', 'armoring', 'stranding', 'drawing'] as ProductionArea[]).map((areaId) => {
     const areaMachines = machines.filter((m) => m.area === areaId);
     return {
       id: areaId,
