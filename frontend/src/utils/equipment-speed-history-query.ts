@@ -16,7 +16,6 @@ import {
   addDaysToYmd,
 } from './shiftCalculator';
 
-export const REALTIME_SPEED_POINT_LIMIT = 300;
 export const REALTIME_SPEED_BUCKET_SEC = 15;
 export const REALTIME_SPEED_POLL_MS = 15_000;
 
@@ -88,23 +87,7 @@ export function buildEquipmentSpeedHistoryQuery(
 ): EquipmentSpeedHistoryQuery {
   const modeLabel = equipmentOeeModeLabelVi(mode);
 
-  if (mode === 'realtime') {
-    const bucketSec = REALTIME_SPEED_BUCKET_SEC;
-    const queryEnd = now;
-    const queryStart = new Date(
-      now.getTime() - REALTIME_SPEED_POINT_LIMIT * bucketSec * 1000
-    );
-    return {
-      queryStart,
-      queryEnd,
-      bucketSec,
-      pollMs: REALTIME_SPEED_POLL_MS,
-      pointLimit: REALTIME_SPEED_POINT_LIMIT,
-      sectionSubtitle: `${modeLabel} — ${REALTIME_SPEED_POINT_LIMIT} điểm gần nhất (bucket ${bucketSec}s)`,
-    };
-  }
-
-  if (mode === 'shift_live') {
+  if (mode === 'realtime' || mode === 'shift_live') {
     const win = getCurrentShiftWindow(now);
     const bucketSec = resolveSpeedBucketSec(win.start, now);
     return {

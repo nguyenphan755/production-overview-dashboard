@@ -867,6 +867,22 @@ export function EquipmentDetail({
         </div>
       </div>
 
+      {/* OEE time filter — drives Gantt, speed trend, energy, and OEE KPIs */}
+      <div className="mb-4">
+        <EquipmentOeeToolbar
+          mode={equipmentOeeMode}
+          onModeChange={onEquipmentOeeModeChange}
+          scope={equipmentOeeScope}
+          loading={equipmentOeeRollupLoading}
+          error={equipmentOeeRollupError}
+          compact
+          referenceDate={referenceDate}
+          onReferenceDateChange={onReferenceDateChange}
+          pastIsoShiftNumber={pastIsoShiftNumber}
+          onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
+        />
+      </div>
+
       {/* Gantt Chart: Operational States */}
       <div className="mb-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
         <div className="flex items-start gap-2 mb-4 flex-wrap">
@@ -1089,18 +1105,6 @@ export function EquipmentDetail({
 
       {/* OEE Metrics */}
       <div className="mb-4 space-y-3">
-        <EquipmentOeeToolbar
-          mode={equipmentOeeMode}
-          onModeChange={onEquipmentOeeModeChange}
-          scope={equipmentOeeScope}
-          loading={equipmentOeeRollupLoading}
-          error={equipmentOeeRollupError}
-          compact
-          referenceDate={referenceDate}
-          onReferenceDateChange={onReferenceDateChange}
-          pastIsoShiftNumber={pastIsoShiftNumber}
-          onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
-        />
         {authToken ? (
           <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end mt-2">
             <label className="inline-flex flex-col gap-1 text-left sm:mr-1">
