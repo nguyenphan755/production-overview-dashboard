@@ -8,12 +8,16 @@ type UseEquipmentSpeedHistoryArgs = {
   queryEnd: Date;
   pollMs: number | null;
   bucketSec?: number;
-  /** Realtime: fetch N most recent buckets (backend limit). */
-  pointLimit?: number | null;
+  rangeKey: string;
+};
+
+export type SpeedHistoryPayload = {
+  response: SpeedHistoryResponse;
+  rangeKey: string;
 };
 
 type UseEquipmentSpeedHistoryResult = {
-  data: SpeedHistoryResponse | null;
+  data: SpeedHistoryPayload | null;
   loading: boolean;
   error: string | null;
 };
@@ -24,49 +28,49 @@ export function useEquipmentSpeedHistory({
   queryEnd,
   pollMs,
   bucketSec = 60,
-  pointLimit = null,
+  rangeKey,
 }: UseEquipmentSpeedHistoryArgs): UseEquipmentSpeedHistoryResult {
-  const [data, setData] = useState<SpeedHistoryResponse | null>(null);
+  const [data, setData] = useState<SpeedHistoryPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasDataRef = useRef(false);
   const requestSeqRef = useRef(0);
-
-  const rangeKey = `${machineId ?? ''}|${queryStart.toISOString()}|${queryEnd.toISOString()}|${bucketSec}|${pointLimit ?? ''}`;
+  const queryRef = useRef({ queryStart, queryEnd, bucketSec, rangeKey, pollMs });
+  queryRef.current = { queryStart, queryEnd, bucketSec, rangeKey, pollMs };
 
   useEffect(() => {
     if (!machineId) {
       setData(null);
       setError(null);
-      hasDataRef.current = false;
       return;
     }
+
+    setError(null);
+    setLoading(true);
 
     const seq = ++requestSeqRef.current;
     const ac = new AbortController();
 
     const fetchSpeedHistory = async (isPoll = false) => {
-      const blockingLoader = !hasDataRef.current && !isPoll;
-      if (blockingLoader) setLoading(true);
+      const q = queryRef.current;
+      if (!isPoll) setLoading(true);
+
+      const endForRequest =
+        isPoll && q.pollMs != null ? new Date() : q.queryEnd;
 
       try {
         const response = await apiClient.getMachineSpeedHistory(
           machineId,
           {
-            start: queryStart.toISOString(),
-            end: queryEnd.toISOString(),
-            bucketSec,
-            limit: pointLimit ?? undefined,
+            start: q.queryStart.toISOString(),
+            end: endForRequest.toISOString(),
+            bucketSec: q.bucketSec,
           },
           { signal: ac.signal }
         );
         if (ac.signal.aborted || seq !== requestSeqRef.current) return;
         if (response.success && response.data) {
-          setData(response.data);
+          setData({ response: response.data, rangeKey: q.rangeKey });
           setError(null);
-          if (response.data.points.length > 0) {
-            hasDataRef.current = true;
-          }
         } else {
           setError(response.message ?? 'Không tải được lịch sử tốc độ');
         }
@@ -76,13 +80,12 @@ export function useEquipmentSpeedHistory({
         console.error('Error fetching speed history:', err);
         setError(err instanceof Error ? err.message : 'Lỗi mạng');
       } finally {
-        if (!ac.signal.aborted && seq === requestSeqRef.current && blockingLoader) {
+        if (!ac.signal.aborted && seq === requestSeqRef.current) {
           setLoading(false);
         }
       }
     };
 
-    hasDataRef.current = false;
     fetchSpeedHistory(false);
 
     if (pollMs == null) {
@@ -96,7 +99,7 @@ export function useEquipmentSpeedHistory({
       clearInterval(interval);
       ac.abort();
     };
-  }, [machineId, rangeKey, pollMs, queryStart, queryEnd, bucketSec, pointLimit]);
+  }, [machineId, rangeKey, pollMs]);
 
   return { data, loading, error };
 }

@@ -130,12 +130,46 @@ export function buildSpeedChartRows(
   rangeEnd: Date
 ): SpeedChartRow[] {
   const longSpan = rangeEnd.getTime() - rangeStart.getTime() > 36 * 3600 * 1000;
-  return points.map((p) => ({
-    ...p,
-    time: formatSpeedChartTime(p.timestamp, longSpan),
-    timestampMs: new Date(p.timestamp).getTime(),
-    phaseColor: speedPhaseColor(p.phase),
-  }));
+  return points
+    .map((p) => ({
+      ...p,
+      time: formatSpeedChartTime(p.timestamp, longSpan),
+      timestampMs: new Date(p.timestamp).getTime(),
+      phaseColor: speedPhaseColor(p.phase),
+    }))
+    .filter((row) => Number.isFinite(row.timestampMs))
+    .sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+/** OEE filter window merged with fetched points so Recharts always draws the line. */
+export function resolveSpeedChartXDomain(
+  windowStartMs: number,
+  windowEndMs: number,
+  rows: SpeedChartRow[]
+): [number, number] {
+  let start = windowStartMs;
+  let end = Math.max(windowEndMs, windowStartMs + 60_000);
+  if (rows.length > 0) {
+    const dataMin = rows[0].timestampMs;
+    const dataMax = rows[rows.length - 1].timestampMs;
+    start = Math.min(start, dataMin);
+    end = Math.max(end, dataMax);
+  }
+  return [start, end];
+}
+
+/** Evenly spaced X-axis ticks so Recharts shows the full OEE filter window. */
+export function buildSpeedChartTimeTicks(
+  xDomain: [number, number],
+  tickCount = 6
+): number[] {
+  const [startMs, endMs] = xDomain;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return [startMs, endMs].filter((v) => Number.isFinite(v));
+  }
+  const count = Math.max(2, Math.min(tickCount, 12));
+  const step = (endMs - startMs) / (count - 1);
+  return Array.from({ length: count }, (_, i) => Math.round(startMs + step * i));
 }
 
 /** Bucket size by OEE window span — finer detail for shift, coarser for week. */

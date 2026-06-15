@@ -5,7 +5,6 @@
 
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from './equipmentOeeDisplay';
 import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
-import { resolveSpeedBucketSec } from './equipment-speed-analysis-chart';
 import {
   getCurrentShiftWindow,
   getFactoryShiftWindowsForCalendarDay,
@@ -16,8 +15,8 @@ import {
   addDaysToYmd,
 } from './shiftCalculator';
 
-export const REALTIME_SPEED_BUCKET_SEC = 15;
-export const REALTIME_SPEED_POLL_MS = 15_000;
+export const SPEED_BUCKET_SEC = 30;
+export const SPEED_POLL_MS = 30_000;
 
 export type EquipmentSpeedHistoryQuery = {
   queryStart: Date;
@@ -25,8 +24,6 @@ export type EquipmentSpeedHistoryQuery = {
   bucketSec: number;
   pollMs: number | null;
   sectionSubtitle: string;
-  /** Realtime rolling window — backend returns N most recent buckets. */
-  pointLimit: number | null;
 };
 
 const clock12 = new Intl.DateTimeFormat('en-US', {
@@ -78,6 +75,14 @@ function resolveFixedShiftWindow(
   return null;
 }
 
+/** Coarser buckets only for multi-day windows (still time-window limited, no point cap). */
+function resolveSpeedBucketSec(rangeStart: Date, rangeEnd: Date): number {
+  const spanHours = (rangeEnd.getTime() - rangeStart.getTime()) / 3_600_000;
+  if (spanHours <= 24) return SPEED_BUCKET_SEC;
+  if (spanHours <= 72) return 60;
+  return 300;
+}
+
 export function buildEquipmentSpeedHistoryQuery(
   mode: EquipmentOeeMode,
   referenceDate: string,
@@ -94,8 +99,7 @@ export function buildEquipmentSpeedHistoryQuery(
       queryStart: win.start,
       queryEnd: now,
       bucketSec,
-      pollMs: REALTIME_SPEED_POLL_MS,
-      pointLimit: null,
+      pollMs: SPEED_POLL_MS,
       sectionSubtitle: `${modeLabel} — Ca ${win.shift} · ${formatScopeTimeRange(win.start, now)}`,
     };
   }
@@ -104,13 +108,12 @@ export function buildEquipmentSpeedHistoryQuery(
   if (shiftWin) {
     const bucketSec = resolveSpeedBucketSec(shiftWin.start, shiftWin.end);
     const pollMs =
-      shiftWin.end.getTime() > now.getTime() - 60_000 ? REALTIME_SPEED_POLL_MS : null;
+      shiftWin.end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
     return {
       queryStart: shiftWin.start,
       queryEnd: shiftWin.end,
       bucketSec,
       pollMs,
-      pointLimit: null,
       sectionSubtitle: `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))} · ${formatScopeTimeRange(shiftWin.start, shiftWin.end)}`,
     };
   }
@@ -126,8 +129,7 @@ export function buildEquipmentSpeedHistoryQuery(
       queryStart: start,
       queryEnd: end,
       bucketSec,
-      pollMs: end.getTime() > now.getTime() - 60_000 ? REALTIME_SPEED_POLL_MS : null,
-      pointLimit: null,
+      pollMs: end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null,
       sectionSubtitle: `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))} · ${formatScopeTimeRange(start, end)}`,
     };
   }
@@ -144,7 +146,7 @@ export function buildEquipmentSpeedHistoryQuery(
     }
     const bucketSec = resolveSpeedBucketSec(queryStart, queryEnd);
     const pollMs =
-      queryEnd.getTime() > now.getTime() - 60_000 ? REALTIME_SPEED_POLL_MS : null;
+      queryEnd.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
     let subtitle = modeLabel;
     if (scope.dayDate) {
       subtitle += ` — ${formatDdMmYyyy(parseShiftDateToAnchor(scope.dayDate))}`;
@@ -155,7 +157,6 @@ export function buildEquipmentSpeedHistoryQuery(
       queryEnd,
       bucketSec,
       pollMs,
-      pointLimit: null,
       sectionSubtitle: subtitle,
     };
   }
@@ -171,8 +172,7 @@ export function buildEquipmentSpeedHistoryQuery(
       queryStart: start,
       queryEnd: end,
       bucketSec,
-      pollMs: end.getTime() > now.getTime() - 60_000 ? REALTIME_SPEED_POLL_MS : null,
-      pointLimit: null,
+      pollMs: end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null,
       sectionSubtitle: `${modeLabel} · ${formatScopeTimeRange(start, end)}`,
     };
   }
@@ -182,9 +182,8 @@ export function buildEquipmentSpeedHistoryQuery(
   return {
     queryStart,
     queryEnd,
-    bucketSec: REALTIME_SPEED_BUCKET_SEC,
-    pollMs: REALTIME_SPEED_POLL_MS,
-    pointLimit: null,
+    bucketSec: SPEED_BUCKET_SEC,
+    pollMs: SPEED_POLL_MS,
     sectionSubtitle: `${modeLabel} — chờ phạm vi OEE`,
   };
 }

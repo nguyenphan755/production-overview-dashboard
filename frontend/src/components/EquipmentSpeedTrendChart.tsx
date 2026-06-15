@@ -10,8 +10,10 @@ import {
 } from 'recharts';
 import type { SpeedChartRow, SpeedHistoryResponse, StableSpeedSegment } from '../utils/equipment-speed-analysis-chart';
 import {
+  buildSpeedChartTimeTicks,
   findProductNoteAtTime,
   productNoteBandColor,
+  resolveSpeedChartXDomain,
   speedPhaseLabelVi,
   speedUnitForArea,
 } from '../utils/equipment-speed-analysis-chart';
@@ -25,7 +27,8 @@ type EquipmentSpeedTrendChartProps = {
   rows: SpeedChartRow[];
   data: SpeedHistoryResponse;
   yDomain: [number, number];
-  xDomain: [number, number];
+  windowStartMs: number;
+  windowEndMs: number;
   stableSegments: StableSpeedSegment[];
   refs: SpeedReferenceLines;
 };
@@ -51,32 +54,43 @@ export function EquipmentSpeedTrendChart({
   rows,
   data,
   yDomain,
-  xDomain,
+  windowStartMs,
+  windowEndMs,
   stableSegments,
   refs,
 }: EquipmentSpeedTrendChartProps) {
   const unit = speedUnitForArea(data.meta.area);
   const productNotes = data.productNotes ?? [];
+
+  if (!rows.length) {
+    return null;
+  }
+
+  const xDomain = resolveSpeedChartXDomain(windowStartMs, windowEndMs, rows);
   const spanMs = xDomain[1] - xDomain[0];
   const longSpan = spanMs > 36 * 3600 * 1000;
-
-  const tickCount = Math.min(10, Math.max(5, Math.floor(rows.length / 80)));
+  const tickCount = longSpan > 72 * 3600 * 1000 ? 8 : longSpan > 24 * 3600 * 1000 ? 7 : 6;
+  const xTicks = buildSpeedChartTimeTicks(xDomain, tickCount);
 
   return (
     <div className="mb-3 speed-trend-chart">
       <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
         <h3 className="text-sm speed-text-soft font-medium">Speed Trend — chi tiết tốc độ</h3>
-        <span className="text-[10px] speed-text-subtle">
-          Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm
-        </span>
+        <div className="flex flex-col items-end gap-0.5 text-[10px] speed-text-subtle text-right">
+          <span>
+            Khung OEE: {formatAxisTime(windowStartMs, longSpan)} → {formatAxisTime(windowEndMs, longSpan)}
+          </span>
+          <span>
+            Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm hiển thị
+          </span>
+        </div>
       </div>
 
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={rows}
-            margin={{ top: 20, right: 20, left: 8, bottom: 8 }}
-            isAnimationActive={false}
+            margin={{ top: 20, right: 24, left: 4, bottom: 8 }}
           >
             {productNotes.map((note, i) => {
               const x1 = new Date(note.segmentStart).getTime();
@@ -91,7 +105,7 @@ export function EquipmentSpeedTrendChart({
                   fillOpacity={0.07}
                   stroke={productNoteBandColor(i)}
                   strokeOpacity={0.25}
-                  ifOverflow="hidden"
+                  ifOverflow="extendDomain"
                 />
               );
             })}
@@ -121,21 +135,22 @@ export function EquipmentSpeedTrendChart({
                 x1={seg.xStart}
                 x2={seg.xEnd}
                 fill="#34E7F8"
-                fillOpacity={0.15}
+                fillOpacity={0.12}
                 stroke="#34E7F8"
-                strokeOpacity={0.35}
-                ifOverflow="hidden"
+                strokeOpacity={0.3}
+                ifOverflow="extendDomain"
               />
             ))}
 
             <XAxis
               dataKey="timestampMs"
               type="number"
-              domain={xDomain}
               scale="linear"
+              allowDataOverflow
+              domain={xDomain}
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
-              tickCount={tickCount}
+              ticks={xTicks}
               tickFormatter={(ms) => formatAxisTime(Number(ms), longSpan)}
               label={{
                 value: 'Thời gian',
@@ -149,6 +164,7 @@ export function EquipmentSpeedTrendChart({
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
               domain={yDomain}
+              allowDataOverflow
               allowDecimals
               tickFormatter={(v) => Number(v).toFixed(0)}
               label={{
@@ -260,24 +276,27 @@ export function EquipmentSpeedTrendChart({
             ) : null}
 
             <Line
-              type="monotone"
+              type="linear"
               dataKey="targetSpeed"
-              stroke="#4FFFBC55"
-              strokeWidth={1}
-              strokeDasharray="4 4"
+              stroke="#4FFFBC"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              strokeOpacity={0.65}
               dot={false}
               isAnimationActive={false}
+              connectNulls
               name="V_KTCN (series)"
             />
 
             <Line
-              type="monotone"
+              type="linear"
               dataKey="actualSpeed"
-              stroke="#F8FAFC"
+              stroke="#FFFFFF"
               strokeWidth={2.5}
               dot={false}
-              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2, fill: '#F8FAFC' }}
+              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2, fill: '#FFFFFF' }}
               isAnimationActive={false}
+              connectNulls
               name="Tốc độ thực tế"
             />
           </ComposedChart>

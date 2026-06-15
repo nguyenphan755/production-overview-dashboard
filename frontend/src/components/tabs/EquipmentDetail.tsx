@@ -236,14 +236,36 @@ export function EquipmentDetail({
     timelineMinuteKey,
   ]);
 
+  const speedHistoryFetchKey = useMemo(() => {
+    const base = `${equipmentOeeMode}|${referenceDate}|${pastIsoShiftNumber}|${speedHistoryQuery.queryStart.toISOString()}|${speedHistoryQuery.bucketSec}|${equipmentOeeScope?.start ?? ''}|${equipmentOeeScope?.end ?? ''}|${equipmentOeeScope?.dayDate ?? ''}`;
+    if (rollingTimelineModes) return base;
+    return `${base}|${speedHistoryQuery.queryEnd.toISOString()}`;
+  }, [
+    equipmentOeeMode,
+    referenceDate,
+    pastIsoShiftNumber,
+    speedHistoryQuery.queryStart,
+    speedHistoryQuery.queryEnd,
+    speedHistoryQuery.bucketSec,
+    equipmentOeeScope?.start,
+    equipmentOeeScope?.end,
+    equipmentOeeScope?.dayDate,
+    rollingTimelineModes,
+  ]);
+
   const speedHistory = useEquipmentSpeedHistory({
     machineId,
     queryStart: speedHistoryQuery.queryStart,
     queryEnd: speedHistoryQuery.queryEnd,
     pollMs: speedHistoryQuery.pollMs,
     bucketSec: speedHistoryQuery.bucketSec,
-    pointLimit: speedHistoryQuery.pointLimit,
+    rangeKey: speedHistoryFetchKey,
   });
+
+  const activeSpeedHistory = useMemo(() => {
+    if (!speedHistory.data || speedHistory.data.rangeKey !== speedHistoryFetchKey) return null;
+    return speedHistory.data.response;
+  }, [speedHistory.data, speedHistoryFetchKey]);
 
   const energyAnchorNow = useMemo(() => {
     if (rollingTimelineModes) return new Date(timelineMinuteKey * 60_000);
@@ -342,49 +364,63 @@ export function EquipmentDetail({
   }, [realTimeTrends.speed, machine?.speedTrend]);
 
   const speedAnalysisChartRows = useMemo(() => {
-    if (!speedHistory.data?.points.length) return [];
+    if (!activeSpeedHistory?.points.length) return [];
     return buildSpeedChartRows(
-      speedHistory.data.points,
+      activeSpeedHistory.points,
       speedHistoryQuery.queryStart,
       speedHistoryQuery.queryEnd
     );
   }, [
-    speedHistory.data?.points,
+    activeSpeedHistory?.points,
     speedHistoryQuery.queryStart,
     speedHistoryQuery.queryEnd,
   ]);
 
-  const speedChartXDomain = useMemo((): [number, number] => {
-    return [
-      speedHistoryQuery.queryStart.getTime(),
-      speedHistoryQuery.queryEnd.getTime(),
-    ];
-  }, [speedHistoryQuery.queryStart, speedHistoryQuery.queryEnd]);
+  const speedChartWindow = useMemo(() => {
+    let startMs = speedHistoryQuery.queryStart.getTime();
+    let endMs = speedHistoryQuery.queryEnd.getTime();
+    if (activeSpeedHistory?.meta?.rangeStart && activeSpeedHistory.meta.rangeEnd) {
+      const metaStart = new Date(activeSpeedHistory.meta.rangeStart).getTime();
+      const metaEnd = new Date(activeSpeedHistory.meta.rangeEnd).getTime();
+      if (Number.isFinite(metaStart)) startMs = Math.min(startMs, metaStart);
+      if (Number.isFinite(metaEnd)) endMs = Math.max(endMs, metaEnd);
+    }
+    return { startMs, endMs: Math.max(endMs, startMs + 60_000) };
+  }, [
+    speedHistoryQuery.queryStart,
+    speedHistoryQuery.queryEnd,
+    activeSpeedHistory?.meta?.rangeStart,
+    activeSpeedHistory?.meta?.rangeEnd,
+  ]);
 
   const speedAnalysisRefs = useMemo(
     () =>
       resolveSpeedReferenceLines(
-        speedHistory.data?.points ?? [],
-        speedHistory.data?.summary.currentTargetSpeed ?? null
+        activeSpeedHistory?.points ?? [],
+        activeSpeedHistory?.summary.currentTargetSpeed ?? null
       ),
-    [speedHistory.data?.points, speedHistory.data?.summary.currentTargetSpeed]
+    [activeSpeedHistory?.points, activeSpeedHistory?.summary.currentTargetSpeed]
   );
 
   const speedStableSegments = useMemo(
-    () => findStableRunningSegments(speedHistory.data?.points ?? [], speedHistory.data?.meta.bucketSec ?? 60),
-    [speedHistory.data?.points, speedHistory.data?.meta.bucketSec]
+    () =>
+      findStableRunningSegments(
+        activeSpeedHistory?.points ?? [],
+        activeSpeedHistory?.meta.bucketSec ?? 60
+      ),
+    [activeSpeedHistory?.points, activeSpeedHistory?.meta.bucketSec]
   );
 
   const speedTrendYDomain = useMemo(() => {
     const isDrawing = machine?.area === 'drawing';
     return calculateSpeedTrendYDomain(
-      speedHistory.data?.points ?? [],
+      activeSpeedHistory?.points ?? [],
       speedAnalysisRefs,
       isDrawing
     );
-  }, [machine?.area, speedHistory.data?.points, speedAnalysisRefs]);
+  }, [machine?.area, activeSpeedHistory?.points, speedAnalysisRefs]);
 
-  const speedAnalysisUnit = speedUnitForArea(speedHistory.data?.meta.area ?? machine?.area);
+  const speedAnalysisUnit = speedUnitForArea(activeSpeedHistory?.meta.area ?? machine?.area);
 
   const currentData = useMemo(() => {
     if (!machine) return [];
@@ -918,11 +954,11 @@ export function EquipmentDetail({
             {speedHistoryQuery.sectionSubtitle ? (
               <p className="text-sm speed-text-muted mt-1">
                 {speedHistoryQuery.sectionSubtitle}
-                {speedHistory.data?.meta ? (
+                {activeSpeedHistory?.meta ? (
                   <span className="speed-text-subtle">
                     {' '}
-                    — bucket {speedHistory.data.meta.bucketSec}s · {speedHistory.data.meta.pointCount} điểm
-                    · {speedHistory.data.meta.source}
+                    — bucket {activeSpeedHistory.meta.bucketSec}s · {activeSpeedHistory.meta.pointCount} điểm
+                    · {activeSpeedHistory.meta.source}
                   </span>
                 ) : null}
               </p>
@@ -930,11 +966,11 @@ export function EquipmentDetail({
           </div>
         </div>
 
-        {speedHistory.loading && speedAnalysisChartRows.length === 0 ? (
+        {speedHistory.loading && !activeSpeedHistory ? (
           <div className="flex items-center justify-center h-40 text-white/60">
-            Đang tải lịch sử tốc độ…
+            Đang tải lịch sử tốc độ theo filter OEE…
           </div>
-        ) : speedHistory.error && speedAnalysisChartRows.length === 0 ? (
+        ) : speedHistory.error && !activeSpeedHistory ? (
           <div className="flex items-center justify-center h-40 text-[#EF4444]/90 text-sm">
             {speedHistory.error}
           </div>
@@ -948,45 +984,45 @@ export function EquipmentDetail({
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                 <div className="speed-text-muted text-xs mb-1">Tốc độ ổn định (median)</div>
                 <div className="text-xl speed-accent-green">
-                  {speedHistory.data?.summary.stableRunningMedian != null
-                    ? `${speedHistory.data.summary.stableRunningMedian.toFixed(2)} ${speedAnalysisUnit}`
+                  {activeSpeedHistory?.summary.stableRunningMedian != null
+                    ? `${activeSpeedHistory.summary.stableRunningMedian.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                 <div className="speed-text-muted text-xs mb-1">TB tốc độ setup</div>
                 <div className="text-xl speed-accent-orange">
-                  {speedHistory.data?.summary.setupAvgSpeed != null
-                    ? `${speedHistory.data.summary.setupAvgSpeed.toFixed(2)} ${speedAnalysisUnit}`
+                  {activeSpeedHistory?.summary.setupAvgSpeed != null
+                    ? `${activeSpeedHistory.summary.setupAvgSpeed.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                 <div className="speed-text-muted text-xs mb-1">Thời gian dừng</div>
                 <div className="text-xl speed-accent-cyan">
-                  {formatSpeedDuration(speedHistory.data?.summary.stoppedDurationSec ?? 0)}
+                  {formatSpeedDuration(activeSpeedHistory?.summary.stoppedDurationSec ?? 0)}
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-[#F59E0B]/30">
                 <div className="speed-text-muted text-xs mb-1">ICT đề xuất (read-only)</div>
                 <div className="text-xl speed-accent-ict">
-                  {speedHistory.data?.summary.proposedTargetSpeed != null
-                    ? `${speedHistory.data.summary.proposedTargetSpeed.toFixed(2)} ${speedAnalysisUnit}`
+                  {activeSpeedHistory?.summary.proposedTargetSpeed != null
+                    ? `${activeSpeedHistory.summary.proposedTargetSpeed.toFixed(2)} ${speedAnalysisUnit}`
                     : '—'}
                 </div>
-                {speedHistory.data?.summary.deltaVsTargetPct != null ? (
+                {activeSpeedHistory?.summary.deltaVsTargetPct != null ? (
                   <div className="text-xs text-white/50 mt-1">
-                    vs ICT hiện tại ({speedHistory.data.summary.currentTargetSpeed?.toFixed(2) ?? '—'}):{' '}
-                    {speedHistory.data.summary.deltaVsTargetPct > 0 ? '+' : ''}
-                    {speedHistory.data.summary.deltaVsTargetPct}%
+                    vs ICT hiện tại ({activeSpeedHistory.summary.currentTargetSpeed?.toFixed(2) ?? '—'}):{' '}
+                    {activeSpeedHistory.summary.deltaVsTargetPct > 0 ? '+' : ''}
+                    {activeSpeedHistory.summary.deltaVsTargetPct}%
                   </div>
                 ) : null}
               </div>
             </div>
 
-            {speedHistory.data?.productNotes ? (
+            {activeSpeedHistory?.productNotes ? (
               <EquipmentSpeedProductNotes
-                notes={speedHistory.data.productNotes}
+                notes={activeSpeedHistory.productNotes}
                 unit={speedAnalysisUnit}
                 longSpan={
                   speedAnalysisChartRows.length >= 2
@@ -998,12 +1034,14 @@ export function EquipmentDetail({
               />
             ) : null}
 
-            {speedHistory.data ? (
+            {activeSpeedHistory && speedAnalysisChartRows.length > 0 ? (
               <EquipmentSpeedTrendChart
+                key={speedHistoryFetchKey}
                 rows={speedAnalysisChartRows}
-                data={speedHistory.data}
+                data={activeSpeedHistory}
                 yDomain={speedTrendYDomain}
-                xDomain={speedChartXDomain}
+                windowStartMs={speedChartWindow.startMs}
+                windowEndMs={speedChartWindow.endMs}
                 stableSegments={speedStableSegments}
                 refs={speedAnalysisRefs}
               />

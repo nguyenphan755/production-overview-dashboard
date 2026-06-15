@@ -44,3 +44,13 @@
 .speed-trend-chart .recharts-reference-line-label text {
   fill: currentColor;
 }
+
+.speed-trend-chart .recharts-line .recharts-curve,
+.speed-trend-chart .recharts-line path {
+  stroke: inherit;
+}
+
+.speed-trend-chart .recharts-cartesian-grid-horizontal line,
+.speed-trend-chart .recharts-cartesian-grid-vertical line {
+  stroke: rgba(255, 255, 255, 0.08);
+}
