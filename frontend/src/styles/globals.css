@@ -195,3 +195,43 @@ html {
 .recharts-tooltip-item-value {
   color: #e2e8f0;
 }
+
+@keyframes presence-breath {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes presence-breath-sun {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 4px rgba(255, 184, 108, 0.85))
+      drop-shadow(0 0 8px rgba(79, 255, 188, 0.35));
+  }
+  50% {
+    transform: scale(1.14) rotate(12deg);
+    filter: drop-shadow(0 0 8px rgba(255, 184, 108, 1))
+      drop-shadow(0 0 14px rgba(79, 255, 188, 0.55));
+  }
+}
+
+.presence-breath-ring {
+  animation: presence-breath 2.6s ease-in-out infinite;
+}
+
+.presence-breath-ring-delay {
+  animation: presence-breath 2.6s ease-in-out infinite;
+  animation-delay: 0.8s;
+}
+
+.presence-breath-sun {
+  animation: presence-breath-sun 2.6s ease-in-out infinite;
+  border-radius: 9999px;
+}

@@ -1,5 +1,6 @@
 import { Factory, MapPin, Clock, LogOut } from 'lucide-react';
 import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { OnlineUsersCounter } from './OnlineUsersCounter';
 
 type CompanyHeaderProps = {
   onLogout?: () => void;
@@ -129,7 +130,9 @@ export const CompanyHeader = memo(function CompanyHeader({ onLogout }: CompanyHe
           <div className="flex items-center justify-between p-5" style={{ height: '100px' }}>
             <DesktopHeaderBranding />
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              <OnlineUsersCounter />
+              <div className="h-12 w-px bg-gradient-to-b from-transparent via-white/30 to-transparent" />
               <HeaderClockDesktopSlot />
               {onLogout && (
                 <button
@@ -152,7 +155,8 @@ export const CompanyHeader = memo(function CompanyHeader({ onLogout }: CompanyHe
           <div className="p-4">
             <div className="flex items-center justify-between gap-3">
               <MobileHeaderBranding />
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <OnlineUsersCounter compact />
                 <HeaderClockMobileSlot />
                 {onLogout && (
                   <button

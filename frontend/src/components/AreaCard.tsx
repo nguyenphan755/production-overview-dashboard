@@ -8,14 +8,18 @@ interface AreaCardProps {
   area: ProductionAreaSummary;
 }
 
+function isMachineRunning(status: string | undefined): boolean {
+  return String(status ?? '').trim().toLowerCase() === 'running';
+}
+
 export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'running': return 'bg-[#22C55E]'; // Green for running
-      case 'idle': return 'bg-[#F59E0B]'; // Yellow/Orange for idle
-      case 'warning': return 'bg-[#F59E0B]'; // Orange for warning
-      case 'error': return 'bg-[#EF4444]'; // Red for error
-      case 'stopped': return 'bg-[#EF4444]'; // Red for stopped
+      case 'running': return 'bg-[#22C55E]';
+      case 'idle': return 'bg-[#F59E0B]';
+      case 'warning': return 'bg-[#F59E0B]';
+      case 'error': return 'bg-[#EF4444]';
+      case 'stopped': return 'bg-[#EF4444]';
       case 'setup': return 'bg-[#FFB86C]';
       default: return 'bg-white/20';
     }
@@ -25,7 +29,9 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
   const machinesToDisplay = area.allMachines || area.topMachines || [];
 
   // Get shadow style based on status
-  const getShadowStyle = (status: string) => {
+  const getShadowStyle = (status: string, running: boolean) => {
+    if (!running) return '';
+
     switch (status) {
       case 'running': return 'shadow-[0_0_6px_rgba(34,197,94,0.6)]';
       case 'idle': return 'shadow-[0_0_6px_rgba(245,158,11,0.6)]';
@@ -35,6 +41,9 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
       default: return 'shadow-lg';
     }
   };
+
+  const getMutedDotStyle = (running: boolean) =>
+    running ? '' : 'opacity-50 saturate-50';
 
   return (
     <div className="rounded-2xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl overflow-hidden group hover:shadow-[0_0_30px_rgba(52,231,248,0.3)] transition-all duration-300">
@@ -87,32 +96,44 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
           {Array.from({ length: 10 }).map((_, index) => {
             const machine = machinesToDisplay[index];
             if (machine) {
-              // Machine exists - show with status indicator
+              const running = isMachineRunning(machine.status);
               const statusColor = getStatusColor(machine.status);
               const displaySpeed = (machine.status === 'stopped' || machine.status === 'error') ? 0 : machine.speed;
               
               const productLabel = machine.productName?.trim();
 
               return (
-                <div key={machine.id || index} className="flex items-center justify-between gap-2 min-h-[28px]">
+                <div
+                  key={machine.id || index}
+                  className="flex items-center justify-between gap-2 min-h-[28px]"
+                >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
-                      className={`shrink-0 w-3.5 h-3.5 rounded-full ${statusColor} ${getShadowStyle(machine.status)}`}
+                      className={`shrink-0 w-3.5 h-3.5 rounded-full transition-opacity duration-500 ${statusColor} ${getShadowStyle(machine.status, running)} ${getMutedDotStyle(running)}`}
                     />
                     <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                      <span className="text-white text-lg sm:text-xl font-medium leading-tight shrink-0">
+                      <span
+                        className={`text-lg sm:text-xl font-medium leading-tight shrink-0 transition-colors duration-500 ${
+                          running ? 'text-white' : 'text-white/60'
+                        }`}
+                      >
                         {machine.name}
                       </span>
                       {productLabel ? (
                         <>
-                          <span className="text-white/35 shrink-0 select-none" aria-hidden>
+                          <span
+                            className={`shrink-0 select-none ${running ? 'text-white/35' : 'text-white/30'}`}
+                            aria-hidden
+                          >
                             ·
                           </span>
                           <span
-                            className={`text-sm sm:text-base font-semibold leading-tight truncate min-w-0 ${
-                              isUnknownLikeProductName(productLabel) ? '' : 'text-[#22C55E]'
+                            className={`text-sm sm:text-base font-semibold leading-tight truncate min-w-0 transition-colors duration-500 ${
+                              running && !isUnknownLikeProductName(productLabel)
+                                ? 'text-[#22C55E]'
+                                : 'text-white/60'
                             }`}
-                            style={unknownLikeProductInlineStyle(productLabel)}
+                            style={running ? unknownLikeProductInlineStyle(productLabel) : undefined}
                             title={productLabel}
                           >
                             {productLabel}
@@ -122,17 +143,25 @@ export const AreaCard = memo(function AreaCard({ area }: AreaCardProps) {
                     </div>
                   </div>
                   <div
-                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight whitespace-nowrap pl-1 ${
-                    machine.status === 'running' ? 'text-[#22C55E]' :
-                    machine.status === 'idle' ? 'text-[#F59E0B]' :
-                    machine.status === 'warning' ? 'text-[#F59E0B]' :
-                    machine.status === 'error' || machine.status === 'stopped' ? 'text-[#EF4444]' :
-                    'text-[#34E7F8]'
-                  }`}>
+                    className={`shrink-0 text-right text-lg sm:text-xl font-semibold leading-tight whitespace-nowrap pl-1 transition-colors duration-500 ${
+                      running
+                        ? machine.status === 'running'
+                          ? 'text-[#22C55E]'
+                          : machine.status === 'idle' || machine.status === 'warning'
+                            ? 'text-[#F59E0B]'
+                            : machine.status === 'error' || machine.status === 'stopped'
+                              ? 'text-[#EF4444]'
+                              : 'text-[#34E7F8]'
+                        : 'text-white/60'
+                    }`}
+                  >
                     {displaySpeed > 0 
                       ? (area.id === 'drawing' ? `${(displaySpeed / 60.0).toFixed(2)}` : `${displaySpeed}`)
                       : '0'
-                    } <span className="text-sm text-white/60">{area.id === 'drawing' ? 'm/s' : 'm/min'}</span>
+                    }{' '}
+                    <span className="text-sm text-white/60 transition-colors duration-500">
+                      {area.id === 'drawing' ? 'm/s' : 'm/min'}
+                    </span>
                   </div>
                 </div>
               );

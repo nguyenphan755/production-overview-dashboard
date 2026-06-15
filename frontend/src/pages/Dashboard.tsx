@@ -16,6 +16,7 @@ import { useEquipmentOeeRollup } from "../hooks/useEquipmentOeeRollup";
 import { usePastShiftReportOee } from "../hooks/usePastShiftReportOee";
 import type { EquipmentOeeMode } from "../utils/equipmentOeeDisplay";
 import { getLastCompletedShiftSelection } from "../utils/shiftCalculator";
+import { UserPresenceProvider } from "../hooks/useUserPresence";
 
 const EquipmentDetailTab = lazy(() =>
   import("../components/tabs/EquipmentDetail").then((m) => ({ default: m.EquipmentDetail }))
@@ -206,8 +207,9 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0A1E3A] via-[#0E2F4F] to-[#0A1E3A] p-3 mobile-bottom-padding">
-      <CompanyHeader onLogout={onLogout} />
+    <UserPresenceProvider token={token}>
+      <div className="min-h-screen bg-gradient-to-br from-[#0A1E3A] via-[#0E2F4F] to-[#0A1E3A] p-3 mobile-bottom-padding">
+        <CompanyHeader onLogout={onLogout} />
       <TabNavigation
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -226,6 +228,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
       <ErrorBoundary fallbackTitle="This tab hit a rendering error">
         <Suspense fallback={tabSuspenseFallback}>{renderTabContent()}</Suspense>
       </ErrorBoundary>
-    </div>
+      </div>
+    </UserPresenceProvider>
   );
 }

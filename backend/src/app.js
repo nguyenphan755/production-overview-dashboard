@@ -14,6 +14,8 @@ import analyticsRouter from './routes/analytics.js';
 import oeeSettledRouter from './routes/oee-settled.js';
 import usersRouter from './routes/users.js';
 import reportsRouter from './routes/reports.js';
+import presenceRouter from './routes/presence.js';
+import { startPresenceCleanup } from './services/userPresenceService.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
 import { query } from '../database/connection.js';
@@ -128,6 +130,7 @@ app.get('/', (req, res) => {
           analytics: '/api/analytics',
           oeeSettled: '/api/oee-settled',
           reports: '/api/reports',
+          presence: '/api/presence',
         },
       },
       websocket: '/ws',
@@ -152,6 +155,7 @@ app.use('/api/availability', availabilityRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/oee-settled', oeeSettledRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/presence', presenceRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -212,5 +216,8 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🤖 Analytics cache scheduler started (interval: ${ANALYTICS_REFRESH_SECONDS}s)`);
 
   startMachineLineTelemetrySampler();
+
+  startPresenceCleanup();
+  console.log('👥 User presence tracking started');
 });
 
