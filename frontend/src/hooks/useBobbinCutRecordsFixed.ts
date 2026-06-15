@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Machine, OrderBobbinRecord } from '../types';
 import { effectiveProducedLengthOkM } from '../utils/effectiveProducedLength';
+import { syncBobbinCuts, type BobbinCutSyncPayload } from '../services/bobbin-cuts-api';
 
 const STORAGE_KEY = 'production-dashboard-bobbin-cuts:v1';
 const LENGTH_OK_EPS_M = 2;
@@ -28,6 +29,32 @@ function writeStore(store: Store) {
   } catch {
     /* ignore quota */
   }
+}
+
+function persistCutToDatabase(
+  machineId: string,
+  machine: Machine | undefined,
+  record: OrderBobbinRecord
+) {
+  const payload: BobbinCutSyncPayload = {
+    id: record.id,
+    machineId,
+    machineName: machine?.name,
+    area: machine?.area,
+    orderId: record.orderId,
+    orderName: machine?.productionOrder?.name ?? machine?.productionOrderName,
+    sequence: record.sequence,
+    cutLengthOkM: record.cutLengthM,
+    recordedAt: record.recordedAt,
+    bobbinCountPlanned: record.bobbinCountPlanned,
+    machineStatus: machine?.status,
+    producedLengthOkAtCut: machine ? effectiveProducedLengthOkM(machine) : undefined,
+    lineSpeedAtCut: machine?.lineSpeed,
+  };
+
+  void syncBobbinCuts([payload]).catch((err) => {
+    console.warn('Bobbin cut DB sync failed:', err);
+  });
 }
 
 function bobbinId(orderId: string, sequence: number): string {
@@ -58,7 +85,8 @@ function appendCutToStore(
   machineId: string,
   orderId: string,
   cutLengthOkM: number,
-  bobbinCountPlanned?: number
+  bobbinCountPlanned?: number,
+  machine?: Machine
 ): boolean {
   const store = readStore();
   const forMachine = { ...(store[machineId] ?? {}) };
@@ -79,6 +107,7 @@ function appendCutToStore(
   forMachine[orderId] = [...existing, record];
   store[machineId] = forMachine;
   writeStore(store);
+  persistCutToDatabase(machineId, machine, record);
   return true;
 }
 
@@ -141,11 +170,12 @@ export function useBobbinCutDetector(
         machineId,
         orderId,
         cutLengthOkM,
-        bobbinCountPlanned
+        bobbinCountPlanned,
+        machine ?? undefined
       );
       if (appended) setCutsVersion((v) => v + 1);
     },
-    [machineId, bobbinCountPlanned]
+    [machineId, bobbinCountPlanned, machine]
   );
 
   useEffect(() => {
@@ -327,7 +357,7 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
         const orderIdToRecord = prevOrderId || activeOrderId;
         const cutLengthOkM = Math.max(nextPeak, prevOk);
         if (cutLengthOkM > LENGTH_OK_EPS_M) {
-          appendCutToStore(machineId, orderIdToRecord, cutLengthOkM);
+          appendCutToStore(machineId, orderIdToRecord, cutLengthOkM, undefined, machine);
         }
         nextPeak = 0;
         nextPendingStopCut = false;
@@ -348,7 +378,7 @@ export function useBobbinCutDetectorForFleet(machines: Machine[]) {
       ) {
         const cutLengthOkM = Math.max(nextPendingStopPeak, nextPeak);
         if (cutLengthOkM > LENGTH_OK_EPS_M) {
-          appendCutToStore(machineId, activeOrderId, cutLengthOkM);
+          appendCutToStore(machineId, activeOrderId, cutLengthOkM, undefined, machine);
         }
         nextPendingStopCut = false;
         nextPendingStopOrderId = undefined;

@@ -19,6 +19,7 @@ import {
   getCachedStatus,
   initializeCache 
 } from '../services/machineStatusCache.js';
+import { getBobbinCutsGroupedByOrder } from '../services/bobbinCutService.js';
 
 const router = express.Router();
 
@@ -554,9 +555,17 @@ router.get('/:machineId', async (req, res) => {
       `SELECT * FROM production_orders 
        WHERE machine_id = $1
        ORDER BY start_time DESC
-       LIMIT 10`,
+       LIMIT 50`,
       [machineId]
     );
+
+    let bobbinCutsByOrder = {};
+    try {
+      bobbinCutsByOrder = await getBobbinCutsGroupedByOrder(machineId);
+    } catch (bobbinErr) {
+      console.warn(`Bobbin cuts unavailable for ${machineId}:`, bobbinErr.message);
+    }
+
     machine.orderHistory = orderHistoryResult.rows.map((order) => ({
       id: order.id,
       name: order.name,
@@ -573,7 +582,20 @@ router.get('/:machineId', async (req, res) => {
       targetLength: parseFloat(order.target_length || 0),
       status: order.status,
       duration: order.duration,
+      bobbinCountPlanned:
+        order.bobbin_count_planned !== undefined && order.bobbin_count_planned !== null
+          ? Number(order.bobbin_count_planned)
+          : undefined,
+      bobbinCuts: bobbinCutsByOrder[order.id] ?? [],
     }));
+
+    if (machine.productionOrder?.id) {
+      const currentId = machine.productionOrder.id;
+      machine.productionOrder = {
+        ...machine.productionOrder,
+        bobbinCuts: bobbinCutsByOrder[currentId] ?? machine.productionOrder.bobbinCuts ?? [],
+      };
+    }
 
     // Get alarms
     const alarmsResult = await query(

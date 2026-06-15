@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle, Layers, FileDown } from 'lucide-react';
+import { ArrowLeft, User, Package, Activity, Target, TrendingUp, Gauge, Zap, Thermometer, Circle, Flame, Battery, History, Clock, CheckCircle, XCircle, AlertCircle, Layers, FileDown, ChevronDown, ChevronUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart, Legend, ComposedChart, Bar, BarChart, ReferenceLine } from 'recharts';
 import { useMachineDetail } from '../../hooks/useProductionData';
 import { useMachineDetailTrends } from '../../hooks/useMachineDetailTrends';
@@ -7,7 +7,7 @@ import { useEquipmentSpeedHistory } from '../../hooks/useEquipmentSpeedHistory';
 import { useBobbinCutDetector, mergeCutsForOrder } from '../../hooks/useBobbinCutRecordsFixed';
 import { effectiveProducedLengthOkM } from '../../utils/effectiveProducedLength';
 import { apiClient } from '../../services/api';
-import type { ProductionOrder } from '../../types';
+import type { ProductionOrder, OrderBobbinRecord } from '../../types';
 import { EquipmentOeeToolbar } from '../EquipmentOeeToolbar';
 import {
   equipmentOeeModeLabelVi,
@@ -39,6 +39,27 @@ import {
 import { EquipmentSpeedTrendChart } from '../EquipmentSpeedTrendChart';
 import { EquipmentSpeedProductNotes } from '../EquipmentSpeedProductNotes';
 import '../../styles/equipment-speed-panel.css';
+
+function isSameLocalDay(isoOrDate: string | Date, ref = new Date()) {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+  return (
+    d.getFullYear() === ref.getFullYear() &&
+    d.getMonth() === ref.getMonth() &&
+    d.getDate() === ref.getDate()
+  );
+}
+
+function isOrderOnToday(order: ProductionOrder): boolean {
+  if (order.status === 'running') return true;
+  if (isSameLocalDay(order.startTime)) return true;
+  if (order.endTime && isSameLocalDay(order.endTime)) return true;
+  return false;
+}
+
+function filterBobbinCutsToday(cuts: OrderBobbinRecord[]) {
+  return cuts.filter((cut) => isSameLocalDay(cut.recordedAt));
+}
+
 interface EquipmentDetailProps {
   machineId: string;
   onBack: () => void;
@@ -141,6 +162,10 @@ export function EquipmentDetail({
     machineId,
     machineForOkSimulation ?? undefined,
     machine?.productionOrder?.bobbinCountPlanned
+  );
+  const [showAllOrderHistory, setShowAllOrderHistory] = useState(false);
+  const [expandedBobbinOrderIds, setExpandedBobbinOrderIds] = useState<Set<string>>(
+    () => new Set()
   );
   const realTimeTrends = useMachineDetailTrends(machine);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
@@ -523,6 +548,22 @@ export function EquipmentDetail({
     }
     return history;
   }, [machine, machineForOkSimulation]);
+
+  const visibleOrders = useMemo(() => {
+    if (showAllOrderHistory) return displayOrders;
+    return displayOrders.filter(isOrderOnToday);
+  }, [displayOrders, showAllOrderHistory]);
+
+  const hiddenOrderCount = displayOrders.length - visibleOrders.length;
+
+  const toggleBobbinExpand = useCallback((orderId: string) => {
+    setExpandedBobbinOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, []);
 
   const energyProductRows = useMemo(() => {
     if (!machine || !energyChartContext) return [];
@@ -1852,23 +1893,54 @@ export function EquipmentDetail({
         </div>
       )}
 
-      {/* Production Order History (24h) */}
+      {/* Production Order History */}
       <div className="mt-4 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-2xl p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <History className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
-          <h2 className="text-xl text-white">Production Order History - Last 24 Hours</h2>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-[#34E7F8]" strokeWidth={2.5} />
+            <h2 className="text-xl text-white">Production Order History</h2>
+            <span className="mes-kpi-label text-sm">— hôm nay</span>
+          </div>
+          {hiddenOrderCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllOrderHistory((v) => !v)}
+              className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-sm text-white/85 hover:bg-white/10 transition-colors"
+            >
+              {showAllOrderHistory ? (
+                <>
+                  <ChevronUp className="w-4 h-4" />
+                  Thu gọn (chỉ hôm nay)
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4" />
+                  Xem thêm {hiddenOrderCount} lệnh các ngày trước
+                </>
+              )}
+            </button>
+          )}
         </div>
-        <p className="text-white/50 text-sm mb-4" data-bobbin-sync={cutsVersion}>
-          Bobbin IDs use <strong className="text-white/80">producedLengthOk</strong> (mét đạt): when OK length goes from above 2 m to ≤ 2 m on the same production order, one bobbin cut is recorded. Planned bobbin count comes from the order.
+        <p className="mes-data-muted text-sm mb-4" data-bobbin-sync={cutsVersion}>
+          Bobbin IDs use <strong className="text-white/80">producedLengthOk</strong> (mét đạt): when OK length goes from above 2 m to ≤ 2 m on the same production order, one bobbin cut is recorded and saved to the database. Planned bobbin count comes from the order.
         </p>
 
         <div className="space-y-2">
-          {displayOrders.map((order, index) => {
+          {visibleOrders.length === 0 ? (
+            <div className="mes-data-muted text-sm py-4 text-center rounded-lg border border-white/10">
+              Không có lệnh sản xuất trong ngày hôm nay.
+            </div>
+          ) : (
+          visibleOrders.map((order, index) => {
             const StatusIcon = getOrderStatusIcon(order.status);
             const statusColor = getOrderStatusColor(order.status);
               const producedForDisplay = effectiveProducedLengthOkM(order);
               const completionPercentage = (producedForDisplay / order.targetLength) * 100;
             const bobbinCuts = mergeCutsForOrder(machine.id, order.id, order.bobbinCuts);
+            const todayBobbinCuts = filterBobbinCutsToday(bobbinCuts);
+            const showAllBobbinCuts = expandedBobbinOrderIds.has(order.id);
+            const visibleBobbinCuts = showAllBobbinCuts ? bobbinCuts : todayBobbinCuts;
+            const hiddenBobbinCount = bobbinCuts.length - todayBobbinCuts.length;
             
             return (
               <div 
@@ -1984,14 +2056,47 @@ export function EquipmentDetail({
                     )}
                   </div>
                   {bobbinCuts.length === 0 ? (
-                    <div className="text-white/40 text-xs py-1">
+                    <div className="mes-data-muted text-xs py-1">
                       No bobbin cuts recorded yet (cuts appear when producedLengthOk goes to ≤ 2 m during this order).
                     </div>
+                  ) : visibleBobbinCuts.length === 0 ? (
+                    <div className="mes-data-muted text-xs py-1">
+                      Không có bobbin cắt trong ngày hôm nay cho lệnh này.
+                      {hiddenBobbinCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleBobbinExpand(order.id)}
+                          className="ml-2 text-[#34E7F8] hover:underline"
+                        >
+                          Xem {hiddenBobbinCount} bobbin trước đó
+                        </button>
+                      )}
+                    </div>
                   ) : (
+                    <>
+                    {hiddenBobbinCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleBobbinExpand(order.id)}
+                        className="mb-2 flex items-center gap-1.5 text-xs text-[#34E7F8] hover:text-[#4FFFBC] transition-colors"
+                      >
+                        {showAllBobbinCuts ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            Thu gọn — chỉ hiện hôm nay ({todayBobbinCuts.length})
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            Xem thêm {hiddenBobbinCount} bobbin các ngày trước
+                          </>
+                        )}
+                      </button>
+                    )}
                     <div className="overflow-x-auto rounded-lg border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02]">
                       <table className="w-full text-left text-sm border-separate border-spacing-0">
                         <thead>
-                          <tr className="text-white/60 text-[11px] uppercase tracking-wider border-b border-white/10">
+                          <tr className="mes-kpi-label text-[11px] uppercase tracking-wider border-b border-white/10">
                             <th className="py-2 px-2 font-semibold">ID order bobbin</th>
                             <th className="py-2 px-2 font-semibold text-right">Cut OK (m)</th>
                             <th className="py-2 px-2 font-semibold hidden sm:table-cell text-right">Bobbin qty (order)</th>
@@ -1999,7 +2104,7 @@ export function EquipmentDetail({
                           </tr>
                         </thead>
                         <tbody>
-                          {bobbinCuts.map((row) => (
+                          {visibleBobbinCuts.map((row) => (
                             <tr
                               key={row.id}
                               className="border-b border-white/10 last:border-0 text-white/90 hover:bg-white/[0.03] transition-colors"
@@ -2021,11 +2126,13 @@ export function EquipmentDetail({
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </div>
               </div>
             );
-          })}
+          })
+          )}
         </div>
       </div>
     </div>
