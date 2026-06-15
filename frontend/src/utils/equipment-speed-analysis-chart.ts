@@ -240,11 +240,12 @@ export function calculateSpeedTrendYDomain(
 ): [number, number] {
   const cap = isDrawing ? 50 : 2000;
   const peakActual = points.reduce((m, p) => Math.max(m, p.actualSpeed), 0);
-  const top = Math.max(refs.vDesign ?? 0, peakActual, refs.vKtcn ?? 0);
-  if (top <= 0) {
+  const peakTarget = points.reduce((m, p) => Math.max(m, p.targetSpeed), 0);
+  const localPeak = Math.max(peakActual, peakTarget, refs.vKtcn ?? 0);
+  if (localPeak <= 0) {
     return isDrawing ? [0, 10] : [0, 200];
   }
-  const padded = Math.min(cap, top * 1.08);
+  const padded = Math.min(cap, Math.max(localPeak * 1.15, 1));
   return [0, padded];
 }
 

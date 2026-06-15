@@ -45,12 +45,12 @@
   fill: currentColor;
 }
 
-.speed-trend-chart .recharts-line .recharts-curve,
-.speed-trend-chart .recharts-line path {
-  stroke: inherit;
-}
-
 .speed-trend-chart .recharts-cartesian-grid-horizontal line,
 .speed-trend-chart .recharts-cartesian-grid-vertical line {
   stroke: rgba(255, 255, 255, 0.08);
+}
+
+/* Ensure speed lines stay visible — do NOT use stroke:inherit (breaks Recharts paths). */
+.speed-trend-chart .recharts-line-curve {
+  vector-effect: non-scaling-stroke;
 }

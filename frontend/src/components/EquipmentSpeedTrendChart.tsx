@@ -1,4 +1,5 @@
 import {
+  Area,
   ComposedChart,
   Line,
   XAxis,
@@ -7,6 +8,7 @@ import {
   Tooltip,
   ReferenceLine,
   ReferenceArea,
+  CartesianGrid,
 } from 'recharts';
 import type { SpeedChartRow, SpeedHistoryResponse, StableSpeedSegment } from '../utils/equipment-speed-analysis-chart';
 import {
@@ -71,6 +73,7 @@ export function EquipmentSpeedTrendChart({
   const longSpan = spanMs > 36 * 3600 * 1000;
   const tickCount = longSpan > 72 * 3600 * 1000 ? 8 : longSpan > 24 * 3600 * 1000 ? 7 : 6;
   const xTicks = buildSpeedChartTimeTicks(xDomain, tickCount);
+  const gradientId = `speed-actual-fill-${data.meta.bucketSec}`;
 
   return (
     <div className="mb-3 speed-trend-chart">
@@ -90,63 +93,21 @@ export function EquipmentSpeedTrendChart({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={rows}
-            margin={{ top: 20, right: 24, left: 4, bottom: 8 }}
+            margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
           >
-            {productNotes.map((note, i) => {
-              const x1 = new Date(note.segmentStart).getTime();
-              const x2 = new Date(note.segmentEnd).getTime();
-              if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return null;
-              return (
-                <ReferenceArea
-                  key={`product-${note.orderId ?? 'x'}-${x1}-${i}`}
-                  x1={x1}
-                  x2={x2}
-                  fill={productNoteBandColor(i)}
-                  fillOpacity={0.07}
-                  stroke={productNoteBandColor(i)}
-                  strokeOpacity={0.25}
-                  ifOverflow="extendDomain"
-                />
-              );
-            })}
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.03} />
+              </linearGradient>
+            </defs>
 
-            {refs.vKtcn != null && refs.vKtcn > 0 ? (
-              <ReferenceArea
-                y1={0}
-                y2={refs.vKtcn}
-                fill="#4FFFBC"
-                fillOpacity={0.14}
-                ifOverflow="extendDomain"
-              />
-            ) : null}
-            {refs.vKtcn != null && refs.vDesign != null && refs.vDesign > refs.vKtcn ? (
-              <ReferenceArea
-                y1={refs.vKtcn}
-                y2={refs.vDesign}
-                fill="#EF4444"
-                fillOpacity={0.12}
-                ifOverflow="extendDomain"
-              />
-            ) : null}
-
-            {stableSegments.map((seg, i) => (
-              <ReferenceArea
-                key={`stable-${i}-${seg.xStart}`}
-                x1={seg.xStart}
-                x2={seg.xEnd}
-                fill="#34E7F8"
-                fillOpacity={0.12}
-                stroke="#34E7F8"
-                strokeOpacity={0.3}
-                ifOverflow="extendDomain"
-              />
-            ))}
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
 
             <XAxis
               dataKey="timestampMs"
               type="number"
               scale="linear"
-              allowDataOverflow
               domain={xDomain}
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
@@ -164,7 +125,6 @@ export function EquipmentSpeedTrendChart({
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
               domain={yDomain}
-              allowDataOverflow
               allowDecimals
               tickFormatter={(v) => Number(v).toFixed(0)}
               label={{
@@ -176,6 +136,57 @@ export function EquipmentSpeedTrendChart({
                 style: { textAnchor: 'middle' },
               }}
             />
+
+            {productNotes.map((note, i) => {
+              const x1 = new Date(note.segmentStart).getTime();
+              const x2 = new Date(note.segmentEnd).getTime();
+              if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return null;
+              return (
+                <ReferenceArea
+                  key={`product-${note.orderId ?? 'x'}-${x1}-${i}`}
+                  x1={x1}
+                  x2={x2}
+                  fill={productNoteBandColor(i)}
+                  fillOpacity={0.07}
+                  stroke={productNoteBandColor(i)}
+                  strokeOpacity={0.25}
+                  ifOverflow="hidden"
+                />
+              );
+            })}
+
+            {refs.vKtcn != null && refs.vKtcn > 0 ? (
+              <ReferenceArea
+                y1={0}
+                y2={refs.vKtcn}
+                fill="#4FFFBC"
+                fillOpacity={0.12}
+                ifOverflow="hidden"
+              />
+            ) : null}
+            {refs.vKtcn != null && refs.vDesign != null && refs.vDesign > refs.vKtcn ? (
+              <ReferenceArea
+                y1={refs.vKtcn}
+                y2={refs.vDesign}
+                fill="#EF4444"
+                fillOpacity={0.08}
+                ifOverflow="hidden"
+              />
+            ) : null}
+
+            {stableSegments.map((seg, i) => (
+              <ReferenceArea
+                key={`stable-${i}-${seg.xStart}`}
+                x1={seg.xStart}
+                x2={seg.xEnd}
+                fill="#34E7F8"
+                fillOpacity={0.1}
+                stroke="#34E7F8"
+                strokeOpacity={0.25}
+                ifOverflow="hidden"
+              />
+            ))}
+
             <Tooltip
               labelFormatter={(ms) => formatAxisTime(Number(ms), longSpan)}
               content={({ active, payload }) => {
@@ -232,11 +243,12 @@ export function EquipmentSpeedTrendChart({
               }}
             />
 
-            {refs.vDesign != null && refs.vDesign > 0 ? (
+            {refs.vDesign != null && refs.vDesign > 0 && refs.vDesign <= yDomain[1] ? (
               <ReferenceLine
                 y={refs.vDesign}
                 stroke="#ffffff"
-                strokeWidth={2}
+                strokeWidth={1.5}
+                strokeOpacity={0.85}
                 label={{
                   value: 'V_design',
                   fill: '#ffffff',
@@ -250,7 +262,7 @@ export function EquipmentSpeedTrendChart({
               <ReferenceLine
                 y={refs.vKtcn}
                 stroke="#4FFFBC"
-                strokeWidth={2}
+                strokeWidth={1.5}
                 label={{
                   value: 'V_KTCN',
                   fill: '#4FFFBC',
@@ -275,29 +287,31 @@ export function EquipmentSpeedTrendChart({
               />
             ) : null}
 
+            <Area
+              type="linear"
+              dataKey="actualSpeed"
+              stroke="#FFFFFF"
+              strokeWidth={2.5}
+              fill={`url(#${gradientId})`}
+              fillOpacity={1}
+              dot={false}
+              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2, fill: '#FFFFFF' }}
+              isAnimationActive={false}
+              connectNulls
+              name="Tốc độ thực tế"
+            />
+
             <Line
               type="linear"
               dataKey="targetSpeed"
               stroke="#4FFFBC"
               strokeWidth={1.5}
               strokeDasharray="6 4"
-              strokeOpacity={0.65}
+              strokeOpacity={0.85}
               dot={false}
               isAnimationActive={false}
               connectNulls
               name="V_KTCN (series)"
-            />
-
-            <Line
-              type="linear"
-              dataKey="actualSpeed"
-              stroke="#FFFFFF"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2, fill: '#FFFFFF' }}
-              isAnimationActive={false}
-              connectNulls
-              name="Tốc độ thực tế"
             />
           </ComposedChart>
         </ResponsiveContainer>
