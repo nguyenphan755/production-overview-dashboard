@@ -1,6 +1,9 @@
 /**
  * Speed trend API window — aligned with OEE toolbar (not full 3-ca Gantt span).
  * Mirrors resolveEnergyChartContext in equipment-energy-chart.ts.
+ *
+ * chartWindow* = full OEE filter on X-axis (matches sh04-speed-compare.html).
+ * queryEnd = API fetch upper bound (min(now, chartWindowEnd) when ca is in progress).
  */
 
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from './equipmentOeeDisplay';
@@ -20,8 +23,14 @@ export const SPEED_BUCKET_SEC = 30;
 export const SPEED_POLL_MS = 30_000;
 
 export type EquipmentSpeedHistoryQuery = {
+  /** API range start */
   queryStart: Date;
+  /** API range end (≤ chartWindowEnd; may be "now" for live ca) */
   queryEnd: Date;
+  /** X-axis / OEE filter start — always full filter window */
+  chartWindowStart: Date;
+  /** X-axis / OEE filter end — always full filter window */
+  chartWindowEnd: Date;
   bucketSec: number;
   pollMs: number | null;
   sectionSubtitle: string;
@@ -48,7 +57,9 @@ function formatDdMmYyyy(d: Date): string {
 }
 
 function formatScopeTimeRange(start: Date, end: Date): string {
-  const sameDay = start.toDateString() === end.toDateString();
+  const sameDay =
+    start.toLocaleDateString('en-CA', { timeZone: FACTORY_TIME_ZONE }) ===
+    end.toLocaleDateString('en-CA', { timeZone: FACTORY_TIME_ZONE });
   if (sameDay) {
     return `${formatTimeShort(start)}–${formatTimeShort(end)} ${formatDdMmYyyy(start)}`;
   }
@@ -62,32 +73,55 @@ function modeToShiftNumber(mode: EquipmentOeeMode): 1 | 2 | 3 | null {
   return null;
 }
 
+/** Bucket from full chart window span (same as HTML compare tool). */
+function resolveSpeedBucketSec(chartWindowStart: Date, chartWindowEnd: Date): number {
+  const spanHours = (chartWindowEnd.getTime() - chartWindowStart.getTime()) / 3_600_000;
+  if (spanHours <= 24) return SPEED_BUCKET_SEC;
+  if (spanHours <= 72) return 60;
+  return 300;
+}
+
+function buildQuery(
+  chartWindowStart: Date,
+  chartWindowEnd: Date,
+  now: Date,
+  pollMs: number | null,
+  sectionSubtitle: string
+): EquipmentSpeedHistoryQuery {
+  const fetchEnd =
+    chartWindowEnd.getTime() > now.getTime() ? now : chartWindowEnd;
+  const queryStart = chartWindowStart;
+  const queryEnd =
+    fetchEnd.getTime() > queryStart.getTime()
+      ? fetchEnd
+      : new Date(queryStart.getTime() + 60_000);
+
+  return {
+    queryStart,
+    queryEnd,
+    chartWindowStart,
+    chartWindowEnd,
+    bucketSec: resolveSpeedBucketSec(chartWindowStart, chartWindowEnd),
+    pollMs,
+    sectionSubtitle,
+  };
+}
+
 function resolveFixedShiftWindow(
   mode: EquipmentOeeMode,
   referenceDate: string,
-  pastIsoShiftNumber: 1 | 2 | 3,
-  now: Date
+  pastIsoShiftNumber: 1 | 2 | 3
 ): { start: Date; end: Date } | null {
   const fixed = modeToShiftNumber(mode);
   if (fixed != null) {
     const anchor = parseShiftDateToAnchor(referenceDate);
-    const win = getShiftWindow(fixed, anchor);
-    const end = win.end.getTime() > now.getTime() ? now : win.end;
-    return { start: win.start, end };
+    return getShiftWindow(fixed, anchor);
   }
   if (mode === 'past_shift') {
     const anchor = parseShiftDateToAnchor(referenceDate);
     return getShiftWindow(pastIsoShiftNumber, anchor);
   }
   return null;
-}
-
-/** Coarser buckets only for multi-day windows (still time-window limited, no point cap). */
-function resolveSpeedBucketSec(rangeStart: Date, rangeEnd: Date): number {
-  const spanHours = (rangeEnd.getTime() - rangeStart.getTime()) / 3_600_000;
-  if (spanHours <= 24) return SPEED_BUCKET_SEC;
-  if (spanHours <= 72) return 60;
-  return 300;
 }
 
 export function buildEquipmentSpeedHistoryQuery(
@@ -101,71 +135,64 @@ export function buildEquipmentSpeedHistoryQuery(
 
   if (mode === 'realtime' || mode === 'shift_live') {
     const win = getCurrentShiftWindow(now);
-    const bucketSec = resolveSpeedBucketSec(win.start, now);
-    return {
-      queryStart: win.start,
-      queryEnd: now,
-      bucketSec,
-      pollMs: SPEED_POLL_MS,
-      sectionSubtitle: `${modeLabel} — Ca ${win.shift} · ${formatScopeTimeRange(win.start, now)}`,
-    };
+    return buildQuery(
+      win.start,
+      win.end,
+      now,
+      SPEED_POLL_MS,
+      `${modeLabel} — Ca ${win.shift} · ${formatScopeTimeRange(win.start, win.end)}`
+    );
   }
 
-  const shiftWin = resolveFixedShiftWindow(mode, referenceDate, pastIsoShiftNumber, now);
+  const shiftWin = resolveFixedShiftWindow(mode, referenceDate, pastIsoShiftNumber);
   if (shiftWin) {
-    const bucketSec = resolveSpeedBucketSec(shiftWin.start, shiftWin.end);
     const pollMs =
       shiftWin.end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
-    return {
-      queryStart: shiftWin.start,
-      queryEnd: shiftWin.end,
-      bucketSec,
+    return buildQuery(
+      shiftWin.start,
+      shiftWin.end,
+      now,
       pollMs,
-      sectionSubtitle: `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))} · ${formatScopeTimeRange(shiftWin.start, shiftWin.end)}`,
-    };
+      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))} · ${formatScopeTimeRange(shiftWin.start, shiftWin.end)}`
+    );
   }
 
   if (mode === 'calendar_day') {
     const ymd = scope?.dayDate || referenceDate;
     const rows = getFactoryShiftWindowsForCalendarDay(ymd);
-    const start = scope?.start ? new Date(scope.start) : new Date(Math.min(...rows.map((r) => r.start.getTime())));
-    let end = scope?.end ? new Date(scope.end) : new Date(Math.max(...rows.map((r) => r.end.getTime())));
-    if (end.getTime() > now.getTime()) end = now;
-    const bucketSec = resolveSpeedBucketSec(start, end);
-    return {
-      queryStart: start,
-      queryEnd: end,
-      bucketSec,
-      pollMs: end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null,
-      sectionSubtitle: `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))} · ${formatScopeTimeRange(start, end)}`,
-    };
+    const chartWindowStart = scope?.start
+      ? new Date(scope.start)
+      : new Date(Math.min(...rows.map((r) => r.start.getTime())));
+    const chartWindowEnd = scope?.end
+      ? new Date(scope.end)
+      : new Date(Math.max(...rows.map((r) => r.end.getTime())));
+    const pollMs =
+      chartWindowEnd.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(
+      chartWindowStart,
+      chartWindowEnd,
+      now,
+      pollMs,
+      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))} · ${formatScopeTimeRange(chartWindowStart, chartWindowEnd)}`
+    );
   }
 
   if (scope?.start && scope?.end) {
-    const queryStart = new Date(scope.start);
-    let queryEnd = new Date(scope.end);
+    const chartWindowStart = new Date(scope.start);
+    const chartWindowEnd = new Date(scope.end);
     const liveModes: EquipmentOeeMode[] = ['day', 'yesterday', 'week'];
-    if (liveModes.includes(mode) && queryEnd.getTime() > now.getTime()) {
-      queryEnd = now;
-    }
-    if (queryEnd <= queryStart) {
-      queryEnd = new Date(queryStart.getTime() + 60_000);
-    }
-    const bucketSec = resolveSpeedBucketSec(queryStart, queryEnd);
     const pollMs =
-      queryEnd.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+      liveModes.includes(mode) && chartWindowEnd.getTime() > now.getTime() - 60_000
+        ? SPEED_POLL_MS
+        : chartWindowEnd.getTime() > now.getTime() - 60_000
+          ? SPEED_POLL_MS
+          : null;
     let subtitle = modeLabel;
     if (scope.dayDate) {
       subtitle += ` — ${formatDdMmYyyy(parseShiftDateToAnchor(scope.dayDate))}`;
     }
-    subtitle += ` · ${formatScopeTimeRange(queryStart, queryEnd)}`;
-    return {
-      queryStart,
-      queryEnd,
-      bucketSec,
-      pollMs,
-      sectionSubtitle: subtitle,
-    };
+    subtitle += ` · ${formatScopeTimeRange(chartWindowStart, chartWindowEnd)}`;
+    return buildQuery(chartWindowStart, chartWindowEnd, now, pollMs, subtitle);
   }
 
   if (mode === 'day' || mode === 'yesterday') {
@@ -174,23 +201,17 @@ export function buildEquipmentSpeedHistoryQuery(
         ? getProductionDayLabelDate(now)
         : addDaysToYmd(getProductionDayLabelDate(now), -1);
     const { start, end } = getProductionDayWindow(label, now);
-    const bucketSec = resolveSpeedBucketSec(start, end);
-    return {
-      queryStart: start,
-      queryEnd: end,
-      bucketSec,
-      pollMs: end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null,
-      sectionSubtitle: `${modeLabel} · ${formatScopeTimeRange(start, end)}`,
-    };
+    const pollMs = end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(start, end, now, pollMs, `${modeLabel} · ${formatScopeTimeRange(start, end)}`);
   }
 
-  const queryEnd = now;
-  const queryStart = new Date(now.getTime() - 8 * 3600 * 1000);
-  return {
-    queryStart,
-    queryEnd,
-    bucketSec: SPEED_BUCKET_SEC,
-    pollMs: SPEED_POLL_MS,
-    sectionSubtitle: `${modeLabel} — chờ phạm vi OEE`,
-  };
+  const chartWindowEnd = now;
+  const chartWindowStart = new Date(now.getTime() - 8 * 3600 * 1000);
+  return buildQuery(
+    chartWindowStart,
+    chartWindowEnd,
+    now,
+    SPEED_POLL_MS,
+    `${modeLabel} — chờ phạm vi OEE`
+  );
 }

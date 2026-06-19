@@ -237,15 +237,16 @@ export function EquipmentDetail({
   ]);
 
   const speedHistoryFetchKey = useMemo(() => {
-    const base = `${equipmentOeeMode}|${referenceDate}|${pastIsoShiftNumber}|${speedHistoryQuery.queryStart.toISOString()}|${speedHistoryQuery.bucketSec}|${equipmentOeeScope?.start ?? ''}|${equipmentOeeScope?.end ?? ''}|${equipmentOeeScope?.dayDate ?? ''}`;
-    if (rollingTimelineModes) return base;
-    return `${base}|${speedHistoryQuery.queryEnd.toISOString()}`;
+    const base = `${equipmentOeeMode}|${referenceDate}|${pastIsoShiftNumber}|${speedHistoryQuery.queryStart.toISOString()}|${speedHistoryQuery.chartWindowEnd.toISOString()}|${speedHistoryQuery.bucketSec}|${equipmentOeeScope?.start ?? ''}|${equipmentOeeScope?.end ?? ''}|${equipmentOeeScope?.dayDate ?? ''}`;
+    if (rollingTimelineModes) return `${base}|${speedHistoryQuery.queryEnd.toISOString()}`;
+    return base;
   }, [
     equipmentOeeMode,
     referenceDate,
     pastIsoShiftNumber,
     speedHistoryQuery.queryStart,
     speedHistoryQuery.queryEnd,
+    speedHistoryQuery.chartWindowEnd,
     speedHistoryQuery.bucketSec,
     equipmentOeeScope?.start,
     equipmentOeeScope?.end,
@@ -257,6 +258,7 @@ export function EquipmentDetail({
     machineId,
     queryStart: speedHistoryQuery.queryStart,
     queryEnd: speedHistoryQuery.queryEnd,
+    chartWindowEnd: speedHistoryQuery.chartWindowEnd,
     pollMs: speedHistoryQuery.pollMs,
     bucketSec: speedHistoryQuery.bucketSec,
     rangeKey: speedHistoryFetchKey,
@@ -367,24 +369,29 @@ export function EquipmentDetail({
     if (!activeSpeedHistory?.points.length) return [];
     return buildSpeedChartRows(
       activeSpeedHistory.points,
-      speedHistoryQuery.queryStart,
-      speedHistoryQuery.queryEnd
+      speedHistoryQuery.chartWindowStart,
+      speedHistoryQuery.chartWindowEnd
     );
   }, [
     activeSpeedHistory?.points,
-    speedHistoryQuery.queryStart,
-    speedHistoryQuery.queryEnd,
+    speedHistoryQuery.chartWindowStart,
+    speedHistoryQuery.chartWindowEnd,
   ]);
 
   const speedChartWindow = useMemo(
     () => ({
-      startMs: speedHistoryQuery.queryStart.getTime(),
+      startMs: speedHistoryQuery.chartWindowStart.getTime(),
       endMs: Math.max(
-        speedHistoryQuery.queryEnd.getTime(),
-        speedHistoryQuery.queryStart.getTime() + 60_000
+        speedHistoryQuery.chartWindowEnd.getTime(),
+        speedHistoryQuery.chartWindowStart.getTime() + 60_000
       ),
+      dataEndMs: speedHistoryQuery.queryEnd.getTime(),
     }),
-    [speedHistoryQuery.queryStart, speedHistoryQuery.queryEnd]
+    [
+      speedHistoryQuery.chartWindowStart,
+      speedHistoryQuery.chartWindowEnd,
+      speedHistoryQuery.queryEnd,
+    ]
   );
 
   const speedAnalysisRefs = useMemo(
@@ -1036,6 +1043,7 @@ export function EquipmentDetail({
                 yDomain={speedTrendYDomain}
                 windowStartMs={speedChartWindow.startMs}
                 windowEndMs={speedChartWindow.endMs}
+                dataEndMs={speedChartWindow.dataEndMs}
                 stableSegments={speedStableSegments}
                 refs={speedAnalysisRefs}
               />

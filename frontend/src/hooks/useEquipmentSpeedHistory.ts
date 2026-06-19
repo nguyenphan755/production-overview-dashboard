@@ -6,6 +6,8 @@ type UseEquipmentSpeedHistoryArgs = {
   machineId: string | null | undefined;
   queryStart: Date;
   queryEnd: Date;
+  /** Cap live poll requests — full OEE chart window end */
+  chartWindowEnd?: Date;
   pollMs: number | null;
   bucketSec?: number;
   rangeKey: string;
@@ -26,6 +28,7 @@ export function useEquipmentSpeedHistory({
   machineId,
   queryStart,
   queryEnd,
+  chartWindowEnd,
   pollMs,
   bucketSec = 60,
   rangeKey,
@@ -34,8 +37,8 @@ export function useEquipmentSpeedHistory({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
-  const queryRef = useRef({ queryStart, queryEnd, bucketSec, rangeKey, pollMs });
-  queryRef.current = { queryStart, queryEnd, bucketSec, rangeKey, pollMs };
+  const queryRef = useRef({ queryStart, queryEnd, chartWindowEnd, bucketSec, rangeKey, pollMs });
+  queryRef.current = { queryStart, queryEnd, chartWindowEnd, bucketSec, rangeKey, pollMs };
 
   useEffect(() => {
     if (!machineId) {
@@ -46,6 +49,7 @@ export function useEquipmentSpeedHistory({
 
     setError(null);
     setLoading(true);
+    setData(null);
 
     const seq = ++requestSeqRef.current;
     const ac = new AbortController();
@@ -54,8 +58,13 @@ export function useEquipmentSpeedHistory({
       const q = queryRef.current;
       if (!isPoll) setLoading(true);
 
-      const endForRequest =
-        isPoll && q.pollMs != null ? new Date() : q.queryEnd;
+      let endForRequest = isPoll && q.pollMs != null ? new Date() : q.queryEnd;
+      if (q.chartWindowEnd && endForRequest.getTime() > q.chartWindowEnd.getTime()) {
+        endForRequest = q.chartWindowEnd;
+      }
+      if (endForRequest.getTime() <= q.queryStart.getTime()) {
+        endForRequest = new Date(q.queryStart.getTime() + 60_000);
+      }
 
       try {
         const response = await apiClient.getMachineSpeedHistory(

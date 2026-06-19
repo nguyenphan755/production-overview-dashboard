@@ -32,11 +32,13 @@ type EquipmentSpeedTrendChartProps = {
   yDomain: [number, number];
   windowStartMs: number;
   windowEndMs: number;
+  /** Latest fetched data time (≤ windowEndMs); when live ca in progress */
+  dataEndMs?: number;
   stableSegments: StableSpeedSegment[];
   refs: SpeedReferenceLines;
 };
 
-function formatAxisTime(ms: number, longSpan: boolean): string {
+function formatAxisTime(ms: number, longSpan: boolean, shiftSpan: boolean): string {
   const d = new Date(ms);
   if (longSpan) {
     return d.toLocaleString('vi-VN', {
@@ -51,7 +53,8 @@ function formatAxisTime(ms: number, longSpan: boolean): string {
     timeZone: FACTORY_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
+    second: shiftSpan ? undefined : '2-digit',
+    hour12: false,
   });
 }
 
@@ -61,6 +64,7 @@ export function EquipmentSpeedTrendChart({
   yDomain,
   windowStartMs,
   windowEndMs,
+  dataEndMs,
   stableSegments,
   refs,
 }: EquipmentSpeedTrendChartProps) {
@@ -74,9 +78,14 @@ export function EquipmentSpeedTrendChart({
   const xDomain = resolveSpeedChartXDomain(windowStartMs, windowEndMs);
   const spanMs = xDomain[1] - xDomain[0];
   const longSpan = spanMs > 36 * 3600 * 1000;
+  const shiftSpan = spanMs <= 9 * 3600 * 1000;
   const tickCount = longSpan > 72 * 3600 * 1000 ? 8 : longSpan > 24 * 3600 * 1000 ? 7 : 6;
   const xTicks = buildSpeedChartTimeTicks(xDomain, tickCount);
   const gradientId = `speed-actual-fill-${data.meta.bucketSec}`;
+  const showDataCutoff =
+    dataEndMs != null &&
+    dataEndMs < windowEndMs - 120_000 &&
+    dataEndMs > windowStartMs;
 
   return (
     <div className="mb-3 speed-trend-chart">
@@ -84,10 +93,14 @@ export function EquipmentSpeedTrendChart({
         <h3 className="text-sm speed-text-soft font-medium">Speed Trend — chi tiết tốc độ</h3>
         <div className="flex flex-col items-end gap-0.5 text-[10px] speed-text-subtle text-right">
           <span>
-            Khung OEE: {formatAxisTime(windowStartMs, longSpan)} → {formatAxisTime(windowEndMs, longSpan)}
+            Khung OEE: {formatAxisTime(windowStartMs, longSpan, shiftSpan)} →{' '}
+            {formatAxisTime(windowEndMs, longSpan, shiftSpan)}
           </span>
           <span>
-            Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm hiển thị
+            Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm
+            {showDataCutoff
+              ? ` · dữ liệu đến ${formatAxisTime(dataEndMs!, longSpan, shiftSpan)}`
+              : ''}
           </span>
         </div>
       </div>
@@ -115,7 +128,7 @@ export function EquipmentSpeedTrendChart({
               stroke="#ffffff40"
               tick={{ fill: '#ffffff60', fontSize: 10 }}
               ticks={xTicks}
-              tickFormatter={(ms) => formatAxisTime(Number(ms), longSpan)}
+              tickFormatter={(ms) => formatAxisTime(Number(ms), longSpan, shiftSpan)}
               label={{
                 value: 'Thời gian',
                 position: 'insideBottom',
@@ -191,7 +204,7 @@ export function EquipmentSpeedTrendChart({
             ))}
 
             <Tooltip
-              labelFormatter={(ms) => formatAxisTime(Number(ms), longSpan)}
+              labelFormatter={(ms) => formatAxisTime(Number(ms), longSpan, shiftSpan)}
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const row = payload[0]?.payload as SpeedChartRow;
@@ -200,7 +213,7 @@ export function EquipmentSpeedTrendChart({
                 return (
                   <div className="rounded-lg border border-white/20 bg-[#0E2F4F] px-3 py-2 text-xs text-white shadow-lg max-w-xs">
                     <div className="speed-text-soft mb-1.5 font-medium">
-                      {formatAxisTime(row.timestampMs, longSpan)}
+                      {formatAxisTime(row.timestampMs, longSpan, shiftSpan)}
                     </div>
                     {productNote ? (
                       <div className="mb-1.5 pb-1.5 border-b border-white/10">
@@ -245,6 +258,21 @@ export function EquipmentSpeedTrendChart({
                 );
               }}
             />
+
+            {showDataCutoff ? (
+              <ReferenceLine
+                x={dataEndMs}
+                stroke="#FFB86C"
+                strokeDasharray="4 4"
+                strokeOpacity={0.85}
+                label={{
+                  value: 'Dữ liệu mới nhất',
+                  fill: '#FFB86C',
+                  fontSize: 10,
+                  position: 'insideTopLeft',
+                }}
+              />
+            ) : null}
 
             {refs.vDesign != null && refs.vDesign > 0 && refs.vDesign <= yDomain[1] ? (
               <ReferenceLine

@@ -18,7 +18,9 @@
     "apply-machine-line-telemetry": "node scripts/apply-machine-line-telemetry-migration.mjs",
     "ensure-telemetry-partitions": "node scripts/ensure-machine-line-telemetry-partitions.mjs",
     "import-machine-material-csv": "node scripts/import-machine-material-timeseries-csv.mjs",
-    "import-machine-material-xlsx": "node scripts/import-machine-material-timeseries-xlsx.mjs"
+    "import-machine-material-xlsx": "node scripts/import-machine-material-timeseries-xlsx.mjs",
+    "validate:sh04-speed-csv": "node ../scripts/validate-sh04-speed-chart.mjs",
+    "validate:sh04-speed-live": "node ../scripts/validate-sh04-speed-live.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

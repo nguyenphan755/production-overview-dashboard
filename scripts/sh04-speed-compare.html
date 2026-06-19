@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Đối chiếu tốc độ + chạy/dừng — oee_calculations CSV</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a1628;
+      --panel: #0e2f4f;
+      --text: #e8f0fe;
+      --muted: #94a3b8;
+      --accent: #4fffbc;
+      --warn: #ffb86c;
+      --run: #22c55e;
+      --stop: #ef4444;
+      --creep: #f59e0b;
+      --oee-run: #34e7f8;
+      --oee-freeze: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: var(--panel);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.15rem; font-weight: 600; }
+    h2 { font-size: 0.95rem; margin: 1.25rem 0 0.5rem; color: var(--muted); font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 1rem 1.25rem 2rem; max-width: 1200px; margin: 0 auto; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input[type="file"], input[type="date"], select, input[type="number"] {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: var(--text);
+      padding: 0.45rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    input[type="file"] { min-width: 280px; }
+    button {
+      background: var(--accent);
+      color: #0a1628;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+    .card .k { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .card .v { font-size: 1rem; font-weight: 600; margin-top: 0.15rem; }
+    .chart-wrap {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .chart-wrap.speed { height: 360px; }
+    .chart-wrap.running { height: 200px; }
+    .gantt-panel {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .gantt-row { margin-bottom: 0.85rem; }
+    .gantt-row:last-child { margin-bottom: 0; }
+    .gantt-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .gantt-track {
+      position: relative;
+      height: 28px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .gantt-seg {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      min-width: 1px;
+      cursor: default;
+    }
+    .gantt-seg:hover { filter: brightness(1.15); z-index: 2; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-top: 0.75rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 0.5rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    th { color: var(--muted); font-weight: 500; }
+    .ok { color: var(--accent); }
+    .err { color: #f87171; }
+    .note {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: rgba(255,184,108,0.08);
+      border: 1px solid rgba(255,184,108,0.25);
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: var(--warn);
+    }
+    .note ul { margin: 0.5rem 0 0; padding-left: 1.2rem; }
+    #status { font-size: 0.85rem; color: var(--muted); min-height: 1.25rem; }
+    #ganttTip {
+      position: fixed;
+      display: none;
+      background: #0e2f4f;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      pointer-events: none;
+      z-index: 99;
+      max-width: 280px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Đối chiếu tốc độ + chạy/dừng vs khung OEE</h1>
+    <p class="sub">
+      File <code>oee_calculations</code>: có <code>actual_speed</code> + <code>running_time_seconds</code> (tích lũy).
+      Không có cột RUNNING/STOPPED — timeline suy ra từ 2 nguồn này · ICT (+07)
+    </p>
+  </header>
+
+  <main>
+    <div class="row">
+      <div>
+        <label for="csvFile">File CSV</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv" />
+      </div>
+      <div>
+        <label for="shiftDate">Ngày ca (ICT)</label>
+        <input type="date" id="shiftDate" value="2026-06-12" />
+      </div>
+      <div>
+        <label for="shiftNum">Ca</label>
+        <select id="shiftNum">
+          <option value="1" selected>Ca 1 (06:00–14:00)</option>
+          <option value="2">Ca 2 (14:00–22:00)</option>
+          <option value="3">Ca 3 (22:00–06:00)</option>
+        </select>
+      </div>
+      <div>
+        <label for="bucketSec">Bucket (giây)</label>
+        <input type="number" id="bucketSec" value="30" min="5" max="300" step="5" style="width:72px" />
+      </div>
+      <button type="button" id="btnRender" disabled>Vẽ biểu đồ</button>
+    </div>
+
+    <p id="status">Chọn file CSV (vd. data-1781835754512.csv — SH-04 Ca 1)</p>
+
+    <div class="cards" id="summary" hidden>
+      <div class="card"><div class="k">Máy</div><div class="v" id="sMachine">—</div></div>
+      <div class="card"><div class="k">Dòng raw</div><div class="v" id="sRows">—</div></div>
+      <div class="card"><div class="k">Peak speed</div><div class="v" id="sPeak">—</div></div>
+      <div class="card"><div class="k">Dừng (speed=0)</div><div class="v" id="sZero">—</div></div>
+      <div class="card"><div class="k">OEE chạy cuối ca</div><div class="v" id="sOeeRun">—</div></div>
+      <div class="card"><div class="k">Đoạn dừng (≥2 phút)</div><div class="v" id="sStopSegs">—</div></div>
+    </div>
+
+    <h2>1. Trend tốc độ (bucket 30s)</h2>
+    <div class="chart-wrap speed">
+      <canvas id="speedChart"></canvas>
+    </div>
+
+    <h2>2. Timeline chạy / dừng (cùng trục thời gian)</h2>
+    <div class="gantt-panel" id="ganttPanel" hidden>
+      <div class="gantt-row">
+        <div class="gantt-label">
+          <span>Theo <strong>actual_speed</strong> (PLC / trend chart)</span>
+          <span id="speedRunSummary">—</span>
+        </div>
+        <div class="gantt-track" id="trackSpeed"></div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-label">
+          <span>Theo <strong>running_time_seconds</strong> (OEE tích lũy)</span>
+          <span id="oeeRunSummary">—</span>
+        </div>
+        <div class="gantt-track" id="trackOee"></div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--run)"></i> Chạy (speed ≥ 1)</span>
+        <span><i class="dot" style="background:var(--creep)"></i> Ramp (0 &lt; speed &lt; 1)</span>
+        <span><i class="dot" style="background:var(--stop)"></i> Dừng (speed = 0)</span>
+        <span><i class="dot" style="background:var(--oee-run)"></i> OEE đang cộng running_time</span>
+        <span><i class="dot" style="background:var(--oee-freeze)"></i> OEE không cộng (dừng/chuẩn bị)</span>
+      </div>
+    </div>
+
+    <h2>3. running_time_seconds tích lũy</h2>
+    <div class="chart-wrap running">
+      <canvas id="runningChart"></canvas>
+    </div>
+
+    <table id="stopTable" hidden>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Bắt đầu (ICT)</th>
+          <th>Kết thúc</th>
+          <th>Thời lượng</th>
+          <th>Nguồn</th>
+        </tr>
+      </thead>
+      <tbody id="stopBody"></tbody>
+    </table>
+
+    <table id="milestones" hidden>
+      <thead>
+        <tr>
+          <th>Mốc tham chiếu</th>
+          <th>Khoảng ICT</th>
+          <th>Speed TB</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody id="milestonesBody"></tbody>
+    </table>
+
+    <div class="note">
+      <strong>Dữ liệu trong file CSV của bạn:</strong>
+      <ul>
+        <li><code>actual_speed</code> — tốc độ tức thời → lane 1 (xanh/đỏ) khớp chart dashboard.</li>
+        <li><code>running_time_seconds</code> — giây chạy <em>tích lũy trong ca</em> → lane 2: tăng = OEE coi là đang chạy; đứng yên = downtime.</li>
+        <li>Không có trạng thái Gantt RUNNING/STOPPED từ <code>machine_status_history</code> — muốn so Gantt dashboard cần export bảng đó riêng.</li>
+      </ul>
+    </div>
+  </main>
+
+  <div id="ganttTip"></div>
+
+  <script>
+    const TZ = 'Asia/Ho_Chi_Minh';
+    const SPEED_RUN = 1;
+    const MIN_STOP_SEC = 120;
+
+    const STATE_COLORS = {
+      running: '#22c55e',
+      creep: '#f59e0b',
+      stopped: '#ef4444',
+      oee_accum: '#34e7f8',
+      oee_frozen: '#475569',
+    };
+
+    function factoryDate(y, m, d, h, min = 0, sec = 0) {
+      const p = (n) => String(n).padStart(2, '0');
+      return new Date(`${y}-${p(m)}-${p(d)}T${p(h)}:${p(min)}:${p(sec)}+07:00`);
+    }
+
+    function getShiftWindow(shift, ymd) {
+      const [y, m, d] = ymd.split('-').map(Number);
+      if (shift === 1) return { start: factoryDate(y, m, d, 6), end: factoryDate(y, m, d, 14) };
+      if (shift === 2) return { start: factoryDate(y, m, d, 14), end: factoryDate(y, m, d, 22) };
+      const next = new Date(factoryDate(y, m, d, 12).getTime() + 86400000);
+      return {
+        start: factoryDate(y, m, d, 22),
+        end: factoryDate(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 6),
+      };
+    }
+
+    function fmtIct(ms) {
+      return new Date(ms).toLocaleString('vi-VN', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function fmtIctFull(ms) {
+      return new Date(ms).toLocaleString('vi-VN', {
+        timeZone: TZ, day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      });
+    }
+
+    function fmtDur(sec) {
+      sec = Math.round(sec);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function parseOeeLine(line) {
+      const m = line.match(
+        /^(\d+),"([^"]+)","([^"]+)","([^"]+)",([^,]+),([^,]+),([^,]+),([^,]+),"([^"]+)","([^"]+)",(\d+),(\d+),([^,]+),([^,]+),([^,]+),([^,]+),"([^"]+)"$/
+      );
+      if (!m) return null;
+      return {
+        machineId: m[2],
+        ts: new Date(m[4].replace(' ', 'T') + '+07:00'),
+        running: Number(m[11]),
+        planned: Number(m[12]),
+        actual: Number(m[13]),
+        target: Number(m[14]),
+      };
+    }
+
+    function speedState(actual) {
+      if (actual === 0) return 'stopped';
+      if (actual < SPEED_RUN) return 'creep';
+      return 'running';
+    }
+
+    function oeeState(row, prev) {
+      if (!prev) return row.running > 0 ? 'oee_accum' : 'oee_frozen';
+      return row.running > prev.running ? 'oee_accum' : 'oee_frozen';
+    }
+
+    function buildSegments(rows, stateFn) {
+      if (!rows.length) return [];
+      const segs = [];
+      let cur = { state: stateFn(rows[0], null), start: rows[0].ts.getTime(), end: rows[0].ts.getTime() };
+      for (let i = 1; i < rows.length; i++) {
+        const st = stateFn(rows[i], rows[i - 1]);
+        const t = rows[i].ts.getTime();
+        if (st !== cur.state) {
+          cur.end = t;
+          segs.push(cur);
+          cur = { state: st, start: t, end: t };
+        } else {
+          cur.end = t;
+        }
+      }
+      segs.push(cur);
+      return segs;
+    }
+
+    function totalDuration(segs, states) {
+      return segs
+        .filter((s) => states.includes(s.state))
+        .reduce((a, s) => a + (s.end - s.start) / 1000, 0);
+    }
+
+    function bucketRows(rows, bucketSec) {
+      const map = new Map();
+      for (const r of rows) {
+        const sec = Math.floor(r.ts.getTime() / 1000);
+        const b = Math.floor(sec / bucketSec) * bucketSec;
+        if (!map.has(b)) map.set(b, { sumA: 0, sumT: 0, sumR: 0, n: 0, ts: b * 1000, maxR: 0 });
+        const o = map.get(b);
+        o.sumA += r.actual;
+        o.sumT += r.target;
+        o.sumR += r.running;
+        o.maxR = Math.max(o.maxR, r.running);
+        o.n += 1;
+      }
+      return [...map.values()]
+        .map((o) => ({
+          x: o.ts,
+          actual: o.sumA / o.n,
+          target: o.sumT / o.n,
+          running: o.maxR,
+        }))
+        .sort((a, b) => a.x - b.x);
+    }
+
+    function renderGanttTrack(container, segs, winStart, winEnd, labels) {
+      container.innerHTML = '';
+      const span = winEnd - winStart;
+      for (const seg of segs) {
+        const left = ((Math.max(seg.start, winStart) - winStart) / span) * 100;
+        const right = ((Math.min(seg.end, winEnd) - winStart) / span) * 100;
+        const width = Math.max(right - left, 0.05);
+        const el = document.createElement('div');
+        el.className = 'gantt-seg';
+        el.style.left = `${left}%`;
+        el.style.width = `${width}%`;
+        el.style.background = STATE_COLORS[seg.state] || '#888';
+        const dur = (seg.end - seg.start) / 1000;
+        const label = labels[seg.state] || seg.state;
+        el.title = `${label}\n${fmtIctFull(seg.start)} → ${fmtIctFull(seg.end)}\n${fmtDur(dur)}`;
+        el.addEventListener('mousemove', (e) => {
+          const tip = document.getElementById('ganttTip');
+          tip.style.display = 'block';
+          tip.style.left = `${e.clientX + 12}px`;
+          tip.style.top = `${e.clientY + 12}px`;
+          tip.innerHTML = `<strong>${label}</strong><br>${fmtIctFull(seg.start)} → ${fmtIctFull(seg.end)}<br>${fmtDur(dur)}`;
+        });
+        el.addEventListener('mouseleave', () => {
+          document.getElementById('ganttTip').style.display = 'none';
+        });
+        container.appendChild(el);
+      }
+    }
+
+    function avgInRange(buckets, startMs, endMs) {
+      const sel = buckets.filter((b) => b.x >= startMs && b.x < endMs);
+      if (!sel.length) return null;
+      return sel.reduce((s, b) => s + b.actual, 0) / sel.length;
+    }
+
+    let speedChart = null;
+    let runningChart = null;
+    let loadedText = null;
+
+    document.getElementById('csvFile').addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        loadedText = reader.result;
+        document.getElementById('btnRender').disabled = false;
+        document.getElementById('status').textContent = `Đã load: ${f.name} (${(f.size / 1024).toFixed(0)} KB)`;
+      };
+      reader.readAsText(f);
+    });
+
+    document.getElementById('btnRender').addEventListener('click', render);
+
+    function render() {
+      if (!loadedText) return;
+
+      const ymd = document.getElementById('shiftDate').value;
+      const shift = Number(document.getElementById('shiftNum').value);
+      const bucketSec = Number(document.getElementById('bucketSec').value) || 30;
+      const win = getShiftWindow(shift, ymd);
+      const startMs = win.start.getTime();
+      const endMs = win.end.getTime();
+
+      const lines = loadedText.trim().split(/\r?\n/);
+      const allRows = lines.slice(1).map(parseOeeLine).filter(Boolean);
+      if (!allRows.length) {
+        document.getElementById('status').innerHTML = '<span class="err">Không parse được CSV.</span>';
+        return;
+      }
+
+      allRows.sort((a, b) => a.ts - b.ts);
+      const machineId = allRows[0].machineId;
+      const inWin = allRows.filter((r) => r.ts >= win.start && r.ts <= win.end);
+      const buckets = bucketRows(inWin, bucketSec);
+      const peak = buckets.reduce((m, b) => Math.max(m, b.actual), 0);
+      const zeroPct = inWin.length
+        ? ((inWin.filter((r) => r.actual === 0).length / inWin.length) * 100).toFixed(1)
+        : '0';
+      const finalOeeRun = inWin.length ? inWin[inWin.length - 1].running : 0;
+      const planned = inWin.length ? inWin[inWin.length - 1].planned : 28800;
+
+      const speedSegs = buildSegments(inWin, (r) => speedState(r.actual));
+      const oeeSegs = buildSegments(inWin, (r, p) => oeeState(r, p));
+
+      const runSec = totalDuration(speedSegs, ['running']);
+      const stopSec = totalDuration(speedSegs, ['stopped']);
+      const creepSec = totalDuration(speedSegs, ['creep']);
+      const oeeAccumSec = totalDuration(oeeSegs, ['oee_accum']);
+      const oeeFreezeSec = totalDuration(oeeSegs, ['oee_frozen']);
+
+      const stopBlocks = speedSegs
+        .filter((s) => s.state === 'stopped' && (s.end - s.start) / 1000 >= MIN_STOP_SEC)
+        .sort((a, b) => (b.end - b.start) - (a.end - a.start));
+
+      document.getElementById('summary').hidden = false;
+      document.getElementById('sMachine').textContent = machineId;
+      document.getElementById('sRows').textContent = inWin.length.toLocaleString('vi-VN');
+      document.getElementById('sPeak').textContent = `${peak.toFixed(1)} m/min`;
+      document.getElementById('sZero').textContent = `${zeroPct}% (${fmtDur(stopSec)})`;
+      document.getElementById('sOeeRun').textContent = `${fmtDur(finalOeeRun)} / ${fmtDur(planned)}`;
+      document.getElementById('sStopSegs').textContent = String(stopBlocks.length);
+
+      document.getElementById('ganttPanel').hidden = false;
+      document.getElementById('speedRunSummary').textContent =
+        `Chạy ${fmtDur(runSec)} · Dừng ${fmtDur(stopSec)} · Ramp ${fmtDur(creepSec)}`;
+      document.getElementById('oeeRunSummary').textContent =
+        `Cộng ${fmtDur(oeeAccumSec)} · Đóng băng ${fmtDur(oeeFreezeSec)}`;
+
+      renderGanttTrack(
+        document.getElementById('trackSpeed'),
+        speedSegs,
+        startMs,
+        endMs,
+        { running: 'Chạy', creep: 'Ramp', stopped: 'Dừng' }
+      );
+      renderGanttTrack(
+        document.getElementById('trackOee'),
+        oeeSegs,
+        startMs,
+        endMs,
+        { oee_accum: 'OEE cộng dồn', oee_frozen: 'OEE đóng băng' }
+      );
+
+      const stopBody = document.getElementById('stopBody');
+      stopBody.innerHTML = '';
+      stopBlocks.slice(0, 15).forEach((s, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${fmtIctFull(s.start)}</td>
+          <td>${fmtIctFull(s.end)}</td>
+          <td>${fmtDur((s.end - s.start) / 1000)}</td>
+          <td>actual_speed = 0</td>`;
+        stopBody.appendChild(tr);
+      });
+      document.getElementById('stopTable').hidden = stopBlocks.length === 0;
+
+      const [y, m, d] = ymd.split('-').map(Number);
+      const milestones = [
+        { label: 'Đầu ca', start: factoryDate(y, m, d, 6, 0), end: factoryDate(y, m, d, 6, 15), note: 'Speed > 0 sớm' },
+        { label: 'Downtime dài', start: factoryDate(y, m, d, 11, 49), end: factoryDate(y, m, d, 12, 32), note: 'Speed=0, running_time đóng băng' },
+        { label: 'Ramp', start: factoryDate(y, m, d, 12, 33), end: factoryDate(y, m, d, 12, 44), note: '0.4 → 35 m/min' },
+        { label: 'Chạy lại', start: factoryDate(y, m, d, 12, 45), end: factoryDate(y, m, d, 13, 0), note: '≈ 35 m/min' },
+      ];
+      const tbody = document.getElementById('milestonesBody');
+      tbody.innerHTML = '';
+      for (const ms of milestones) {
+        const avg = avgInRange(buckets, ms.start.getTime(), ms.end.getTime());
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${ms.label}</td>
+          <td>${fmtIct(ms.start.getTime())} – ${fmtIct(ms.end.getTime())}</td>
+          <td>${avg != null ? avg.toFixed(2) + ' m/min' : '—'}</td>
+          <td>${ms.note}</td>`;
+        tbody.appendChild(tr);
+      }
+      document.getElementById('milestones').hidden = false;
+
+      const chartOpts = (yLabel, y2) => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#94a3b8', boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              title: (items) => (items[0] ? fmtIctFull(items[0].parsed.x) : ''),
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'time',
+            min: startMs,
+            max: endMs,
+            time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+            adapters: { date: { zone: TZ } },
+            ticks: { color: '#94a3b8', maxTicksLimit: 10 },
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            title: { display: true, text: 'Thời gian (ICT)', color: '#64748b' },
+          },
+          y: {
+            min: 0,
+            ticks: { color: '#94a3b8' },
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            title: { display: true, text: yLabel, color: '#64748b' },
+          },
+          ...(y2 ? {
+            y1: {
+              position: 'right',
+              min: 0,
+              max: planned,
+              ticks: { color: '#34e7f8' },
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: 'running_time (s)', color: '#34e7f8' },
+            },
+          } : {}),
+        },
+      });
+
+      if (speedChart) speedChart.destroy();
+      speedChart = new Chart(document.getElementById('speedChart'), {
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Tốc độ thực (m/min)',
+              data: buckets.map((b) => ({ x: b.x, y: b.actual })),
+              borderColor: '#ffffff',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              fill: true,
+              tension: 0.1,
+              pointRadius: 0,
+              borderWidth: 2,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Target TB',
+              data: buckets.map((b) => ({ x: b.x, y: b.target > 0 ? b.target : null })),
+              borderColor: '#4fffbc',
+              borderDash: [6, 4],
+              pointRadius: 0,
+              borderWidth: 1.5,
+              spanGaps: true,
+              yAxisID: 'y',
+            },
+          ],
+        },
+        options: chartOpts('m/min', false),
+      });
+
+      if (runningChart) runningChart.destroy();
+      runningChart = new Chart(document.getElementById('runningChart'), {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'running_time_seconds (tích lũy ca)',
+            data: inWin.filter((_, i) => i % 10 === 0 || i === inWin.length - 1)
+              .map((r) => ({ x: r.ts.getTime(), y: r.running })),
+            borderColor: '#34e7f8',
+            backgroundColor: 'rgba(52,231,248,0.15)',
+            fill: true,
+            stepped: 'before',
+            pointRadius: 0,
+            borderWidth: 2,
+          }],
+        },
+        options: chartOpts('giây', true),
+      });
+
+      document.getElementById('status').innerHTML =
+        `<span class="ok">Đã vẽ · ${machineId} · Ca ${shift} · ${ymd}</span> — ` +
+        `OEE chạy ${fmtDur(finalOeeRun)}/${fmtDur(planned)} · ${stopBlocks.length} đoạn dừng ≥2 phút.`;
+    }
+  </script>
+</body>
+</html>
