@@ -1,25 +1,18 @@
-import {
-  Area,
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip,
-  ReferenceLine,
-  ReferenceArea,
-  CartesianGrid,
-} from 'recharts';
+import { useMemo } from 'react';
+import { Line } from 'react-chartjs-2';
+import type { ChartData, ChartOptions } from 'chart.js';
+import type { AnnotationOptions } from 'chartjs-plugin-annotation';
 import type { SpeedChartRow, SpeedHistoryResponse, StableSpeedSegment } from '../utils/equipment-speed-analysis-chart';
 import {
-  buildSpeedChartTimeTicks,
   findProductNoteAtTime,
   productNoteBandColor,
-  resolveSpeedChartXDomain,
   speedPhaseLabelVi,
   speedUnitForArea,
 } from '../utils/equipment-speed-analysis-chart';
+import { ensureSpeedTrendChartRegistered } from '../utils/speed-trend-chart-setup';
 import { FACTORY_TIME_ZONE } from '../utils/shiftCalculator';
+
+ensureSpeedTrendChartRegistered();
 
 type SpeedReferenceLines = {
   vKtcn: number | null;
@@ -32,7 +25,6 @@ type EquipmentSpeedTrendChartProps = {
   yDomain: [number, number];
   windowStartMs: number;
   windowEndMs: number;
-  /** Latest fetched data time (≤ windowEndMs); when live ca in progress */
   dataEndMs?: number;
   stableSegments: StableSpeedSegment[];
   refs: SpeedReferenceLines;
@@ -58,6 +50,18 @@ function formatAxisTime(ms: number, longSpan: boolean, shiftSpan: boolean): stri
   });
 }
 
+function formatTooltipTime(ms: number): string {
+  return new Date(ms).toLocaleString('vi-VN', {
+    timeZone: FACTORY_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
 export function EquipmentSpeedTrendChart({
   rows,
   data,
@@ -71,21 +75,302 @@ export function EquipmentSpeedTrendChart({
   const unit = speedUnitForArea(data.meta.area);
   const productNotes = data.productNotes ?? [];
 
-  if (!rows.length) {
-    return null;
-  }
-
-  const xDomain = resolveSpeedChartXDomain(windowStartMs, windowEndMs);
-  const spanMs = xDomain[1] - xDomain[0];
+  const spanMs = Math.max(windowEndMs - windowStartMs, 60_000);
   const longSpan = spanMs > 36 * 3600 * 1000;
   const shiftSpan = spanMs <= 9 * 3600 * 1000;
-  const tickCount = longSpan > 72 * 3600 * 1000 ? 8 : longSpan > 24 * 3600 * 1000 ? 7 : 6;
-  const xTicks = buildSpeedChartTimeTicks(xDomain, tickCount);
-  const gradientId = `speed-actual-fill-${data.meta.bucketSec}`;
   const showDataCutoff =
     dataEndMs != null &&
     dataEndMs < windowEndMs - 120_000 &&
     dataEndMs > windowStartMs;
+
+  const chartData = useMemo((): ChartData<'line'> => {
+    if (!rows.length) {
+      return { datasets: [] };
+    }
+    return {
+      datasets: [
+        {
+          label: `Tốc độ thực (${unit})`,
+          data: rows.map((r) => ({ x: r.timestampMs, y: r.actualSpeed })),
+          borderColor: '#ffffff',
+          backgroundColor: 'rgba(255, 255, 255, 0.12)',
+          fill: true,
+          tension: 0.1,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          label: 'V_KTCN (ICT)',
+          data: rows.map((r) => ({
+            x: r.timestampMs,
+            y: r.targetSpeed > 0 ? r.targetSpeed : null,
+          })),
+          borderColor: '#4fffbc',
+          borderDash: [6, 4],
+          pointRadius: 0,
+          borderWidth: 1.5,
+          spanGaps: true,
+          fill: false,
+          yAxisID: 'y',
+          order: 1,
+        },
+      ],
+    };
+  }, [rows, unit]);
+
+  const chartOptions = useMemo((): ChartOptions<'line'> => {
+    const annotations: Record<string, AnnotationOptions> = {};
+
+    if (refs.vKtcn != null && refs.vKtcn > 0) {
+      annotations.bandVktcn = {
+        type: 'box',
+        xMin: windowStartMs,
+        xMax: windowEndMs,
+        yMin: yDomain[0],
+        yMax: refs.vKtcn,
+        backgroundColor: 'rgba(79, 255, 188, 0.12)',
+        borderWidth: 0,
+        drawTime: 'beforeDatasetsDraw',
+      };
+    }
+    if (refs.vKtcn != null && refs.vDesign != null && refs.vDesign > refs.vKtcn) {
+      annotations.bandVdesign = {
+        type: 'box',
+        xMin: windowStartMs,
+        xMax: windowEndMs,
+        yMin: refs.vKtcn,
+        yMax: refs.vDesign,
+        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+        borderWidth: 0,
+        drawTime: 'beforeDatasetsDraw',
+      };
+    }
+
+    productNotes.forEach((note, i) => {
+      const x1 = new Date(note.segmentStart).getTime();
+      const x2 = new Date(note.segmentEnd).getTime();
+      if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return;
+      const color = productNoteBandColor(i);
+      annotations[`product-${i}`] = {
+        type: 'box',
+        xMin: x1,
+        xMax: x2,
+        yMin: yDomain[0],
+        yMax: yDomain[1],
+        backgroundColor: `${color}12`,
+        borderColor: `${color}40`,
+        borderWidth: 1,
+        drawTime: 'beforeDatasetsDraw',
+      };
+    });
+
+    stableSegments.forEach((seg, i) => {
+      annotations[`stable-${i}`] = {
+        type: 'box',
+        xMin: seg.xStart,
+        xMax: seg.xEnd,
+        yMin: yDomain[0],
+        yMax: yDomain[1],
+        backgroundColor: 'rgba(52, 231, 248, 0.1)',
+        borderColor: 'rgba(52, 231, 248, 0.25)',
+        borderWidth: 1,
+        drawTime: 'beforeDatasetsDraw',
+      };
+    });
+
+    if (refs.vKtcn != null && refs.vKtcn > 0) {
+      annotations.lineVktcn = {
+        type: 'line',
+        yMin: refs.vKtcn,
+        yMax: refs.vKtcn,
+        borderColor: '#4FFFBC',
+        borderWidth: 2,
+        drawTime: 'afterDatasetsDraw',
+        label: {
+          display: true,
+          content: 'V_KTCN',
+          color: '#4FFFBC',
+          position: 'end',
+          backgroundColor: 'transparent',
+        },
+      };
+    }
+    if (refs.vDesign != null && refs.vDesign > 0 && refs.vDesign <= yDomain[1]) {
+      annotations.lineVdesign = {
+        type: 'line',
+        yMin: refs.vDesign,
+        yMax: refs.vDesign,
+        borderColor: 'rgba(255,255,255,0.85)',
+        borderWidth: 2,
+        drawTime: 'afterDatasetsDraw',
+        label: {
+          display: true,
+          content: 'V_design',
+          color: '#ffffff',
+          position: 'end',
+          backgroundColor: 'transparent',
+        },
+      };
+    }
+    if (data.summary.proposedTargetSpeed != null) {
+      annotations.lineProposed = {
+        type: 'line',
+        yMin: data.summary.proposedTargetSpeed,
+        yMax: data.summary.proposedTargetSpeed,
+        borderColor: '#FFB86C',
+        borderDash: [5, 5],
+        borderWidth: 2,
+        drawTime: 'afterDatasetsDraw',
+        label: {
+          display: true,
+          content: 'ICT đề xuất',
+          color: '#FFB86C',
+          position: 'start',
+          backgroundColor: 'transparent',
+        },
+      };
+    }
+    if (showDataCutoff && dataEndMs != null) {
+      annotations.lineDataCutoff = {
+        type: 'line',
+        xMin: dataEndMs,
+        xMax: dataEndMs,
+        borderColor: '#FFB86C',
+        borderDash: [4, 4],
+        borderWidth: 1.5,
+        drawTime: 'afterDatasetsDraw',
+        label: {
+          display: true,
+          content: 'Dữ liệu mới nhất',
+          color: '#FFB86C',
+          position: 'start',
+          backgroundColor: 'transparent',
+          font: { size: 10 },
+        },
+      };
+    }
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      animation: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            color: 'rgba(255,255,255,0.5)',
+            boxWidth: 12,
+            font: { size: 10 },
+            filter: (item) => item.text !== '',
+          },
+        },
+        annotation: { annotations },
+        tooltip: {
+          backgroundColor: '#0E2F4F',
+          titleColor: '#ffffff',
+          bodyColor: 'rgba(255,255,255,0.9)',
+          borderColor: 'rgba(255,255,255,0.2)',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title: (items) => {
+              const x = items[0]?.parsed.x;
+              return x != null ? formatTooltipTime(Number(x)) : '';
+            },
+            label: (ctx) => {
+              const y = ctx.parsed.y;
+              if (y == null || Number.isNaN(y)) return '';
+              return `${ctx.dataset.label}: ${y.toFixed(2)} ${unit}`;
+            },
+            afterBody: (items) => {
+              const x = items[0]?.parsed.x;
+              if (x == null) return [];
+              const xMs = Number(x);
+              const row =
+                rows.find((r) => Math.abs(r.timestampMs - xMs) < 500) ??
+                rows[items[0]?.dataIndex ?? -1];
+              if (!row) return [];
+              const lines: string[] = [];
+              const productNote = findProductNoteAtTime(productNotes, row.timestampMs);
+              if (productNote) {
+                lines.push(`Sản phẩm: ${productNote.productName}`);
+              }
+              if (refs.vDesign != null) {
+                lines.push(`V_design: ${refs.vDesign.toFixed(2)} ${unit}`);
+              }
+              if (data.summary.proposedTargetSpeed != null) {
+                lines.push(
+                  `ICT đề xuất: ${data.summary.proposedTargetSpeed.toFixed(2)} ${unit}`
+                );
+              }
+              if (row.performance != null) {
+                lines.push(`P: ${row.performance.toFixed(1)}%`);
+              }
+              lines.push(`Phase: ${speedPhaseLabelVi(row.phase)}`);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          min: windowStartMs,
+          max: Math.max(windowEndMs, windowStartMs + 60_000),
+          ticks: {
+            color: 'rgba(255,255,255,0.6)',
+            maxTicksLimit: 10,
+            callback: (value) => formatAxisTime(Number(value), longSpan, shiftSpan),
+          },
+          grid: { color: 'rgba(255,255,255,0.08)' },
+          title: {
+            display: true,
+            text: 'Thời gian (ICT)',
+            color: 'rgba(255,255,255,0.5)',
+            font: { size: 10 },
+          },
+        },
+        y: {
+          min: yDomain[0],
+          max: yDomain[1],
+          ticks: {
+            color: 'rgba(255,255,255,0.6)',
+            callback: (v) => Number(v).toFixed(0),
+          },
+          grid: { color: 'rgba(255,255,255,0.08)' },
+          title: {
+            display: true,
+            text: `Tốc độ (${unit})`,
+            color: 'rgba(255,255,255,0.6)',
+            font: { size: 10 },
+          },
+        },
+      },
+    };
+  }, [
+    rows,
+    unit,
+    yDomain,
+    windowStartMs,
+    windowEndMs,
+    longSpan,
+    shiftSpan,
+    refs,
+    productNotes,
+    stableSegments,
+    data.summary.proposedTargetSpeed,
+    showDataCutoff,
+    dataEndMs,
+  ]);
+
+  if (!rows.length) {
+    return null;
+  }
 
   return (
     <div className="mb-3 speed-trend-chart">
@@ -105,247 +390,8 @@ export function EquipmentSpeedTrendChart({
         </div>
       </div>
 
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart
-            data={rows}
-            margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.03} />
-              </linearGradient>
-            </defs>
-
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-
-            <XAxis
-              dataKey="timestampMs"
-              type="number"
-              scale="linear"
-              domain={xDomain}
-              stroke="#ffffff40"
-              tick={{ fill: '#ffffff60', fontSize: 10 }}
-              ticks={xTicks}
-              tickFormatter={(ms) => formatAxisTime(Number(ms), longSpan, shiftSpan)}
-              label={{
-                value: 'Thời gian',
-                position: 'insideBottom',
-                offset: -2,
-                fill: '#ffffff50',
-                fontSize: 10,
-              }}
-            />
-            <YAxis
-              stroke="#ffffff40"
-              tick={{ fill: '#ffffff60', fontSize: 10 }}
-              domain={yDomain}
-              allowDecimals
-              tickFormatter={(v) => Number(v).toFixed(0)}
-              label={{
-                value: `Tốc độ (${unit})`,
-                angle: -90,
-                position: 'insideLeft',
-                fill: '#ffffff60',
-                fontSize: 10,
-                style: { textAnchor: 'middle' },
-              }}
-            />
-
-            {productNotes.map((note, i) => {
-              const x1 = new Date(note.segmentStart).getTime();
-              const x2 = new Date(note.segmentEnd).getTime();
-              if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) return null;
-              return (
-                <ReferenceArea
-                  key={`product-${note.orderId ?? 'x'}-${x1}-${i}`}
-                  x1={x1}
-                  x2={x2}
-                  fill={productNoteBandColor(i)}
-                  fillOpacity={0.07}
-                  stroke={productNoteBandColor(i)}
-                  strokeOpacity={0.25}
-                  ifOverflow="hidden"
-                />
-              );
-            })}
-
-            {refs.vKtcn != null && refs.vKtcn > 0 ? (
-              <ReferenceArea
-                y1={0}
-                y2={refs.vKtcn}
-                fill="#4FFFBC"
-                fillOpacity={0.12}
-                ifOverflow="hidden"
-              />
-            ) : null}
-            {refs.vKtcn != null && refs.vDesign != null && refs.vDesign > refs.vKtcn ? (
-              <ReferenceArea
-                y1={refs.vKtcn}
-                y2={refs.vDesign}
-                fill="#EF4444"
-                fillOpacity={0.08}
-                ifOverflow="hidden"
-              />
-            ) : null}
-
-            {stableSegments.map((seg, i) => (
-              <ReferenceArea
-                key={`stable-${i}-${seg.xStart}`}
-                x1={seg.xStart}
-                x2={seg.xEnd}
-                fill="#34E7F8"
-                fillOpacity={0.1}
-                stroke="#34E7F8"
-                strokeOpacity={0.25}
-                ifOverflow="hidden"
-              />
-            ))}
-
-            <Tooltip
-              labelFormatter={(ms) => formatAxisTime(Number(ms), longSpan, shiftSpan)}
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const row = payload[0]?.payload as SpeedChartRow;
-                if (!row) return null;
-                const productNote = findProductNoteAtTime(productNotes, row.timestampMs);
-                return (
-                  <div className="rounded-lg border border-white/20 bg-[#0E2F4F] px-3 py-2 text-xs text-white shadow-lg max-w-xs">
-                    <div className="speed-text-soft mb-1.5 font-medium">
-                      {formatAxisTime(row.timestampMs, longSpan, shiftSpan)}
-                    </div>
-                    {productNote ? (
-                      <div className="mb-1.5 pb-1.5 border-b border-white/10">
-                        <span className="text-white/50">Sản phẩm: </span>
-                        <span className="speed-accent-green font-medium">{productNote.productName}</span>
-                        {productNote.orderName ? (
-                          <div className="text-[10px] text-white/40 font-mono mt-0.5">{productNote.orderName}</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    <div>
-                      Thực tế:{' '}
-                      <span className="text-white font-semibold">
-                        {row.actualSpeed.toFixed(2)} {unit}
-                      </span>
-                    </div>
-                    <div>
-                      V<sub>KTCN</sub> (ICT):{' '}
-                      <span className="speed-accent-green">{row.targetSpeed.toFixed(2)} {unit}</span>
-                    </div>
-                    {refs.vDesign != null ? (
-                      <div className="text-white/60">
-                        V<sub>design</sub>: {refs.vDesign.toFixed(2)} {unit}
-                      </div>
-                    ) : null}
-                    {data.summary.proposedTargetSpeed != null ? (
-                      <div>
-                        ICT đề xuất:{' '}
-                        <span className="speed-accent-ict font-medium">
-                          {data.summary.proposedTargetSpeed.toFixed(2)} {unit}
-                        </span>
-                      </div>
-                    ) : null}
-                    {row.performance != null ? (
-                      <div className="speed-text-soft">P: {row.performance.toFixed(1)}%</div>
-                    ) : null}
-                    <div className="mt-1 pt-1 border-t border-white/10">
-                      Phase:{' '}
-                      <span style={{ color: row.phaseColor }}>{speedPhaseLabelVi(row.phase)}</span>
-                    </div>
-                  </div>
-                );
-              }}
-            />
-
-            {showDataCutoff ? (
-              <ReferenceLine
-                x={dataEndMs}
-                stroke="#FFB86C"
-                strokeDasharray="4 4"
-                strokeOpacity={0.85}
-                label={{
-                  value: 'Dữ liệu mới nhất',
-                  fill: '#FFB86C',
-                  fontSize: 10,
-                  position: 'insideTopLeft',
-                }}
-              />
-            ) : null}
-
-            {refs.vDesign != null && refs.vDesign > 0 && refs.vDesign <= yDomain[1] ? (
-              <ReferenceLine
-                y={refs.vDesign}
-                stroke="#ffffff"
-                strokeWidth={1.5}
-                strokeOpacity={0.85}
-                label={{
-                  value: 'V_design',
-                  fill: '#ffffff',
-                  fontSize: 11,
-                  position: 'right',
-                }}
-              />
-            ) : null}
-
-            {refs.vKtcn != null && refs.vKtcn > 0 ? (
-              <ReferenceLine
-                y={refs.vKtcn}
-                stroke="#4FFFBC"
-                strokeWidth={1.5}
-                label={{
-                  value: 'V_KTCN',
-                  fill: '#4FFFBC',
-                  fontSize: 11,
-                  position: 'right',
-                }}
-              />
-            ) : null}
-
-            {data.summary.proposedTargetSpeed != null ? (
-              <ReferenceLine
-                y={data.summary.proposedTargetSpeed}
-                stroke="#FFB86C"
-                strokeDasharray="5 5"
-                strokeWidth={1.5}
-                label={{
-                  value: 'ICT đề xuất',
-                  fill: '#FFB86C',
-                  fontSize: 10,
-                  position: 'insideTopRight',
-                }}
-              />
-            ) : null}
-
-            <Area
-              type="linear"
-              dataKey="actualSpeed"
-              stroke="#FFFFFF"
-              strokeWidth={2.5}
-              fill={`url(#${gradientId})`}
-              fillOpacity={1}
-              dot={false}
-              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2, fill: '#FFFFFF' }}
-              isAnimationActive={false}
-              connectNulls
-              name="Tốc độ thực tế"
-            />
-
-            <Line
-              type="linear"
-              dataKey="targetSpeed"
-              stroke="#4FFFBC"
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
-              strokeOpacity={0.85}
-              dot={false}
-              isAnimationActive={false}
-              connectNulls
-              name="V_KTCN (series)"
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+      <div className="h-80 speed-trend-chart-canvas">
+        <Line data={chartData} options={chartOptions} />
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] text-white/50">
@@ -365,11 +411,9 @@ export function EquipmentSpeedTrendChart({
           Đoạn chạy ổn định
         </span>
         {productNotes.length > 0 ? (
-          <span className="text-white/40">
-            Dải màu = PO / sản phẩm
-          </span>
+          <span className="text-white/40">Dải màu = PO / sản phẩm</span>
         ) : null}
       </div>
     </div>
   );
-}
+};

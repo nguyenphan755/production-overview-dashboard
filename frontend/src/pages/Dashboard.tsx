@@ -7,7 +7,7 @@ import { QualityControl } from "../components/tabs/QualityControl";
 import { EquipmentStatus } from "../components/tabs/EquipmentStatus";
 import { Maintenance } from "../components/tabs/Maintenance";
 import { ProductionSchedule } from "../components/tabs/ProductionSchedule";
-import { Activity, BarChart3, Calendar, ClipboardCheck, Settings, Shield, Wrench } from "lucide-react";
+import { Activity, BarChart3, Calendar, ClipboardCheck, FlaskConical, Settings, Shield, Wrench } from "lucide-react";
 import AccountManagement from "./AccountManagement";
 import type { AuthUser } from "../services/authApi";
 import { useMachines } from "../hooks/useProductionData";
@@ -20,6 +20,9 @@ import { UserPresenceProvider } from "../hooks/useUserPresence";
 
 const EquipmentDetailTab = lazy(() =>
   import("../components/tabs/EquipmentDetail").then((m) => ({ default: m.EquipmentDetail }))
+);
+const SpeedLabTab = lazy(() =>
+  import("../components/tabs/SpeedLab").then((m) => ({ default: m.SpeedLab }))
 );
 const PerformanceAnalyticsTab = lazy(() =>
   import("../components/tabs/PerformanceAnalytics").then((m) => ({ default: m.PerformanceAnalytics }))
@@ -78,14 +81,16 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
     [referenceDate, pastIsoShiftNumber]
   );
 
+  const oeeToolbarActive = activeTab === "equipment" || activeTab === "speed-lab";
+
   const analyticsRollup = useEquipmentOeeRollup(
     equipmentOeeMode === "past_shift" ? "realtime" : equipmentOeeMode,
-    activeTab === "equipment" && equipmentOeeMode !== "past_shift",
+    oeeToolbarActive && equipmentOeeMode !== "past_shift",
     referenceDate
   );
 
   const pastShiftReport = usePastShiftReportOee(
-    activeTab === "equipment" && equipmentOeeMode === "past_shift",
+    oeeToolbarActive && equipmentOeeMode === "past_shift",
     pastShiftHookSelection,
     token
   );
@@ -164,6 +169,22 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
         return (
           <PerformanceAnalyticsTab machines={machines} machinesLoading={machinesLoading} />
         );
+      case "speed-lab":
+        return (
+          <SpeedLabTab
+            machines={machines}
+            machinesLoading={machinesLoading}
+            equipmentOeeMode={equipmentOeeMode}
+            onEquipmentOeeModeChange={setEquipmentOeeMode}
+            equipmentOeeScope={equipmentOeeScope}
+            equipmentOeeRollupLoading={equipmentOeeRollupLoading}
+            equipmentOeeRollupError={equipmentOeeRollupError}
+            referenceDate={referenceDate}
+            onReferenceDateChange={setReferenceDate}
+            pastIsoShiftNumber={pastIsoShiftNumber}
+            onPastIsoShiftNumberChange={setPastIsoShiftNumber}
+          />
+        );
       case "maintenance":
         return <Maintenance machines={machines} />;
       case "schedule":
@@ -217,6 +238,7 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
           { id: "production", label: "Production", icon: Activity },
           { id: "quality", label: "Quality", icon: ClipboardCheck },
           { id: "equipment", label: "Equipment", icon: Settings },
+          { id: "speed-lab", label: "Speed Lab", icon: FlaskConical },
           { id: "analytics", label: "Analytics", icon: BarChart3 },
           { id: "maintenance", label: "Maintenance", icon: Wrench },
           { id: "schedule", label: "Schedule", icon: Calendar },

@@ -36,21 +36,28 @@
   color: #9580ff;
 }
 
-.speed-trend-chart .recharts-cartesian-axis-tick-value,
-.speed-trend-chart .recharts-label {
-  fill: rgba(255, 255, 255, 0.65);
+/* Chart.js speed trend — same engine as sh04-speed-compare.html */
+.speed-trend-chart-canvas {
+  position: relative;
+  width: 100%;
 }
 
-.speed-trend-chart .recharts-reference-line-label text {
-  fill: currentColor;
+.speed-trend-chart-canvas canvas {
+  display: block;
 }
 
-.speed-trend-chart .recharts-cartesian-grid-horizontal line,
-.speed-trend-chart .recharts-cartesian-grid-vertical line {
-  stroke: rgba(255, 255, 255, 0.08);
+.equipment-oee-speed-compare-canvas {
+  position: relative;
+  width: 100%;
 }
 
-/* Ensure speed lines stay visible — do NOT use stroke:inherit (breaks Recharts paths). */
-.speed-trend-chart .recharts-line-curve {
-  vector-effect: non-scaling-stroke;
+.speed-lab-chart-canvas {
+  position: relative;
+  width: 100%;
+}
+
+.speed-lab-chart-canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }

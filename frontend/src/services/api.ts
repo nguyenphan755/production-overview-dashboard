@@ -295,6 +295,34 @@ class APIClient {
     });
   }
 
+  async getSpeedLabQuery(
+    params: {
+      machineId: string;
+      start: string;
+      end: string;
+      bucketSec?: number;
+      includeRaw?: boolean;
+      rawLimit?: number;
+    },
+    init?: { signal?: AbortSignal }
+  ): Promise<APIResponse<import('../types/oee-analytics-lab').SpeedLabQueryResponse>> {
+    const q = new URLSearchParams({
+      machineId: params.machineId,
+      start: params.start,
+      end: params.end,
+    });
+    if (params.bucketSec != null) q.set('bucketSec', String(params.bucketSec));
+    if (params.includeRaw) q.set('includeRaw', '1');
+    if (params.rawLimit != null) q.set('rawLimit', String(params.rawLimit));
+    return this.request(`/speed-lab/query?${q.toString()}`, { signal: init?.signal });
+  }
+
+  async getSpeedLabMachines(
+    init?: { signal?: AbortSignal }
+  ): Promise<APIResponse<{ id: string; name: string; area: string }[]>> {
+    return this.request('/speed-lab/machines', { signal: init?.signal });
+  }
+
   // Production Orders
   async getProductionOrders(): Promise<APIResponse<ProductionOrder[]>> {
     return this.request<ProductionOrder[]>('/orders');

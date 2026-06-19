@@ -37,6 +37,7 @@ import {
   SPEED_PHASE_LEGEND,
 } from '../../utils/equipment-speed-analysis-chart';
 import { EquipmentSpeedTrendChart } from '../EquipmentSpeedTrendChart';
+import { EquipmentOeeSpeedCompareChart } from '../EquipmentOeeSpeedCompareChart';
 import { EquipmentSpeedProductNotes } from '../EquipmentSpeedProductNotes';
 import '../../styles/equipment-speed-panel.css';
 
@@ -414,12 +415,12 @@ export function EquipmentDetail({
 
   const speedTrendYDomain = useMemo(() => {
     const isDrawing = machine?.area === 'drawing';
-    return calculateSpeedTrendYDomain(
-      activeSpeedHistory?.points ?? [],
-      speedAnalysisRefs,
-      isDrawing
-    );
-  }, [machine?.area, activeSpeedHistory?.points, speedAnalysisRefs]);
+    const pointsForY =
+      speedAnalysisChartRows.length > 0
+        ? speedAnalysisChartRows
+        : (activeSpeedHistory?.points ?? []);
+    return calculateSpeedTrendYDomain(pointsForY, speedAnalysisRefs, isDrawing);
+  }, [machine?.area, speedAnalysisChartRows, activeSpeedHistory?.points, speedAnalysisRefs]);
 
   const speedAnalysisUnit = speedUnitForArea(activeSpeedHistory?.meta.area ?? machine?.area);
 
@@ -1063,6 +1064,19 @@ export function EquipmentDetail({
           </>
         )}
       </div>
+
+      {/* Speed compare — Chart.js imperative, same logic as sh04-speed-compare.html */}
+      {activeSpeedHistory && speedAnalysisChartRows.length > 0 ? (
+        <EquipmentOeeSpeedCompareChart
+          key={`oee-speed-compare-${speedHistoryFetchKey}`}
+          rows={speedAnalysisChartRows}
+          windowStartMs={speedChartWindow.startMs}
+          windowEndMs={speedChartWindow.endMs}
+          unit={speedAnalysisUnit}
+          bucketSec={activeSpeedHistory.meta.bucketSec}
+          windowLabel={speedHistoryQuery.sectionSubtitle}
+        />
+      ) : null}
 
       {/* Production Metrics */}
       <div className="mb-4 grid gap-3 responsive-grid-2">

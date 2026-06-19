@@ -62,6 +62,8 @@ export type ProductSpeedNote = {
 export type SpeedChartRow = SpeedHistoryPoint & {
   time: string;
   timestampMs: number;
+  /** ms offset from OEE window start — Recharts X (matches HTML min/max window) */
+  plotX: number;
   phaseColor: string;
 };
 
@@ -140,22 +142,35 @@ export function buildSpeedChartRows(
   const startMs = rangeStart.getTime();
   const endMs = rangeEnd.getTime();
   return points
-    .map((p) => ({
-      ...p,
-      time: formatSpeedChartTime(p.timestamp, longSpan),
-      timestampMs: new Date(p.timestamp).getTime(),
-      phaseColor: speedPhaseColor(p.phase),
-    }))
+    .map((p) => {
+      const timestampMs = new Date(p.timestamp).getTime();
+      return {
+        ...p,
+        time: formatSpeedChartTime(p.timestamp, longSpan),
+        timestampMs,
+        plotX: timestampMs - startMs,
+        phaseColor: speedPhaseColor(p.phase),
+      };
+    })
     .filter((row) => Number.isFinite(row.timestampMs) && row.timestampMs >= startMs && row.timestampMs <= endMs)
     .sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
-/** X-axis strictly follows the OEE filter window (ICT). */
+/** Absolute ms domain for labels / HTML parity. */
 export function resolveSpeedChartXDomain(
   windowStartMs: number,
   windowEndMs: number
 ): [number, number] {
   return [windowStartMs, Math.max(windowEndMs, windowStartMs + 60_000)];
+}
+
+/** Plot domain: 0 → full OEE window span (Chart.js min/max equivalent). */
+export function resolveSpeedChartPlotDomain(
+  windowStartMs: number,
+  windowEndMs: number
+): [number, number] {
+  const endMs = Math.max(windowEndMs, windowStartMs + 60_000);
+  return [0, endMs - windowStartMs];
 }
 
 /** Evenly spaced X-axis ticks so Recharts shows the full OEE filter window. */

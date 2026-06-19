@@ -16,6 +16,7 @@ import usersRouter from './routes/users.js';
 import reportsRouter from './routes/reports.js';
 import presenceRouter from './routes/presence.js';
 import bobbinCutsRouter from './routes/bobbinCuts.js';
+import speedLabRouter from './routes/speedLab.js';
 import { startPresenceCleanup } from './services/userPresenceService.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
@@ -133,6 +134,7 @@ app.get('/', (req, res) => {
           reports: '/api/reports',
           presence: '/api/presence',
           bobbinCuts: '/api/bobbin-cuts',
+          speedLab: '/api/speed-lab',
         },
       },
       websocket: '/ws',
@@ -159,6 +161,7 @@ app.use('/api/oee-settled', oeeSettledRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/presence', presenceRouter);
 app.use('/api/bobbin-cuts', bobbinCutsRouter);
+app.use('/api/speed-lab', speedLabRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
