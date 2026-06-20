@@ -1,5 +1,7 @@
 /**
- * Chart.js config — exact mirror of chartTimeOpts() in multi-machine-speed-compare.html
+ * Speed Lab charts — linear X (UTC epoch ms) + ICT tick labels.
+ * Must match Gantt positioning (percent from windowStart/windowEnd).
+ * Chart.js time scale + date-fns zone adapter shifts data ~7h vs Gantt.
  */
 import {
   Chart as ChartJS,
@@ -7,14 +9,11 @@ import {
   LineElement,
   PointElement,
   LinearScale,
-  TimeScale,
   Filler,
   Tooltip,
   Legend,
 } from 'chart.js';
-import 'chartjs-adapter-date-fns';
-import { FACTORY_TIME_ZONE } from './shiftCalculator';
-import { fmtIctFull } from './speed-lab-format';
+import { fmtIctFull, fmtIctHour } from './speed-lab-format';
 
 let registered = false;
 
@@ -25,7 +24,6 @@ export function ensureMultiMachineSpeedChartRegistered(): void {
     LineElement,
     PointElement,
     LinearScale,
-    TimeScale,
     Filler,
     Tooltip,
     Legend
@@ -33,13 +31,14 @@ export function ensureMultiMachineSpeedChartRegistered(): void {
   registered = true;
 }
 
-/** Same signature & options as HTML chartTimeOpts(yLabel, y2Max) */
 export function multiMachineChartTimeOpts(
   winStartMs: number,
   winEndMs: number,
   yLabel: string,
-  y2Max?: number | null
+  yMax?: number | null
 ): import('chart.js').ChartOptions<'line'> {
+  const endMs = Math.max(winEndMs, winStartMs + 60_000);
+
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -51,54 +50,50 @@ export function multiMachineChartTimeOpts(
         backgroundColor: '#0e2f4f',
         callbacks: {
           title: (items) => (items[0] ? fmtIctFull(Number(items[0].parsed.x)) : ''),
+          label: (ctx) => {
+            const y = ctx.parsed.y;
+            if (y == null || Number.isNaN(Number(y))) return '';
+            return `${ctx.dataset.label}: ${Number(y).toFixed(2)}`;
+          },
         },
       },
     },
     scales: {
       x: {
-        type: 'time',
+        type: 'linear',
         min: winStartMs,
-        max: winEndMs,
-        time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
-        adapters: { date: { zone: FACTORY_TIME_ZONE } },
-        ticks: { color: '#94a3b8', maxTicksLimit: 10 },
+        max: endMs,
+        ticks: {
+          color: '#94a3b8',
+          maxTicksLimit: 12,
+          callback: (value) => fmtIctHour(Number(value)),
+        },
         grid: { color: 'rgba(255,255,255,0.06)' },
         title: { display: true, text: 'Thời gian (ICT)', color: '#64748b' },
       },
       y: {
         min: 0,
+        ...(yMax != null && yMax > 0 ? { max: yMax } : {}),
         ticks: { color: '#94a3b8' },
         grid: { color: 'rgba(255,255,255,0.06)' },
         title: { display: true, text: yLabel, color: '#64748b' },
       },
-      ...(y2Max != null
-        ? {
-            y1: {
-              position: 'right' as const,
-              min: 0,
-              max: y2Max,
-              ticks: { color: '#34e7f8' },
-              grid: { drawOnChartArea: false },
-              title: { display: true, text: 'running_time (s)', color: '#34e7f8' },
-            },
-          }
-        : {}),
     },
   };
 }
 
-/** Mini chart X scale — same as HTML renderMiniGrid */
 export function multiMachineMiniChartOpts(
   winStartMs: number,
   winEndMs: number
 ): import('chart.js').ChartOptions<'line'> {
+  const endMs = Math.max(winEndMs, winStartMs + 60_000);
   return {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
     plugins: { legend: { display: false } },
     scales: {
-      x: { type: 'time', min: winStartMs, max: winEndMs, display: false },
+      x: { type: 'linear', min: winStartMs, max: endMs, display: false },
       y: { min: 0, display: false },
     },
   };
