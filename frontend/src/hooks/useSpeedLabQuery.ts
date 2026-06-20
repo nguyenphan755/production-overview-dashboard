@@ -18,6 +18,12 @@ type UseSpeedLabQueryResult = {
   refetch: () => void;
 };
 
+/** ~1 Hz oee_calculations + headroom; capped at backend MAX_RAW_LIMIT (90k ≈ 25h) */
+export function computeSpeedLabRawLimit(queryStart: Date, queryEnd: Date): number {
+  const spanSec = Math.max(0, (queryEnd.getTime() - queryStart.getTime()) / 1000);
+  return Math.min(90_000, Math.max(5_000, Math.ceil(spanSec * 1.15)));
+}
+
 export function useSpeedLabQuery({
   machineId,
   queryStart,
@@ -31,6 +37,7 @@ export function useSpeedLabQuery({
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(0);
   const [tick, setTick] = useState(0);
+  const rawLimit = computeSpeedLabRawLimit(queryStart, queryEnd);
 
   useEffect(() => {
     if (!enabled || !machineId) {
@@ -53,7 +60,7 @@ export function useSpeedLabQuery({
             end: queryEnd.toISOString(),
             bucketSec,
             includeRaw: true,
-            rawLimit: 30000,
+            rawLimit,
           },
           { signal: ac.signal }
         );
@@ -78,7 +85,7 @@ export function useSpeedLabQuery({
     })();
 
     return () => ac.abort();
-  }, [machineId, queryStart, queryEnd, bucketSec, rangeKey, enabled, tick]);
+  }, [machineId, queryStart, queryEnd, bucketSec, rangeKey, enabled, tick, rawLimit]);
 
   return {
     data,

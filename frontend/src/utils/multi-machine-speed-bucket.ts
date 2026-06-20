@@ -81,3 +81,11 @@ export function bucketFromApiBuckets(buckets: OeeSpeedBucketPoint[]): SpeedChart
     running: b.runningTimeSeconds,
   }));
 }
+
+export function filterChartBucketsInWindow(
+  buckets: SpeedChartBucket[],
+  startMs: number,
+  endMs: number
+): SpeedChartBucket[] {
+  return buckets.filter((b) => b.x >= startMs && b.x <= endMs);
+}

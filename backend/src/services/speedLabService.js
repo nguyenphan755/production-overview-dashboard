@@ -2,7 +2,7 @@ import { query } from '../../database/connection.js';
 
 const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const DEFAULT_RAW_LIMIT = 30_000;
-const MAX_RAW_LIMIT = 50_000;
+const MAX_RAW_LIMIT = 90_000;
 const MIN_STOP_SEC = 120;
 const SPEED_RUN = 1;
 const LAB_TIMEZONE = 'Asia/Ho_Chi_Minh';
@@ -76,6 +76,30 @@ async function fetchRawRows(machineId, rangeStart, rangeEnd, limit) {
     quality: row.quality != null ? parseFloat(row.quality) : null,
     oee: row.oee != null ? parseFloat(row.oee) : null,
     productionOrderId: row.production_order_id ?? null,
+  }));
+}
+
+/** Full-range lightweight series for Gantt / segments (no row cap — 3 ca ≈ 86k rows). */
+async function fetchSegmentSeries(machineId, rangeStart, rangeEnd) {
+  const result = await query(
+    `SELECT
+       calculation_timestamp,
+       actual_speed,
+       running_time_seconds,
+       planned_time_seconds
+     FROM oee_calculations
+     WHERE machine_id = $1
+       AND calculation_timestamp >= $2
+       AND calculation_timestamp <= $3
+     ORDER BY calculation_timestamp ASC`,
+    [machineId, rangeStart, rangeEnd]
+  );
+  return result.rows.map((row) => ({
+    timestamp: new Date(row.calculation_timestamp).toISOString(),
+    actualSpeed: parseFloat(row.actual_speed || 0),
+    targetSpeed: 0,
+    runningTimeSeconds: parseInt(row.running_time_seconds || 0, 10),
+    plannedTimeSeconds: parseInt(row.planned_time_seconds || 0, 10),
   }));
 }
 
@@ -254,12 +278,14 @@ export async function querySpeedLab(
 
   await assertMachineExists(machineId);
 
-  const [bucketRows, rawRows] = await Promise.all([
+  const [bucketRows, rawRows, segmentSeries] = await Promise.all([
     fetchBuckets(machineId, rangeStart, rangeEnd, bucket),
     includeRaw ? fetchRawRows(machineId, rangeStart, rangeEnd, limitN) : Promise.resolve([]),
+    includeRaw ? fetchSegmentSeries(machineId, rangeStart, rangeEnd) : Promise.resolve([]),
   ]);
 
-  const summary = buildSummaryFromRaw(rawRows, bucketRows);
+  const analysisRows = segmentSeries.length ? segmentSeries : rawRows;
+  const summary = buildSummaryFromRaw(analysisRows, bucketRows);
 
   const buckets = bucketRows.map((b) => ({
     timestamp: b.timestamp.toISOString(),
@@ -269,14 +295,14 @@ export async function querySpeedLab(
     performance: b.performance != null ? Math.round(b.performance * 100) / 100 : null,
   }));
 
-  const segmentPoints = rawRows.length ? rawRows : bucketRows;
+  const segmentPoints = analysisRows.length ? analysisRows : bucketRows;
   const speedSegs = buildSegmentsFromPoints(
     segmentPoints,
     pointTimeMs,
     (p) => speedState(p.actualSpeed)
   );
   const stopBlocks = buildStopBlocks(speedSegs).slice(0, 20);
-  const inferredSegments = rawRows.length ? buildInferredSegments(rawRows) : undefined;
+  const inferredSegments = analysisRows.length ? buildInferredSegments(analysisRows) : undefined;
 
   return {
     meta: {
@@ -286,10 +312,11 @@ export async function querySpeedLab(
       windowStart: rangeStart.toISOString(),
       windowEnd: rangeEnd.toISOString(),
       dataEnd: rangeEnd.toISOString(),
-      rawRowCount: rawRows.length,
+      rawRowCount: segmentSeries.length || rawRows.length,
       bucketCount: buckets.length,
       timezone: LAB_TIMEZONE,
       rawLimitApplied: includeRaw ? limitN : null,
+      segmentRowCount: segmentSeries.length || null,
     },
     summary,
     buckets,

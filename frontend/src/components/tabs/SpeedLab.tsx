@@ -10,11 +10,12 @@ import { SpeedLabGanttLegend, SpeedLabGanttTrack } from '../speed-lab/SpeedLabGa
 import { SpeedLabMiniGrid } from '../speed-lab/SpeedLabMiniGrid';
 import { useSpeedLabMultiQuery } from '../../hooks/useSpeedLabMultiQuery';
 import { useSpeedLabQuery } from '../../hooks/useSpeedLabQuery';
-import { buildEquipmentSpeedHistoryQuery } from '../../utils/equipment-speed-history-query';
+import { buildSpeedLabQuery } from '../../utils/equipment-speed-history-query';
 import { speedUnitForArea } from '../../utils/equipment-speed-analysis-chart';
 import {
   bucketFromApiBuckets,
   bucketFromRawRows,
+  filterChartBucketsInWindow,
   filterRawRowsInWindow,
 } from '../../utils/multi-machine-speed-bucket';
 import type { Machine } from '../../types';
@@ -63,22 +64,8 @@ export function SpeedLab({
   const [compareSelected, setCompareSelected] = useState<Set<string>>(new Set());
 
   const speedQuery = useMemo(
-    () =>
-      buildEquipmentSpeedHistoryQuery(
-        equipmentOeeMode,
-        referenceDate,
-        pastIsoShiftNumber,
-        equipmentOeeScope,
-        new Date()
-      ),
-    [
-      equipmentOeeMode,
-      referenceDate,
-      pastIsoShiftNumber,
-      equipmentOeeScope?.start,
-      equipmentOeeScope?.end,
-      equipmentOeeScope?.dayDate,
-    ]
+    () => buildSpeedLabQuery(equipmentOeeMode, referenceDate, pastIsoShiftNumber, new Date()),
+    [equipmentOeeMode, referenceDate, pastIsoShiftNumber]
   );
 
   const windowStartMs = speedQuery.chartWindowStart.getTime();
@@ -183,10 +170,41 @@ export function SpeedLab({
     return filterRawRowsInWindow(detailData.rawRows, windowStartMs, windowEndMs);
   }, [detailData?.rawRows, windowStartMs, windowEndMs]);
 
+  /** Detail trend: SQL buckets for 3-ca modes; raw buckets for single-ca modes */
   const detailTrendBuckets = useMemo(() => {
-    if (!detailRawInWin.length) return [];
-    return bucketFromRawRows(detailRawInWin, bucketSec);
-  }, [detailRawInWin, bucketSec]);
+    const sqlBuckets = detailData?.buckets?.length
+      ? filterChartBucketsInWindow(
+          bucketFromApiBuckets(detailData.buckets),
+          windowStartMs,
+          windowEndMs
+        )
+      : [];
+
+    const singleCaModes: EquipmentOeeMode[] = [
+      'realtime',
+      'shift_live',
+      'shift_1',
+      'shift_2',
+      'shift_3',
+      'past_shift',
+    ];
+    const isSingleCa = singleCaModes.includes(equipmentOeeMode);
+
+    if (!isSingleCa && sqlBuckets.length) {
+      return sqlBuckets;
+    }
+    if (detailRawInWin.length) {
+      return bucketFromRawRows(detailRawInWin, bucketSec);
+    }
+    return sqlBuckets;
+  }, [
+    detailData?.buckets,
+    detailRawInWin,
+    bucketSec,
+    windowStartMs,
+    windowEndMs,
+    equipmentOeeMode,
+  ]);
 
   const miniGridMachines = useMemo(
     () =>
@@ -206,7 +224,35 @@ export function SpeedLab({
   const speedSegs = detailData?.inferredSegments?.fromActualSpeed ?? [];
   const oeeSegs = detailData?.inferredSegments?.fromRunningTime ?? [];
 
+  const detailRunningRows = useMemo(() => {
+    const singleCaModes: EquipmentOeeMode[] = [
+      'realtime',
+      'shift_live',
+      'shift_1',
+      'shift_2',
+      'shift_3',
+      'past_shift',
+    ];
+    if (!singleCaModes.includes(equipmentOeeMode) && detailData?.buckets?.length) {
+      return detailData.buckets.map((b) => ({
+        timestamp: b.timestamp,
+        actualSpeed: b.actualSpeed,
+        targetSpeed: b.targetSpeed,
+        runningTimeSeconds: b.runningTimeSeconds,
+        plannedTimeSeconds: detailData.summary.plannedTimeSec,
+        performance: b.performance,
+        availability: null,
+        quality: null,
+        oee: null,
+        productionOrderId: null,
+      }));
+    }
+    if (detailRawInWin.length) return detailRawInWin;
+    return detailData?.rawRows ?? [];
+  }, [detailData, detailRawInWin, equipmentOeeMode]);
+
   const shiftLabel = speedQuery.sectionSubtitle ?? `Ca ${pastIsoShiftNumber} · ${referenceDate}`;
+  const windowHours = ((windowEndMs - windowStartMs) / 3_600_000).toFixed(1);
 
   return (
     <div className="speed-lab-root max-w-[1280px] mx-auto">
@@ -239,6 +285,11 @@ export function SpeedLab({
         pastIsoShiftNumber={pastIsoShiftNumber}
         onPastIsoShiftNumberChange={onPastIsoShiftNumberChange}
       />
+
+      <p className="speed-lab-sub mb-3">
+        Khung chart: {fmtIctHour(windowStartMs)} → {fmtIctHour(windowEndMs)} ICT ({windowHours}h) ·
+        truy vấn đến {fmtIctHour(speedQuery.queryEnd.getTime())}
+      </p>
 
       <div className="flex flex-wrap items-end gap-4 mb-4">
         <label className="block">
@@ -563,12 +614,12 @@ export function SpeedLab({
                     </>
                   )}
 
-                  {detailRawInWin.length > 0 ? (
+                  {detailRunningRows.length > 0 ? (
                     <>
                       <h2 className="speed-lab-section-title">3. running_time_seconds tích lũy</h2>
                       <div className="speed-lab-panel p-4">
                         <RunningTimeTrendChart
-                          rawRows={detailRawInWin}
+                          rawRows={detailRunningRows}
                           winStartMs={windowStartMs}
                           winEndMs={windowEndMs}
                           plannedSec={detailData?.summary.plannedTimeSec ?? 28800}

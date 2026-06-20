@@ -11,7 +11,6 @@ import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
 import {
   FACTORY_TIME_ZONE,
   getCurrentShiftWindow,
-  getFactoryShiftWindowsForCalendarDay,
   getProductionDayLabelDate,
   getProductionDayWindow,
   getShiftWindow,
@@ -159,21 +158,36 @@ export function buildEquipmentSpeedHistoryQuery(
 
   if (mode === 'calendar_day') {
     const ymd = scope?.dayDate || referenceDate;
-    const rows = getFactoryShiftWindowsForCalendarDay(ymd);
-    const chartWindowStart = scope?.start
-      ? new Date(scope.start)
-      : new Date(Math.min(...rows.map((r) => r.start.getTime())));
-    const chartWindowEnd = scope?.end
-      ? new Date(scope.end)
-      : new Date(Math.max(...rows.map((r) => r.end.getTime())));
-    const pollMs =
-      chartWindowEnd.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    const { start, end } = getProductionDayWindow(ymd, now);
+    const pollMs = end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(
+      start,
+      end,
+      now,
+      pollMs,
+      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))} · ${formatScopeTimeRange(start, end)}`
+    );
+  }
+
+  if (mode === 'day' || mode === 'yesterday') {
+    const label =
+      mode === 'day'
+        ? getProductionDayLabelDate(now)
+        : addDaysToYmd(getProductionDayLabelDate(now), -1);
+    const { start, end } = getProductionDayWindow(label, now);
+    const pollMs = end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(start, end, now, pollMs, `${modeLabel} · ${formatScopeTimeRange(start, end)}`);
+  }
+
+  if (mode === 'week') {
+    const chartWindowEnd = now;
+    const chartWindowStart = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
     return buildQuery(
       chartWindowStart,
       chartWindowEnd,
       now,
-      pollMs,
-      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(ymd))} · ${formatScopeTimeRange(chartWindowStart, chartWindowEnd)}`
+      SPEED_POLL_MS,
+      `${modeLabel} · ${formatScopeTimeRange(chartWindowStart, chartWindowEnd)}`
     );
   }
 
@@ -195,6 +209,64 @@ export function buildEquipmentSpeedHistoryQuery(
     return buildQuery(chartWindowStart, chartWindowEnd, now, pollMs, subtitle);
   }
 
+  const chartWindowEnd = now;
+  const chartWindowStart = new Date(now.getTime() - 8 * 3600 * 1000);
+  return buildQuery(
+    chartWindowStart,
+    chartWindowEnd,
+    now,
+    SPEED_POLL_MS,
+    `${modeLabel} — chờ phạm vi OEE`
+  );
+}
+
+/**
+ * Speed Lab only — resolves window from mode + referenceDate (never stale analytics scope).
+ * Prevents 3-ca modes from collapsing to an 8h shift scope.start/end.
+ */
+export function buildSpeedLabQuery(
+  mode: EquipmentOeeMode,
+  referenceDate: string,
+  pastIsoShiftNumber: 1 | 2 | 3,
+  now: Date = new Date()
+): EquipmentSpeedHistoryQuery {
+  const modeLabel = equipmentOeeModeLabelVi(mode);
+
+  if (mode === 'realtime' || mode === 'shift_live') {
+    const win = getCurrentShiftWindow(now);
+    return buildQuery(
+      win.start,
+      win.end,
+      now,
+      SPEED_POLL_MS,
+      `${modeLabel} — Ca ${win.shift} · ${formatScopeTimeRange(win.start, win.end)}`
+    );
+  }
+
+  const shiftWin = resolveFixedShiftWindow(mode, referenceDate, pastIsoShiftNumber);
+  if (shiftWin) {
+    const pollMs = shiftWin.end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(
+      shiftWin.start,
+      shiftWin.end,
+      now,
+      pollMs,
+      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))} · ${formatScopeTimeRange(shiftWin.start, shiftWin.end)}`
+    );
+  }
+
+  if (mode === 'calendar_day') {
+    const { start, end } = getProductionDayWindow(referenceDate, now);
+    const pollMs = end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
+    return buildQuery(
+      start,
+      end,
+      now,
+      pollMs,
+      `${modeLabel} — ${formatDdMmYyyy(parseShiftDateToAnchor(referenceDate))} · ${formatScopeTimeRange(start, end)}`
+    );
+  }
+
   if (mode === 'day' || mode === 'yesterday') {
     const label =
       mode === 'day'
@@ -203,6 +275,18 @@ export function buildEquipmentSpeedHistoryQuery(
     const { start, end } = getProductionDayWindow(label, now);
     const pollMs = end.getTime() > now.getTime() - 60_000 ? SPEED_POLL_MS : null;
     return buildQuery(start, end, now, pollMs, `${modeLabel} · ${formatScopeTimeRange(start, end)}`);
+  }
+
+  if (mode === 'week') {
+    const chartWindowEnd = now;
+    const chartWindowStart = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    return buildQuery(
+      chartWindowStart,
+      chartWindowEnd,
+      now,
+      SPEED_POLL_MS,
+      `${modeLabel} · ${formatScopeTimeRange(chartWindowStart, chartWindowEnd)}`
+    );
   }
 
   const chartWindowEnd = now;
