@@ -8,6 +8,8 @@
 
 import type { EquipmentOeeAnalyticsScope, EquipmentOeeMode } from './equipmentOeeDisplay';
 import { equipmentOeeModeLabelVi } from './equipmentOeeDisplay';
+import type { OperationalStatesTimeline } from './equipment-operational-states-timeline';
+import { resolveTimelineChartWindow } from './equipment-operational-states-timeline';
 import {
   FACTORY_TIME_ZONE,
   getCurrentShiftWindow,
@@ -73,7 +75,7 @@ function modeToShiftNumber(mode: EquipmentOeeMode): 1 | 2 | 3 | null {
 }
 
 /** Bucket from full chart window span (same as HTML compare tool). */
-function resolveSpeedBucketSec(chartWindowStart: Date, chartWindowEnd: Date): number {
+export function resolveSpeedBucketSec(chartWindowStart: Date, chartWindowEnd: Date): number {
   const spanHours = (chartWindowEnd.getTime() - chartWindowStart.getTime()) / 3_600_000;
   if (spanHours <= 24) return SPEED_BUCKET_SEC;
   if (spanHours <= 72) return 60;
@@ -298,4 +300,36 @@ export function buildSpeedLabQuery(
     SPEED_POLL_MS,
     `${modeLabel} — chờ phạm vi OEE`
   );
+}
+
+/**
+ * Speed chart + API window — same epoch span as operational-states Gantt rows.
+ * Uses buildSpeedLabQuery (ignores stale scope) then overrides chart bounds from timeline.
+ */
+export function buildEquipmentSpeedQueryAlignedWithTimeline(
+  mode: EquipmentOeeMode,
+  referenceDate: string,
+  pastIsoShiftNumber: 1 | 2 | 3,
+  timeline: OperationalStatesTimeline,
+  now: Date = new Date()
+): EquipmentSpeedHistoryQuery {
+  const base = buildSpeedLabQuery(mode, referenceDate, pastIsoShiftNumber, now);
+  const { chartWindowStart, chartWindowEnd } = resolveTimelineChartWindow(timeline);
+
+  const fetchEnd = chartWindowEnd.getTime() > now.getTime() ? now : chartWindowEnd;
+  const queryEnd =
+    fetchEnd.getTime() > chartWindowStart.getTime()
+      ? fetchEnd
+      : new Date(chartWindowStart.getTime() + 60_000);
+
+  return {
+    ...base,
+    queryStart: chartWindowStart,
+    queryEnd,
+    chartWindowStart,
+    chartWindowEnd,
+    bucketSec: resolveSpeedBucketSec(chartWindowStart, chartWindowEnd),
+    pollMs: timeline.pollMs ?? base.pollMs,
+    sectionSubtitle: timeline.sectionSubtitle ?? base.sectionSubtitle,
+  };
 }

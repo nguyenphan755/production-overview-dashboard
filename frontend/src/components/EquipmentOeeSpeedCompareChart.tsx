@@ -14,7 +14,7 @@ import {
   Legend,
 } from 'chart.js';
 import type { SpeedChartRow } from '../utils/equipment-speed-analysis-chart';
-import { FACTORY_TIME_ZONE } from '../utils/shiftCalculator';
+import { fmtIctFull, fmtIctHour } from '../utils/speed-lab-format';
 
 let chartJsRegistered = false;
 
@@ -41,27 +41,6 @@ type EquipmentOeeSpeedCompareChartProps = {
   /** Shown under title — OEE filter subtitle */
   windowLabel?: string;
 };
-
-function fmtIctFull(ms: number): string {
-  return new Date(ms).toLocaleString('vi-VN', {
-    timeZone: FACTORY_TIME_ZONE,
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-}
-
-function fmtIctHour(ms: number): string {
-  return new Date(ms).toLocaleTimeString('vi-VN', {
-    timeZone: FACTORY_TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
 
 export function EquipmentOeeSpeedCompareChart({
   rows,

@@ -199,3 +199,23 @@ export function buildOperationalStatesTimeline(
 
   return { rows, queryStart, queryEnd, sectionSubtitle, pollMs };
 }
+
+export type OperationalStatesTimeline = ReturnType<typeof buildOperationalStatesTimeline>;
+
+/**
+ * Chart X-axis span aligned with Gantt shift rows (not stale analytics scope.start/end).
+ */
+export function resolveTimelineChartWindow(timeline: OperationalStatesTimeline): {
+  chartWindowStart: Date;
+  chartWindowEnd: Date;
+} {
+  if (timeline.rows.length > 0) {
+    const startMs = Math.min(...timeline.rows.map((r) => r.start.getTime()));
+    const endMs = Math.max(...timeline.rows.map((r) => r.end.getTime()));
+    return { chartWindowStart: new Date(startMs), chartWindowEnd: new Date(endMs) };
+  }
+  return {
+    chartWindowStart: timeline.queryStart,
+    chartWindowEnd: timeline.queryEnd,
+  };
+}

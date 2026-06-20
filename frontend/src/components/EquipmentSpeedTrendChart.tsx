@@ -10,7 +10,7 @@ import {
   speedUnitForArea,
 } from '../utils/equipment-speed-analysis-chart';
 import { ensureSpeedTrendChartRegistered } from '../utils/speed-trend-chart-setup';
-import { FACTORY_TIME_ZONE } from '../utils/shiftCalculator';
+import { fmtIctFull, fmtIctHour } from '../utils/speed-lab-format';
 
 ensureSpeedTrendChartRegistered();
 
@@ -30,36 +30,8 @@ type EquipmentSpeedTrendChartProps = {
   refs: SpeedReferenceLines;
 };
 
-function formatAxisTime(ms: number, longSpan: boolean, shiftSpan: boolean): string {
-  const d = new Date(ms);
-  if (longSpan) {
-    return d.toLocaleString('vi-VN', {
-      timeZone: FACTORY_TIME_ZONE,
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-  return d.toLocaleTimeString('vi-VN', {
-    timeZone: FACTORY_TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: shiftSpan ? undefined : '2-digit',
-    hour12: false,
-  });
-}
-
-function formatTooltipTime(ms: number): string {
-  return new Date(ms).toLocaleString('vi-VN', {
-    timeZone: FACTORY_TIME_ZONE,
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+function formatAxisTime(ms: number, longSpan: boolean): string {
+  return longSpan ? fmtIctFull(ms) : fmtIctHour(ms);
 }
 
 export function EquipmentSpeedTrendChart({
@@ -77,7 +49,6 @@ export function EquipmentSpeedTrendChart({
 
   const spanMs = Math.max(windowEndMs - windowStartMs, 60_000);
   const longSpan = spanMs > 36 * 3600 * 1000;
-  const shiftSpan = spanMs <= 9 * 3600 * 1000;
   const showDataCutoff =
     dataEndMs != null &&
     dataEndMs < windowEndMs - 120_000 &&
@@ -280,7 +251,7 @@ export function EquipmentSpeedTrendChart({
           callbacks: {
             title: (items) => {
               const x = items[0]?.parsed.x;
-              return x != null ? formatTooltipTime(Number(x)) : '';
+              return x != null ? fmtIctFull(Number(x)) : '';
             },
             label: (ctx) => {
               const y = ctx.parsed.y;
@@ -325,7 +296,7 @@ export function EquipmentSpeedTrendChart({
           ticks: {
             color: 'rgba(255,255,255,0.6)',
             maxTicksLimit: 10,
-            callback: (value) => formatAxisTime(Number(value), longSpan, shiftSpan),
+            callback: (value) => formatAxisTime(Number(value), longSpan),
           },
           grid: { color: 'rgba(255,255,255,0.08)' },
           title: {
@@ -359,7 +330,6 @@ export function EquipmentSpeedTrendChart({
     windowStartMs,
     windowEndMs,
     longSpan,
-    shiftSpan,
     refs,
     productNotes,
     stableSegments,
@@ -378,13 +348,13 @@ export function EquipmentSpeedTrendChart({
         <h3 className="text-sm speed-text-soft font-medium">Speed Trend — chi tiết tốc độ</h3>
         <div className="flex flex-col items-end gap-0.5 text-[10px] speed-text-subtle text-right">
           <span>
-            Khung OEE: {formatAxisTime(windowStartMs, longSpan, shiftSpan)} →{' '}
-            {formatAxisTime(windowEndMs, longSpan, shiftSpan)}
+            Khung OEE: {formatAxisTime(windowStartMs, longSpan)} →{' '}
+            {formatAxisTime(windowEndMs, longSpan)}
           </span>
           <span>
             Mỗi điểm ≈ {data.meta.bucketSec}s · {rows.length} điểm
             {showDataCutoff
-              ? ` · dữ liệu đến ${formatAxisTime(dataEndMs!, longSpan, shiftSpan)}`
+              ? ` · dữ liệu đến ${formatAxisTime(dataEndMs!, longSpan)}`
               : ''}
           </span>
         </div>

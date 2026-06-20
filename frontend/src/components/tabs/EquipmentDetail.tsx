@@ -21,7 +21,7 @@ import {
   buildOperationalStatesTimeline,
   type OperationalStatesGanttRow,
 } from '../../utils/equipment-operational-states-timeline';
-import { buildEquipmentSpeedHistoryQuery } from '../../utils/equipment-speed-history-query';
+import { buildEquipmentSpeedQueryAlignedWithTimeline } from '../../utils/equipment-speed-history-query';
 import {
   allocateEnergyByOrderOverlap,
   buildMeterDeltaBarChartFromTrend,
@@ -219,20 +219,18 @@ export function EquipmentDetail({
     const anchorNow = rollingTimelineModes
       ? new Date(timelineMinuteKey * 60_000)
       : new Date();
-    return buildEquipmentSpeedHistoryQuery(
+    return buildEquipmentSpeedQueryAlignedWithTimeline(
       equipmentOeeMode,
       referenceDate,
       pastIsoShiftNumber,
-      equipmentOeeScope,
+      operationalTimeline,
       anchorNow
     );
   }, [
     equipmentOeeMode,
     referenceDate,
     pastIsoShiftNumber,
-    equipmentOeeScope?.start,
-    equipmentOeeScope?.end,
-    equipmentOeeScope?.dayDate,
+    operationalTimeline,
     rollingTimelineModes,
     timelineMinuteKey,
   ]);
