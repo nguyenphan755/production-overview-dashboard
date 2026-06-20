@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../../database/connection.js';
-import { querySpeedLab } from '../services/speedLabService.js';
+import { querySpeedLab, querySpeedLabMulti } from '../services/speedLabService.js';
 
 const router = express.Router();
 
@@ -72,6 +72,53 @@ router.get('/query', async (req, res) => {
       success: false,
       data: null,
       message: error.message || 'Speed lab query failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/speed-lab/query-multi
+ * All machines overview for Speed Lab (mirrors multi-machine-speed-compare.html).
+ */
+router.get('/query-multi', async (req, res) => {
+  try {
+    const { start: startQ, end: endQ, bucketSec: bucketSecQ, machineIds: machineIdsQ } = req.query;
+
+    if (startQ == null || String(startQ).trim() === '' || endQ == null || String(endQ).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: 'start and end query params are required (ISO 8601)',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const rangeStart = new Date(String(startQ));
+    const rangeEnd = new Date(String(endQ));
+    const bucketSec = bucketSecQ != null ? parseInt(String(bucketSecQ), 10) : 30;
+    const machineIds =
+      machineIdsQ != null && String(machineIdsQ).trim() !== ''
+        ? String(machineIdsQ)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : null;
+
+    const data = await querySpeedLabMulti(rangeStart, rangeEnd, bucketSec, machineIds);
+
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const status = error.statusCode || (/must be before|Invalid date|exceeds 31 days/i.test(error.message || '') ? 400 : 500);
+    console.error('Speed lab multi query error:', error);
+    res.status(status).json({
+      success: false,
+      data: null,
+      message: error.message || 'Speed lab multi query failed',
       timestamp: new Date().toISOString(),
     });
   }

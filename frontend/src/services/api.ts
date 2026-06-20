@@ -317,6 +317,24 @@ class APIClient {
     return this.request(`/speed-lab/query?${q.toString()}`, { signal: init?.signal });
   }
 
+  async getSpeedLabMultiQuery(
+    params: {
+      start: string;
+      end: string;
+      bucketSec?: number;
+      machineIds?: string[];
+    },
+    init?: { signal?: AbortSignal }
+  ): Promise<APIResponse<import('../types/oee-analytics-lab').SpeedLabMultiQueryResponse>> {
+    const q = new URLSearchParams({
+      start: params.start,
+      end: params.end,
+    });
+    if (params.bucketSec != null) q.set('bucketSec', String(params.bucketSec));
+    if (params.machineIds?.length) q.set('machineIds', params.machineIds.join(','));
+    return this.request(`/speed-lab/query-multi?${q.toString()}`, { signal: init?.signal });
+  }
+
   async getSpeedLabMachines(
     init?: { signal?: AbortSignal }
   ): Promise<APIResponse<{ id: string; name: string; area: string }[]>> {

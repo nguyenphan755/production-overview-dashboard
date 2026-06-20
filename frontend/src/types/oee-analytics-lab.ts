@@ -97,6 +97,36 @@ export type SpeedLabQueryResponse = {
   stopBlocks: SpeedLabStopBlock[];
 };
 
+export type SpeedLabMachineOverview = {
+  meta: {
+    machineId: string;
+    source: 'oee_calculations';
+    bucketSec: number;
+    windowStart: string;
+    windowEnd: string;
+    rawRowCount: number;
+    bucketCount: number;
+    timezone: typeof LAB_FACTORY_TIME_ZONE;
+  };
+  summary: SpeedLabQueryResponse['summary'];
+  buckets: OeeSpeedBucketPoint[];
+  stopBlocks: SpeedLabStopBlock[];
+};
+
+export type SpeedLabMultiQueryResponse = {
+  meta: {
+    source: 'oee_calculations';
+    bucketSec: number;
+    windowStart: string;
+    windowEnd: string;
+    machineCount: number;
+    machinesWithData: number;
+    timezone: typeof LAB_FACTORY_TIME_ZONE;
+  };
+  machines: Record<string, SpeedLabMachineOverview>;
+  machineIds: string[];
+};
+
 // ─── OEE Waterfall (future phase — oee-waterfall-demo.html) ─────────────────
 
 /** TPM time buckets in seconds */

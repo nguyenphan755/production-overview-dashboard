@@ -1,0 +1,325 @@
+/* Speed Lab — mirrors scripts/multi-machine-speed-compare.html */
+
+.speed-lab-root {
+  --speed-bg: #0a1628;
+  --speed-panel: #0e2f4f;
+  --speed-text: #e8f0fe;
+  --speed-muted: #94a3b8;
+  --speed-accent: #4fffbc;
+  --speed-warn: #ffb86c;
+  --speed-run: #22c55e;
+  --speed-stop: #ef4444;
+  --speed-creep: #f59e0b;
+  --speed-oee-run: #34e7f8;
+  --speed-oee-freeze: #64748b;
+  color: var(--speed-text);
+}
+
+.speed-lab-header {
+  padding: 0 0 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1rem;
+}
+
+.speed-lab-sub {
+  color: var(--speed-muted);
+  font-size: 0.85rem;
+}
+
+.speed-lab-panel {
+  background: var(--speed-panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.speed-lab-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.speed-lab-tab {
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--speed-muted);
+  cursor: pointer;
+}
+
+.speed-lab-tab.active {
+  background: rgba(79, 255, 188, 0.15);
+  border-color: rgba(79, 255, 188, 0.4);
+  color: var(--speed-accent);
+  font-weight: 600;
+}
+
+.speed-lab-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.speed-lab-card {
+  background: var(--speed-panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.speed-lab-card .k {
+  font-size: 0.65rem;
+  color: var(--speed-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.speed-lab-card .v {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.15rem;
+}
+
+.speed-lab-chart-compare {
+  height: 420px;
+}
+
+.speed-lab-chart-speed {
+  height: 360px;
+}
+
+.speed-lab-chart-running {
+  height: 200px;
+}
+
+.speed-lab-gantt-panel {
+  background: var(--speed-panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.speed-lab-gantt-row {
+  margin-bottom: 0.85rem;
+}
+
+.speed-lab-gantt-row:last-child {
+  margin-bottom: 0;
+}
+
+.speed-lab-gantt-label {
+  font-size: 0.72rem;
+  color: var(--speed-muted);
+  margin-bottom: 0.35rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.speed-lab-gantt-track {
+  position: relative;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.speed-lab-gantt-seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 1px;
+  cursor: default;
+}
+
+.speed-lab-gantt-seg:hover {
+  filter: brightness(1.15);
+  z-index: 2;
+}
+
+.speed-lab-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--speed-muted);
+}
+
+.speed-lab-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.speed-lab-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.speed-lab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.speed-lab-table th,
+.speed-lab-table td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.speed-lab-table th {
+  color: var(--speed-muted);
+  font-weight: 500;
+}
+
+.speed-lab-table tr.clickable {
+  cursor: pointer;
+}
+
+.speed-lab-table tr.clickable:hover {
+  background: rgba(79, 255, 188, 0.06);
+}
+
+.speed-lab-table tr.active {
+  background: rgba(79, 255, 188, 0.12);
+}
+
+.speed-lab-table tr.active td:first-child {
+  border-left: 3px solid var(--speed-accent);
+}
+
+.speed-lab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.speed-lab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.speed-lab-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.75rem;
+}
+
+.speed-lab-mini-card {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.65rem;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+}
+
+.speed-lab-mini-card:hover {
+  border-color: rgba(79, 255, 188, 0.35);
+}
+
+.speed-lab-mini-card h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+}
+
+.speed-lab-mini-chart {
+  height: 140px;
+  position: relative;
+}
+
+.speed-lab-gantt-tip {
+  position: fixed;
+  background: #0e2f4f;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  pointer-events: none;
+  z-index: 99;
+  max-width: 280px;
+}
+
+.speed-lab-note {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 184, 108, 0.08);
+  border: 1px solid rgba(255, 184, 108, 0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--speed-warn);
+}
+
+.speed-lab-note ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.speed-lab-btn {
+  background: var(--speed-accent);
+  color: #0a1628;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.speed-lab-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--speed-text);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.speed-lab-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.speed-lab-section-title {
+  font-size: 0.95rem;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--speed-muted);
+  font-weight: 600;
+}
+
+.speed-lab-section-subtitle {
+  font-size: 0.88rem;
+  margin: 0 0 0.5rem;
+  color: var(--speed-accent);
+  font-weight: 600;
+}
+
+.speed-lab-ok {
+  color: var(--speed-accent);
+}
+
+.speed-lab-err {
+  color: #f87171;
+}
+
+.speed-lab-warn-text {
+  color: var(--speed-warn);
+}

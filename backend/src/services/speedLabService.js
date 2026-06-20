@@ -133,6 +133,55 @@ function pointTimeMs(point) {
   return new Date(point.ts).getTime();
 }
 
+function oeeState(row, prev) {
+  if (!prev) return row.runningTimeSeconds > 0 ? 'oee_accum' : 'oee_frozen';
+  return row.runningTimeSeconds > prev.runningTimeSeconds ? 'oee_accum' : 'oee_frozen';
+}
+
+function buildInferredSegments(rawRows) {
+  if (!rawRows.length) {
+    return { fromActualSpeed: [], fromRunningTime: [] };
+  }
+  const fromActualSpeed = buildSegmentsFromPoints(
+    rawRows,
+    pointTimeMs,
+    (p) => speedState(p.actualSpeed)
+  ).map((s) => ({
+    state: s.state,
+    startMs: s.start,
+    endMs: s.end,
+    source: 'actual_speed',
+  }));
+  const fromRunningTime = (() => {
+    if (!rawRows.length) return [];
+    const segs = [];
+    let cur = {
+      state: oeeState(rawRows[0], null),
+      start: pointTimeMs(rawRows[0]),
+      end: pointTimeMs(rawRows[0]),
+    };
+    for (let i = 1; i < rawRows.length; i += 1) {
+      const st = oeeState(rawRows[i], rawRows[i - 1]);
+      const t = pointTimeMs(rawRows[i]);
+      if (st !== cur.state) {
+        cur.end = t;
+        segs.push(cur);
+        cur = { state: st, start: t, end: t };
+      } else {
+        cur.end = t;
+      }
+    }
+    segs.push(cur);
+    return segs.map((s) => ({
+      state: s.state,
+      startMs: s.start,
+      endMs: s.end,
+      source: 'running_time',
+    }));
+  })();
+  return { fromActualSpeed, fromRunningTime };
+}
+
 function buildSummaryFromRaw(rawRows, bucketRows) {
   const peakFromBuckets = bucketRows.reduce((m, b) => Math.max(m, b.actualSpeed), 0);
   const peakFromRaw = rawRows.reduce((m, r) => Math.max(m, r.actualSpeed), 0);
@@ -221,9 +270,13 @@ export async function querySpeedLab(
   }));
 
   const segmentPoints = rawRows.length ? rawRows : bucketRows;
-  const stopBlocks = buildStopBlocks(
-    buildSegmentsFromPoints(segmentPoints, pointTimeMs, (p) => speedState(p.actualSpeed))
-  ).slice(0, 20);
+  const speedSegs = buildSegmentsFromPoints(
+    segmentPoints,
+    pointTimeMs,
+    (p) => speedState(p.actualSpeed)
+  );
+  const stopBlocks = buildStopBlocks(speedSegs).slice(0, 20);
+  const inferredSegments = rawRows.length ? buildInferredSegments(rawRows) : undefined;
 
   return {
     meta: {
@@ -241,7 +294,173 @@ export async function querySpeedLab(
     summary,
     buckets,
     rawRows: includeRaw ? rawRows : undefined,
+    inferredSegments,
     stopBlocks,
+  };
+}
+
+async function fetchMachineSummaryAgg(machineIds, rangeStart, rangeEnd) {
+  const result = await query(
+    `SELECT
+       machine_id,
+       COUNT(*)::int AS raw_count,
+       MAX(actual_speed)::float AS peak_speed,
+       (AVG(CASE WHEN actual_speed = 0 THEN 1.0 ELSE 0.0 END) * 100)::float AS zero_speed_pct,
+       (ARRAY_AGG(running_time_seconds ORDER BY calculation_timestamp DESC))[1]::int AS final_running,
+       (ARRAY_AGG(planned_time_seconds ORDER BY calculation_timestamp DESC))[1]::int AS planned_time
+     FROM oee_calculations
+     WHERE machine_id = ANY($1::text[])
+       AND calculation_timestamp >= $2
+       AND calculation_timestamp <= $3
+     GROUP BY machine_id`,
+    [machineIds, rangeStart, rangeEnd]
+  );
+  const map = new Map();
+  for (const row of result.rows) {
+    map.set(row.machine_id, {
+      rawRowCount: row.raw_count,
+      peakSpeed: Math.round(parseFloat(row.peak_speed || 0) * 100) / 100,
+      zeroSpeedPct: Math.round(parseFloat(row.zero_speed_pct || 0) * 10) / 10,
+      finalRunningTimeSec: parseInt(row.final_running || 0, 10),
+      plannedTimeSec: parseInt(row.planned_time || 0, 10),
+    });
+  }
+  return map;
+}
+
+async function fetchAllBuckets(machineIds, rangeStart, rangeEnd, bucketSec) {
+  const result = await query(
+    `SELECT
+       machine_id,
+       to_timestamp(floor(extract(epoch from calculation_timestamp) / $4) * $4) AS bucket,
+       AVG(actual_speed)::float AS actual_speed,
+       AVG(target_speed)::float AS target_speed,
+       MAX(running_time_seconds)::int AS running_time_seconds,
+       MAX(planned_time_seconds)::int AS planned_time_seconds,
+       AVG(performance)::float AS performance
+     FROM oee_calculations
+     WHERE machine_id = ANY($1::text[])
+       AND calculation_timestamp >= $2
+       AND calculation_timestamp <= $3
+     GROUP BY machine_id, bucket
+     ORDER BY machine_id, bucket ASC`,
+    [machineIds, rangeStart, rangeEnd, bucketSec]
+  );
+  const byMachine = new Map();
+  for (const row of result.rows) {
+    const id = row.machine_id;
+    if (!byMachine.has(id)) byMachine.set(id, []);
+    byMachine.get(id).push({
+      timestamp: new Date(row.bucket),
+      actualSpeed: parseFloat(row.actual_speed || 0),
+      targetSpeed: parseFloat(row.target_speed || 0),
+      runningTimeSeconds: parseInt(row.running_time_seconds || 0, 10),
+      plannedTimeSeconds: parseInt(row.planned_time_seconds || 0, 10),
+      performance: row.performance != null ? parseFloat(row.performance) : null,
+    });
+  }
+  return byMachine;
+}
+
+function buildStopCountFromBuckets(bucketRows) {
+  if (!bucketRows.length) return 0;
+  const points = bucketRows.map((b) => ({
+    timestamp: b.timestamp,
+    actualSpeed: b.actualSpeed,
+  }));
+  const segs = buildSegmentsFromPoints(points, pointTimeMs, (p) => speedState(p.actualSpeed));
+  return buildStopBlocks(segs, MIN_STOP_SEC).length;
+}
+
+/**
+ * Multi-machine Speed Lab — overview for all machines in one shift window.
+ */
+export async function querySpeedLabMulti(rangeStart, rangeEnd, bucketSec = 30, machineIds = null) {
+  if (!(rangeStart instanceof Date) || !(rangeEnd instanceof Date)) {
+    throw new Error('rangeStart and rangeEnd must be Date objects');
+  }
+  if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+    throw new Error('Invalid date range');
+  }
+  if (rangeStart >= rangeEnd) {
+    throw new Error('start must be before end');
+  }
+  if (rangeEnd.getTime() - rangeStart.getTime() > MAX_RANGE_MS) {
+    throw new Error('Requested time range exceeds 31 days');
+  }
+
+  const bucket = Math.min(Math.max(parseInt(String(bucketSec), 10) || 30, 5), 3600);
+
+  let ids = machineIds;
+  if (!ids?.length) {
+    const r = await query('SELECT id FROM machines ORDER BY id ASC');
+    ids = r.rows.map((row) => row.id);
+  }
+
+  const [summaryMap, bucketsMap] = await Promise.all([
+    fetchMachineSummaryAgg(ids, rangeStart, rangeEnd),
+    fetchAllBuckets(ids, rangeStart, rangeEnd, bucket),
+  ]);
+
+  const machines = {};
+  for (const id of ids) {
+    const agg = summaryMap.get(id);
+    const bucketRows = bucketsMap.get(id) ?? [];
+    const buckets = bucketRows.map((b) => ({
+      timestamp: b.timestamp.toISOString(),
+      actualSpeed: Math.round(b.actualSpeed * 100) / 100,
+      targetSpeed: Math.round(b.targetSpeed * 100) / 100,
+      runningTimeSeconds: b.runningTimeSeconds,
+      performance: b.performance != null ? Math.round(b.performance * 100) / 100 : null,
+    }));
+
+    const stoppedDurationSec = bucketRows.length
+      ? Math.round(
+          totalDurationSec(
+            buildSegmentsFromPoints(bucketRows, pointTimeMs, (p) => speedState(p.actualSpeed)),
+            ['stopped']
+          )
+        )
+      : 0;
+
+    machines[id] = {
+      meta: {
+        machineId: id,
+        source: 'oee_calculations',
+        bucketSec: bucket,
+        windowStart: rangeStart.toISOString(),
+        windowEnd: rangeEnd.toISOString(),
+        rawRowCount: agg?.rawRowCount ?? 0,
+        bucketCount: buckets.length,
+        timezone: LAB_TIMEZONE,
+      },
+      summary: {
+        peakSpeed: agg?.peakSpeed ?? 0,
+        zeroSpeedPct: agg?.zeroSpeedPct ?? 0,
+        stoppedDurationSec,
+        finalRunningTimeSec: agg?.finalRunningTimeSec ?? 0,
+        plannedTimeSec: agg?.plannedTimeSec ?? 0,
+        stopSegmentCount: buildStopCountFromBuckets(bucketRows),
+      },
+      buckets,
+      stopBlocks: [],
+    };
+  }
+
+  const withData = ids.filter((id) => (machines[id]?.meta.rawRowCount ?? 0) > 0);
+
+  return {
+    meta: {
+      source: 'oee_calculations',
+      bucketSec: bucket,
+      windowStart: rangeStart.toISOString(),
+      windowEnd: rangeEnd.toISOString(),
+      machineCount: ids.length,
+      machinesWithData: withData.length,
+      timezone: LAB_TIMEZONE,
+    },
+    machines,
+    machineIds: ids,
   };
 }
 
