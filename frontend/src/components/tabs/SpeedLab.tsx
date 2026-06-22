@@ -7,7 +7,6 @@ import {
   RunningTimeTrendChart,
 } from '../speed-lab/MultiMachineSpeedChart';
 import { SpeedLabGanttLegend, SpeedLabGanttTrack } from '../speed-lab/SpeedLabGanttTrack';
-import { CollapsibleLabSection } from '../speed-lab/CollapsibleLabSection';
 import { OeeWaterfallPanel } from '../speed-lab/OeeWaterfallPanel';
 import { useEquipmentSpeedHistory } from '../../hooks/useEquipmentSpeedHistory';
 import { useSpeedLabQuery } from '../../hooks/useSpeedLabQuery';
@@ -475,6 +474,23 @@ export function SpeedLab({
                 </div>
               </div>
 
+              {((activeSpeedHistory?.productNotes?.length ?? 0) > 0 || speedHistory.loading) && (
+                <div className="speed-lab-section-block">
+                  <h2 className="speed-lab-section-title m-0 mb-2">Sản phẩm &amp; ghi chú tốc độ</h2>
+                  <div className="speed-lab-panel p-3">
+                    {activeSpeedHistory?.productNotes?.length ? (
+                      <EquipmentSpeedProductNotes
+                        notes={activeSpeedHistory.productNotes}
+                        unit={unit}
+                        longSpan={speedNotesLongSpan}
+                      />
+                    ) : (
+                      <p className="speed-lab-sub text-xs mb-0">Đang tải sản phẩm &amp; tốc độ chuyên môn…</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="speed-lab-section-block">
                 <h2 className="speed-lab-section-title m-0 mb-2">Trend tốc độ</h2>
                 <div className="speed-lab-panel p-4">
@@ -525,21 +541,12 @@ export function SpeedLab({
                 </div>
               </div>
 
-              {(activeSpeedHistory?.productNotes?.length ?? 0) > 0 && (
-                <CollapsibleLabSection title="Sản phẩm & ghi chú tốc độ" defaultOpen={false}>
-                  <EquipmentSpeedProductNotes
-                    notes={activeSpeedHistory!.productNotes}
-                    unit={unit}
-                    longSpan={speedNotesLongSpan}
-                  />
-                </CollapsibleLabSection>
-              )}
-
               {speedSegs.length > 0 && (
-                <CollapsibleLabSection
-                  title="Timeline chạy / dừng"
-                  subtitle="actual_speed vs running_time_seconds"
-                >
+                <div className="speed-lab-section-block">
+                  <h2 className="speed-lab-section-title m-0 mb-1">Timeline chạy / dừng</h2>
+                  <p className="speed-lab-sub text-xs mb-2 m-0">
+                    actual_speed vs running_time_seconds
+                  </p>
                   <div className="speed-lab-gantt-panel">
                     <div className="speed-lab-gantt-row">
                       <div className="speed-lab-gantt-label">
@@ -579,30 +586,32 @@ export function SpeedLab({
                     </div>
                     <SpeedLabGanttLegend />
                   </div>
-                </CollapsibleLabSection>
+                </div>
               )}
 
               {detailRunningRows.length > 0 && (
-                <CollapsibleLabSection title="running_time_seconds tích lũy">
-                  <RunningTimeTrendChart
-                    rawRows={detailRunningRows}
-                    winStartMs={windowStartMs}
-                    winEndMs={windowEndMs}
-                    plannedSec={detailData?.summary.plannedTimeSec ?? 28800}
-                  />
-                </CollapsibleLabSection>
+                <div className="speed-lab-section-block">
+                  <h2 className="speed-lab-section-title m-0 mb-2">running_time_seconds tích lũy</h2>
+                  <div className="speed-lab-panel p-4">
+                    <RunningTimeTrendChart
+                      rawRows={detailRunningRows}
+                      winStartMs={windowStartMs}
+                      winEndMs={windowEndMs}
+                      plannedSec={detailData?.summary.plannedTimeSec ?? 28800}
+                    />
+                  </div>
+                </div>
               )}
 
               {(detailData?.stopBlocks.length ?? 0) > 0 && (
-                <CollapsibleLabSection
-                  title="Đoạn dừng (≥2 phút)"
-                  badge={
+                <div className="speed-lab-section-block">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <h2 className="speed-lab-section-title m-0">Đoạn dừng (≥2 phút)</h2>
                     <span className="speed-lab-chip text-[0.65rem]">
                       {detailData!.stopBlocks.length}
                     </span>
-                  }
-                >
-                  <table className="speed-lab-table">
+                  </div>
+                  <table className="speed-lab-table speed-lab-panel">
                     <thead>
                       <tr>
                         <th>#</th>
@@ -622,14 +631,13 @@ export function SpeedLab({
                       ))}
                     </tbody>
                   </table>
-                </CollapsibleLabSection>
+                </div>
               )}
 
-              <CollapsibleLabSection
-                title="Dữ liệu thô & audit"
-                subtitle="oee_calculations · SQL live"
-              >
-                <div className="grid gap-2 sm:grid-cols-3 mb-3">
+              <div className="speed-lab-section-block">
+                <h2 className="speed-lab-section-title m-0 mb-1">Dữ liệu thô &amp; audit</h2>
+                <p className="speed-lab-sub text-xs mb-2 m-0">oee_calculations · SQL live</p>
+                <div className="speed-lab-cards mb-3">
                   <div className="speed-lab-card compact">
                     <div className="k">Dòng raw</div>
                     <div className="v">
@@ -651,7 +659,7 @@ export function SpeedLab({
                 {detailError ? (
                   <p className="speed-lab-err text-sm">{detailError}</p>
                 ) : null}
-              </CollapsibleLabSection>
+              </div>
             </>
           )}
         </section>
@@ -659,8 +667,8 @@ export function SpeedLab({
 
       <div className="speed-lab-note">
         <strong>Cách dùng:</strong> Chọn máy và ca trên toolbar — OEE waterfall và chart tốc độ tự tải theo
-        cùng khung thời gian. Bấm <strong>Phân tích</strong> để làm mới. Mở các mục thu gọn để xem công thức,
-        bucket chi tiết và audit.
+        cùng khung thời gian. Bấm <strong>Phân tích</strong> để làm mới. Chi tiết OEE waterfall (bucket, công thức)
+        vẫn thu gọn trong panel OEE phía trên.
       </div>
     </div>
   );

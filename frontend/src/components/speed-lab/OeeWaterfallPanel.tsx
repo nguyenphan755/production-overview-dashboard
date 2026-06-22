@@ -54,7 +54,8 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
     return BUCKET_ROWS.map((row) => {
       const sec = (data.buckets as Record<string, number | null>)[row.key] ?? 0;
       const pct = maxBarSec > 0 ? ((sec ?? 0) / maxBarSec) * 100 : 0;
-      return { ...row, sec: sec ?? 0, pct, color: BUCKET_COLORS[row.key] ?? '#64748b' };
+      const displayPct = Math.min(100, pct);
+      return { ...row, sec: sec ?? 0, pct, displayPct, color: BUCKET_COLORS[row.key] ?? '#64748b' };
     });
   }, [data, maxBarSec]);
 
@@ -81,7 +82,7 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
   return (
     <div className="oee-waterfall-panel">
       <div className="speed-lab-panel oee-waterfall-hero-card mb-3">
-        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
           <div>
             <div className="text-[0.7rem] uppercase tracking-wider text-white/45 mb-1">
               OEE Waterfall · {data.meta.methodology}
@@ -93,56 +94,65 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
           </span>
         </div>
 
-        <div className="oee-waterfall-hero">
-          <div className="oee-waterfall-hero-value">{fmtPct(apq.oee_plan_pct)}</div>
-          <div className="oee-waterfall-hero-label">OEE (P_plan)</div>
-        </div>
-
-        <div className="oee-apq-row">
-          <div className="oee-apq-item a">
-            <div className="v">{fmtPct(apq.availability_pct)}</div>
-            <div className="l">A · OT/PPT</div>
-          </div>
-          <div className="oee-apq-item p">
-            <div className="v">{fmtPct(apq.performance_plan_pct)}</div>
-            <div className="l">P_plan · NOT/OT</div>
-          </div>
-          <div className="oee-apq-item p2">
-            <div className="v">{fmtPct(apq.performance_study_pct)}</div>
-            <div className="l">P_study</div>
-          </div>
-          <div className="oee-apq-item q">
-            <div className="v">{fmtPct(apq.quality_pct)}</div>
-            <div className="l">Q</div>
-          </div>
-        </div>
-
-        <div className="oee-waterfall-bars mt-4">
-          {barHeights.map((row) => (
-            <div key={row.key} className="oee-wf-col" title={`${row.name}: ${fmtDur(row.sec)}`}>
-              <div className="oee-wf-bar-wrap">
-                <div
-                  className={`oee-wf-bar${row.loss ? ' loss' : ''}`}
-                  style={{
-                    height: `${Math.max(4, row.pct)}%`,
-                    backgroundColor: row.color,
-                  }}
-                />
+        <div className="oee-hero-split">
+          <div className="oee-hero-metrics">
+            <div className="oee-metrics-row-1">
+              <div className="oee-apq-item oee-main">
+                <div className="v oee-main-value">{fmtPct(apq.oee_plan_pct)}</div>
+                <div className="l">OEE (P_plan)</div>
               </div>
-              <div className="oee-wf-label">{row.label}</div>
-              <div className="oee-wf-pct">{row.pct.toFixed(0)}%</div>
             </div>
-          ))}
-        </div>
 
-        <p className="speed-lab-sub text-xs mt-3 mb-0">
-          Speed Loss = OT − NOT = {fmtDur(buckets.speed_loss_plan_sec)} · NOT ={' '}
-          {fmtDur(buckets.not_plan_sec ?? 0)} · L = {fmtNum(perf.l_total_m)} m (
-          {data.data_quality.l_total_source})
-        </p>
+            <div className="oee-metrics-row-2 oee-apq-row">
+              <div className="oee-apq-item a">
+                <div className="v">{fmtPct(apq.availability_pct)}</div>
+                <div className="l">A · OT/PPT</div>
+              </div>
+              <div className="oee-apq-item p">
+                <div className="v">{fmtPct(apq.performance_plan_pct)}</div>
+                <div className="l">P_plan · NOT/OT</div>
+              </div>
+              <div className="oee-apq-item p2">
+                <div className="v">{fmtPct(apq.performance_study_pct)}</div>
+                <div className="l">P_study</div>
+              </div>
+              <div className="oee-apq-item q">
+                <div className="v">{fmtPct(apq.quality_pct)}</div>
+                <div className="l">Q</div>
+              </div>
+            </div>
+
+            <p className="speed-lab-sub text-xs mb-0 oee-metrics-footnote oee-hero-footnote">
+              Speed Loss = OT − NOT = {fmtDur(buckets.speed_loss_plan_sec)} · NOT ={' '}
+              {fmtDur(buckets.not_plan_sec ?? 0)} · L = {fmtNum(perf.l_total_m)} m (
+              {data.data_quality.l_total_source})
+            </p>
+          </div>
+
+          <div className="oee-hero-chart">
+            <div className="oee-chart-title">Waterfall · % POT</div>
+            <div className="oee-waterfall-bars">
+              {barHeights.map((row) => (
+                <div key={row.key} className="oee-wf-col" title={`${row.name}: ${fmtDur(row.sec)}`}>
+                  <div className="oee-wf-bar-wrap">
+                    <div
+                      className={`oee-wf-bar${row.loss ? ' loss' : ''}`}
+                      style={{
+                        height: `${Math.max(3, row.displayPct)}%`,
+                        backgroundColor: row.color,
+                      }}
+                    />
+                  </div>
+                  <div className="oee-wf-label">{row.label}</div>
+                  <div className="oee-wf-pct">{row.pct.toFixed(0)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-2 mb-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="speed-lab-cards oee-kpi-row">
         <div className="speed-lab-card compact">
           <div className="k">ILS plan</div>
           <div className="v text-base">

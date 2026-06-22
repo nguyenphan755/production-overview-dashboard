@@ -444,68 +444,117 @@
   padding: 1.25rem 1.5rem;
 }
 
-.oee-waterfall-hero {
-  text-align: center;
-  padding: 0.5rem 0 0.25rem;
+/* 50% metrics (2 rows) | 50% waterfall chart */
+.oee-hero-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+  min-height: 220px;
 }
 
-.oee-waterfall-hero-value {
-  font-size: 2.75rem;
+.oee-hero-metrics {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.oee-metrics-row-1 {
+  display: flex;
+  align-items: stretch;
+}
+
+.oee-metrics-row-1 .oee-apq-item.oee-main {
+  flex: 1;
+  padding: 0.65rem 1rem;
+}
+
+.oee-metrics-row-2.oee-apq-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.oee-metrics-footnote {
+  flex-shrink: 0;
+}
+
+.oee-hero-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  min-width: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 1rem;
+}
+
+.oee-chart-title {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--speed-muted);
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
+}
+
+.oee-hero-footnote {
+  line-height: 1.35;
+}
+
+.oee-apq-item {
+  text-align: center;
+  padding: 0.5rem 0.3rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.oee-apq-item.oee-main {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+}
+
+.oee-apq-item .v {
+  font-size: 1.05rem;
   font-weight: 700;
+  line-height: 1.15;
+}
+
+.oee-apq-item.oee-main .v.oee-main-value {
+  font-size: 2.25rem;
   background: linear-gradient(135deg, #38bdf8, #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  line-height: 1.1;
-}
-
-.oee-waterfall-hero-label {
-  color: var(--speed-muted);
-  font-size: 0.8rem;
-  margin-top: 0.25rem;
-}
-
-.oee-apq-row {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-top: 0.75rem;
-}
-
-.oee-apq-item {
-  flex: 1;
-  min-width: 72px;
-  text-align: center;
-  padding: 0.65rem 0.4rem;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.22);
-}
-
-.oee-apq-item .v {
-  font-size: 1.25rem;
-  font-weight: 700;
 }
 
 .oee-apq-item .l {
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   color: var(--speed-muted);
   text-transform: uppercase;
-  margin-top: 0.2rem;
+  margin-top: 0.15rem;
+  line-height: 1.15;
 }
 
 .oee-apq-item.a .v { color: #38bdf8; }
 .oee-apq-item.p .v { color: #a78bfa; }
-.oee-apq-item.p2 .v { color: #c4b5fd; font-size: 1rem; }
+.oee-apq-item.p2 .v { color: #c4b5fd; font-size: 0.95rem; }
 .oee-apq-item.q .v { color: #f472b6; }
 
 .oee-waterfall-bars {
   display: flex;
   align-items: flex-end;
-  justify-content: center;
-  gap: 4px;
-  height: 140px;
-  padding-top: 0.5rem;
+  justify-content: stretch;
+  gap: 3px;
+  flex: 1;
+  height: 100%;
+  min-height: 190px;
+  padding-top: 0;
 }
 
 .oee-wf-col {
@@ -513,7 +562,8 @@
   flex-direction: column;
   align-items: center;
   flex: 1;
-  max-width: 52px;
+  min-width: 0;
+  max-width: none;
   height: 100%;
   justify-content: flex-end;
 }
@@ -528,9 +578,10 @@
 }
 
 .oee-wf-bar {
-  width: 36px;
+  width: 88%;
+  max-width: 36px;
   border-radius: 4px 4px 2px 2px;
-  min-height: 3px;
+  min-height: 2px;
   opacity: 0.92;
 }
 
@@ -539,15 +590,48 @@
 }
 
 .oee-wf-label {
-  font-size: 0.55rem;
+  font-size: 0.52rem;
   font-weight: 600;
   color: var(--speed-muted);
-  margin-top: 4px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .oee-wf-pct {
   font-size: 0.5rem;
   color: rgba(255, 255, 255, 0.35);
+}
+
+@media (max-width: 1100px) {
+  .oee-hero-split {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .oee-hero-chart {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 0.75rem;
+    min-height: 200px;
+  }
+
+  .oee-metrics-row-2.oee-apq-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .oee-metrics-row-2.oee-apq-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .oee-apq-item.oee-main .v.oee-main-value {
+    font-size: 1.75rem;
+  }
 }
 
 .speed-lab-card.compact {
@@ -556,6 +640,31 @@
 
 .speed-lab-card.compact .v {
   font-size: 1rem;
+}
+
+/* OEE waterfall — 4 KPI cards in one row */
+.oee-kpi-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .oee-kpi-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .oee-kpi-row .speed-lab-card.compact {
+    padding: 0.5rem 0.4rem;
+  }
+
+  .oee-kpi-row .speed-lab-card.compact .k {
+    font-size: 0.55rem;
+  }
+
+  .oee-kpi-row .speed-lab-card.compact .v {
+    font-size: 0.85rem;
+  }
 }
 
 /* Collapsible sections */
