@@ -1,6 +1,7 @@
 import express from 'express';
 import { query } from '../../database/connection.js';
 import { querySpeedLab, querySpeedLabMulti } from '../services/speedLabService.js';
+import { queryOeeWaterfall } from '../services/oeeWaterfallService.js';
 
 const router = express.Router();
 
@@ -119,6 +120,52 @@ router.get('/query-multi', async (req, res) => {
       success: false,
       data: null,
       message: error.message || 'Speed lab multi query failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/speed-lab/waterfall
+ * OEE waterfall v2 (P = NOT/OT, dual ILS) for Speed Lab integration.
+ */
+router.get('/waterfall', async (req, res) => {
+  try {
+    const { machineId, start: startQ, end: endQ } = req.query;
+
+    if (!machineId || String(machineId).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: 'machineId is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (startQ == null || String(startQ).trim() === '' || endQ == null || String(endQ).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: 'start and end query params are required (ISO 8601)',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const rangeStart = new Date(String(startQ));
+    const rangeEnd = new Date(String(endQ));
+    const data = await queryOeeWaterfall(String(machineId).trim(), rangeStart, rangeEnd);
+
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const status = error.statusCode || (/must be before|Invalid date|exceeds 31 days|not found/i.test(error.message || '') ? 400 : 500);
+    console.error('Speed lab waterfall error:', error);
+    res.status(status).json({
+      success: false,
+      data: null,
+      message: error.message || 'OEE waterfall query failed',
       timestamp: new Date().toISOString(),
     });
   }

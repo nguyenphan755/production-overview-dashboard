@@ -335,6 +335,18 @@ class APIClient {
     return this.request(`/speed-lab/query-multi?${q.toString()}`, { signal: init?.signal });
   }
 
+  async getSpeedLabWaterfall(
+    params: { machineId: string; start: string; end: string },
+    init?: { signal?: AbortSignal }
+  ): Promise<APIResponse<import('../types/oee-analytics-lab').OeeWaterfallQueryResponse>> {
+    const q = new URLSearchParams({
+      machineId: params.machineId,
+      start: params.start,
+      end: params.end,
+    });
+    return this.request(`/speed-lab/waterfall?${q.toString()}`, { signal: init?.signal });
+  }
+
   async getSpeedLabMachines(
     init?: { signal?: AbortSignal }
   ): Promise<APIResponse<{ id: string; name: string; area: string }[]>> {

@@ -169,7 +169,66 @@ export type OeeWaterfallProcessingReport = {
   setup_fmt?: string;
 };
 
-/** Future API response — not implemented in Speed Lab phase */
+/** Future API response — integrated in Speed Lab */
+export type OeeWaterfallPerformanceMeta = {
+  l_total_m: number;
+  ils_plan: number | null;
+  ils_study: number | null;
+  ils_gap_pct: number | null;
+  snapshot_actual_speed: number | null;
+  snapshot_target_speed: number | null;
+};
+
+export type OeeWaterfallCompare = {
+  p_proxy_pct: number | null;
+  p_snapshot_pct: number | null;
+  avg_speed_running_m_min: number | null;
+};
+
+export type OeeWaterfallApqV2 = {
+  availability_pct: number;
+  performance_plan_pct: number | null;
+  performance_study_pct: number | null;
+  quality_pct: number;
+  oee_plan_pct: number;
+  oee_study_pct: number;
+};
+
+export type OeeWaterfallBucketsV2 = OeeWaterfallBuckets & {
+  speed_loss_heuristic_sec?: number;
+  not_plan_sec: number | null;
+  not_study_sec: number | null;
+  speed_loss_plan_sec: number;
+  speed_loss_study_sec: number;
+};
+
+export type OeeWaterfallQueryResponse = {
+  meta: {
+    machineId: string;
+    timezone: typeof LAB_FACTORY_TIME_ZONE;
+    methodology: string;
+    dtl_threshold_sec: number;
+  };
+  machine: { id: string; name: string; area: string };
+  periodStart: string;
+  periodEnd: string;
+  buckets: OeeWaterfallBucketsV2;
+  apq: OeeWaterfallApqV2;
+  performance: OeeWaterfallPerformanceMeta;
+  compare: OeeWaterfallCompare;
+  processing: OeeWaterfallProcessingReport;
+  breakdown_summary: OeeWaterfallBreakdownRow[];
+  data_quality: {
+    l_total_source: string;
+    l_total_event_count: number;
+    has_ils_plan: boolean;
+    has_ils_study: boolean;
+    segment_count: number;
+  };
+  note?: string;
+};
+
+/** Legacy shift data shape (HTML demo) */
 export type OeeWaterfallShiftData = {
   machine: { id: string; name: string; area: string };
   periodStart: string;

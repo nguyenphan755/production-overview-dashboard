@@ -7,11 +7,13 @@ import {
   RunningTimeTrendChart,
 } from '../speed-lab/MultiMachineSpeedChart';
 import { SpeedLabGanttLegend, SpeedLabGanttTrack } from '../speed-lab/SpeedLabGanttTrack';
+import { CollapsibleLabSection } from '../speed-lab/CollapsibleLabSection';
+import { OeeWaterfallPanel } from '../speed-lab/OeeWaterfallPanel';
 import { useEquipmentSpeedHistory } from '../../hooks/useEquipmentSpeedHistory';
 import { useSpeedLabQuery } from '../../hooks/useSpeedLabQuery';
+import { useOeeWaterfallQuery } from '../../hooks/useOeeWaterfallQuery';
 import { buildSpeedLabQuery } from '../../utils/equipment-speed-history-query';
 import {
-  formatSpeedDuration,
   resolveSpeedReferenceLines,
   speedUnitForArea,
 } from '../../utils/equipment-speed-analysis-chart';
@@ -140,6 +142,37 @@ export function SpeedLab({
     rangeKey,
     enabled: !machinesLoading && Boolean(selectedMachineId),
   });
+
+  const waterfallRangeKey = useMemo(
+    () =>
+      `wf|${equipmentOeeMode}|${referenceDate}|${pastIsoShiftNumber}|${speedQuery.queryStart.toISOString()}|${speedQuery.queryEnd.toISOString()}|${selectedMachineId}`,
+    [
+      equipmentOeeMode,
+      referenceDate,
+      pastIsoShiftNumber,
+      speedQuery.queryStart,
+      speedQuery.queryEnd,
+      selectedMachineId,
+    ]
+  );
+
+  const {
+    data: waterfallData,
+    loading: waterfallLoading,
+    error: waterfallError,
+    refetch: refetchWaterfall,
+  } = useOeeWaterfallQuery({
+    machineId: selectedMachineId,
+    queryStart: speedQuery.queryStart,
+    queryEnd: speedQuery.queryEnd,
+    rangeKey: waterfallRangeKey,
+    enabled: !machinesLoading && Boolean(selectedMachineId),
+  });
+
+  const refetchAll = useCallback(() => {
+    refetchDetail();
+    refetchWaterfall();
+  }, [refetchDetail, refetchWaterfall]);
 
   const speedHistoryFetchKey = useMemo(
     () =>
@@ -284,11 +317,10 @@ export function SpeedLab({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-white m-0 mb-1">
-              Phân tích tốc độ máy (SQL live)
+              Speed Lab · OEE &amp; tốc độ
             </h1>
             <p className="speed-lab-sub m-0">
-              Truy vấn <code className="text-[#4fffbc]">oee_calculations</code> theo máy · bucket{' '}
-              {bucketSec}s · ICT (+07)
+              OEE waterfall v2 (NOT/OT) + trend tốc độ theo ca · bucket {bucketSec}s · ICT (+07)
             </p>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium bg-[#4FFFBC]/15 text-[#4FFFBC] border border-[#4FFFBC]/30">
@@ -351,8 +383,8 @@ export function SpeedLab({
         <button
           type="button"
           className="speed-lab-btn inline-flex items-center gap-2"
-          onClick={() => refetchDetail()}
-          disabled={detailLoading || !selectedMachineId}
+          onClick={() => refetchAll()}
+          disabled={(detailLoading || waterfallLoading) && !detailData && !waterfallData}
         >
           <RefreshCw size={16} className={detailLoading ? 'animate-spin' : ''} />
           Phân tích
@@ -391,126 +423,61 @@ export function SpeedLab({
       </p>
 
       {selectedMachineId && (
-        <section>
+        <section className="speed-lab-layout-main">
+          <OeeWaterfallPanel
+            data={waterfallData}
+            loading={waterfallLoading}
+            error={waterfallError}
+            unit={unit}
+            windowLabel={`${selectedName} · ${shiftLabel}`}
+          />
+
           {detailLoading && !detailData ? (
-            <div className="speed-lab-panel text-center speed-lab-sub py-12">
+            <div className="speed-lab-panel text-center speed-lab-sub py-8">
               Đang tải dữ liệu tốc độ…
             </div>
           ) : (
             <>
               <div className="speed-lab-cards">
-                <div className="speed-lab-card">
-                  <div className="k">Dòng raw</div>
-                  <div className="v">{(detailData?.meta.rawRowCount ?? 0).toLocaleString('vi-VN')}</div>
-                </div>
-                <div className="speed-lab-card">
+                <div className="speed-lab-card compact">
                   <div className="k">Peak speed</div>
                   <div className="v">
                     {(detailData?.summary.peakSpeed ?? 0).toFixed(1)} {unit}
                   </div>
                 </div>
-                <div className="speed-lab-card">
+                <div className="speed-lab-card compact">
+                  <div className="k">Tốc độ ổn định</div>
+                  <div className="v">
+                    {activeSpeedHistory?.summary.stableRunningMedian != null
+                      ? `${activeSpeedHistory.summary.stableRunningMedian.toFixed(1)} ${unit}`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="speed-lab-card compact">
+                  <div className="k">ICT / đề xuất</div>
+                  <div className="v text-sm leading-tight">
+                    {activeSpeedHistory?.summary.currentTargetSpeed != null
+                      ? activeSpeedHistory.summary.currentTargetSpeed.toFixed(1)
+                      : detailMachine?.targetSpeed?.toFixed(1) ?? '—'}{' '}
+                    {unit}
+                    {activeSpeedHistory?.summary.proposedTargetSpeed != null && (
+                      <span className="text-[#FFB86C] block text-xs mt-0.5">
+                        → {activeSpeedHistory.summary.proposedTargetSpeed.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="speed-lab-card compact">
                   <div className="k">Dừng (speed=0)</div>
                   <div className="v">
-                    {(detailData?.summary.zeroSpeedPct ?? 0).toFixed(1)}% (
-                    {fmtDur(detailData?.summary.stoppedDurationSec ?? 0)})
+                    {(detailData?.summary.zeroSpeedPct ?? 0).toFixed(1)}%
                   </div>
-                </div>
-                <div className="speed-lab-card">
-                  <div className="k">OEE chạy cuối ca</div>
-                  <div className="v">
-                    {fmtDur(detailData?.summary.finalRunningTimeSec ?? 0)} /{' '}
-                    {fmtDur(detailData?.summary.plannedTimeSec ?? 0)}
-                  </div>
-                </div>
-                <div className="speed-lab-card">
-                  <div className="k">Đoạn dừng ≥2p</div>
-                  <div className="v">{detailData?.summary.stopSegmentCount ?? 0}</div>
                 </div>
               </div>
 
-              <div className="speed-lab-panel equipment-speed-panel mb-4">
-                <div className="grid gap-3 mb-4 responsive-grid-4">
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                    <div className="speed-text-muted text-xs mb-1">Tốc độ ổn định (median)</div>
-                    <div className="text-xl speed-accent-green">
-                      {activeSpeedHistory?.summary.stableRunningMedian != null
-                        ? `${activeSpeedHistory.summary.stableRunningMedian.toFixed(2)} ${unit}`
-                        : '—'}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                    <div className="speed-text-muted text-xs mb-1">ICT hiện tại</div>
-                    <div className="text-xl speed-accent-green">
-                      {activeSpeedHistory?.summary.currentTargetSpeed != null
-                        ? `${activeSpeedHistory.summary.currentTargetSpeed.toFixed(2)} ${unit}`
-                        : detailMachine?.targetSpeed != null
-                          ? `${detailMachine.targetSpeed.toFixed(2)} ${unit}`
-                          : '—'}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                    <div className="speed-text-muted text-xs mb-1">Thời gian dừng (speed analysis)</div>
-                    <div className="text-xl speed-accent-cyan">
-                      {formatSpeedDuration(activeSpeedHistory?.summary.stoppedDurationSec ?? 0)}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-white/5 border border-[#F59E0B]/30">
-                    <div className="speed-text-muted text-xs mb-1">ICT đề xuất (read-only)</div>
-                    <div className="text-xl speed-accent-ict">
-                      {activeSpeedHistory?.summary.proposedTargetSpeed != null
-                        ? `${activeSpeedHistory.summary.proposedTargetSpeed.toFixed(2)} ${unit}`
-                        : '—'}
-                    </div>
-                    {activeSpeedHistory?.summary.deltaVsTargetPct != null ? (
-                      <div className="text-xs text-white/50 mt-1">
-                        vs ICT hiện tại (
-                        {activeSpeedHistory.summary.currentTargetSpeed?.toFixed(2) ?? '—'}):{' '}
-                        {activeSpeedHistory.summary.deltaVsTargetPct > 0 ? '+' : ''}
-                        {activeSpeedHistory.summary.deltaVsTargetPct}%
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {activeSpeedHistory?.productNotes ? (
-                  <EquipmentSpeedProductNotes
-                    notes={activeSpeedHistory.productNotes}
-                    unit={unit}
-                    longSpan={speedNotesLongSpan}
-                  />
-                ) : speedHistory.loading ? (
-                  <p className="speed-lab-sub text-xs mb-0">Đang tải sản phẩm &amp; tốc độ chuyên môn…</p>
-                ) : null}
-              </div>
-
-              <h2 className="speed-lab-section-title">Trend tốc độ</h2>
-              {(hasSpeedReferenceLines ||
-                activeSpeedHistory?.summary.proposedTargetSpeed != null) && (
-                <p className="speed-lab-sub mb-2 text-xs">
-                  Đường gióng (Equipment Details):{' '}
-                  {speedReferenceLines.vKtcn != null && (
-                    <span className="text-[#4FFFBC] font-semibold">
-                      V_KTCN {speedReferenceLines.vKtcn.toFixed(2)} {unit}
-                    </span>
-                  )}
-                  {speedReferenceLines.vKtcn != null && speedReferenceLines.vDesign != null && ' · '}
-                  {speedReferenceLines.vDesign != null && (
-                    <span className="text-white font-semibold">
-                      V_design {speedReferenceLines.vDesign.toFixed(2)} {unit}
-                    </span>
-                  )}
-                  {activeSpeedHistory?.summary.proposedTargetSpeed != null && (
-                    <>
-                      {(hasSpeedReferenceLines ? ' · ' : '')}
-                      <span className="text-[#FFB86C] font-semibold">
-                        ICT đề xuất {activeSpeedHistory.summary.proposedTargetSpeed.toFixed(2)} {unit}
-                      </span>
-                    </>
-                  )}
-                </p>
-              )}
-              <div className="speed-lab-panel p-4">
+              <div className="speed-lab-section-block">
+                <h2 className="speed-lab-section-title m-0 mb-2">Trend tốc độ</h2>
+                <div className="speed-lab-panel p-4">
                 {detailTrendBuckets.length > 0 ? (
                   <>
                     <DetailSpeedTrendChart
@@ -555,11 +522,24 @@ export function SpeedLab({
                     {detailLoading ? 'Đang tải…' : 'Không có dữ liệu bucket trong ca.'}
                   </p>
                 )}
+                </div>
               </div>
 
+              {(activeSpeedHistory?.productNotes?.length ?? 0) > 0 && (
+                <CollapsibleLabSection title="Sản phẩm & ghi chú tốc độ" defaultOpen={false}>
+                  <EquipmentSpeedProductNotes
+                    notes={activeSpeedHistory!.productNotes}
+                    unit={unit}
+                    longSpan={speedNotesLongSpan}
+                  />
+                </CollapsibleLabSection>
+              )}
+
               {speedSegs.length > 0 && (
-                <>
-                  <h2 className="speed-lab-section-title">Timeline chạy / dừng</h2>
+                <CollapsibleLabSection
+                  title="Timeline chạy / dừng"
+                  subtitle="actual_speed vs running_time_seconds"
+                >
                   <div className="speed-lab-gantt-panel">
                     <div className="speed-lab-gantt-row">
                       <div className="speed-lab-gantt-label">
@@ -568,8 +548,7 @@ export function SpeedLab({
                         </span>
                         <span>
                           Chạy {fmtDur(totalSegmentDuration(speedSegs, ['running']))} · Dừng{' '}
-                          {fmtDur(totalSegmentDuration(speedSegs, ['stopped']))} · Ramp{' '}
-                          {fmtDur(totalSegmentDuration(speedSegs, ['creep']))}
+                          {fmtDur(totalSegmentDuration(speedSegs, ['stopped']))}
                         </span>
                       </div>
                       <SpeedLabGanttTrack
@@ -585,8 +564,7 @@ export function SpeedLab({
                           Theo <strong>running_time_seconds</strong>
                         </span>
                         <span>
-                          Cộng {fmtDur(totalSegmentDuration(oeeSegs, ['oee_accum']))} · Đóng băng{' '}
-                          {fmtDur(totalSegmentDuration(oeeSegs, ['oee_frozen']))}
+                          Cộng {fmtDur(totalSegmentDuration(oeeSegs, ['oee_accum']))}
                         </span>
                       </div>
                       <SpeedLabGanttTrack
@@ -601,27 +579,30 @@ export function SpeedLab({
                     </div>
                     <SpeedLabGanttLegend />
                   </div>
-                </>
+                </CollapsibleLabSection>
               )}
 
-              {detailRunningRows.length > 0 ? (
-                <>
-                  <h2 className="speed-lab-section-title">running_time_seconds tích lũy</h2>
-                  <div className="speed-lab-panel p-4">
-                    <RunningTimeTrendChart
-                      rawRows={detailRunningRows}
-                      winStartMs={windowStartMs}
-                      winEndMs={windowEndMs}
-                      plannedSec={detailData?.summary.plannedTimeSec ?? 28800}
-                    />
-                  </div>
-                </>
-              ) : null}
+              {detailRunningRows.length > 0 && (
+                <CollapsibleLabSection title="running_time_seconds tích lũy">
+                  <RunningTimeTrendChart
+                    rawRows={detailRunningRows}
+                    winStartMs={windowStartMs}
+                    winEndMs={windowEndMs}
+                    plannedSec={detailData?.summary.plannedTimeSec ?? 28800}
+                  />
+                </CollapsibleLabSection>
+              )}
 
               {(detailData?.stopBlocks.length ?? 0) > 0 && (
-                <>
-                  <h2 className="speed-lab-section-title">Đoạn dừng (≥2 phút)</h2>
-                  <table className="speed-lab-table speed-lab-panel">
+                <CollapsibleLabSection
+                  title="Đoạn dừng (≥2 phút)"
+                  badge={
+                    <span className="speed-lab-chip text-[0.65rem]">
+                      {detailData!.stopBlocks.length}
+                    </span>
+                  }
+                >
+                  <table className="speed-lab-table">
                     <thead>
                       <tr>
                         <th>#</th>
@@ -641,16 +622,45 @@ export function SpeedLab({
                       ))}
                     </tbody>
                   </table>
-                </>
+                </CollapsibleLabSection>
               )}
+
+              <CollapsibleLabSection
+                title="Dữ liệu thô & audit"
+                subtitle="oee_calculations · SQL live"
+              >
+                <div className="grid gap-2 sm:grid-cols-3 mb-3">
+                  <div className="speed-lab-card compact">
+                    <div className="k">Dòng raw</div>
+                    <div className="v">
+                      {(detailData?.meta.rawRowCount ?? 0).toLocaleString('vi-VN')}
+                    </div>
+                  </div>
+                  <div className="speed-lab-card compact">
+                    <div className="k">OEE chạy / planned</div>
+                    <div className="v text-sm">
+                      {fmtDur(detailData?.summary.finalRunningTimeSec ?? 0)} /{' '}
+                      {fmtDur(detailData?.summary.plannedTimeSec ?? 0)}
+                    </div>
+                  </div>
+                  <div className="speed-lab-card compact">
+                    <div className="k">Đoạn dừng ≥2p</div>
+                    <div className="v">{detailData?.summary.stopSegmentCount ?? 0}</div>
+                  </div>
+                </div>
+                {detailError ? (
+                  <p className="speed-lab-err text-sm">{detailError}</p>
+                ) : null}
+              </CollapsibleLabSection>
             </>
           )}
         </section>
       )}
 
       <div className="speed-lab-note">
-        <strong>Cách dùng:</strong> Chọn máy và ngày/ca trên toolbar · bấm <strong>Phân tích</strong>{' '}
-        để truy vấn SQL trực tiếp. Đổi máy hoặc ca sẽ tự tải lại dữ liệu.
+        <strong>Cách dùng:</strong> Chọn máy và ca trên toolbar — OEE waterfall và chart tốc độ tự tải theo
+        cùng khung thời gian. Bấm <strong>Phân tích</strong> để làm mới. Mở các mục thu gọn để xem công thức,
+        bucket chi tiết và audit.
       </div>
     </div>
   );

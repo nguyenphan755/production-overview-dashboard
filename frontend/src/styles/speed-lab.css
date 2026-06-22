@@ -433,3 +433,251 @@
 .speed-lab-warn-text {
   color: var(--speed-warn);
 }
+
+/* ─── OEE Waterfall (Speed Lab integration) ─────────────────────────────── */
+
+.oee-waterfall-panel {
+  margin-bottom: 1rem;
+}
+
+.oee-waterfall-hero-card {
+  padding: 1.25rem 1.5rem;
+}
+
+.oee-waterfall-hero {
+  text-align: center;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.oee-waterfall-hero-value {
+  font-size: 2.75rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #38bdf8, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.1;
+}
+
+.oee-waterfall-hero-label {
+  color: var(--speed-muted);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.oee-apq-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.oee-apq-item {
+  flex: 1;
+  min-width: 72px;
+  text-align: center;
+  padding: 0.65rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.oee-apq-item .v {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.oee-apq-item .l {
+  font-size: 0.6rem;
+  color: var(--speed-muted);
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+
+.oee-apq-item.a .v { color: #38bdf8; }
+.oee-apq-item.p .v { color: #a78bfa; }
+.oee-apq-item.p2 .v { color: #c4b5fd; font-size: 1rem; }
+.oee-apq-item.q .v { color: #f472b6; }
+
+.oee-waterfall-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  height: 140px;
+  padding-top: 0.5rem;
+}
+
+.oee-wf-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  max-width: 52px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.oee-wf-bar-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+.oee-wf-bar {
+  width: 36px;
+  border-radius: 4px 4px 2px 2px;
+  min-height: 3px;
+  opacity: 0.92;
+}
+
+.oee-wf-bar.loss {
+  opacity: 0.75;
+}
+
+.oee-wf-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--speed-muted);
+  margin-top: 4px;
+}
+
+.oee-wf-pct {
+  font-size: 0.5rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.speed-lab-card.compact {
+  padding: 0.65rem 0.85rem;
+}
+
+.speed-lab-card.compact .v {
+  font-size: 1rem;
+}
+
+/* Collapsible sections */
+
+.speed-lab-collapsible {
+  margin-bottom: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.speed-lab-collapsible-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  color: var(--speed-text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.speed-lab-collapsible-trigger:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.speed-lab-collapsible-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.speed-lab-collapsible-chevron {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--speed-muted);
+  transition: transform 0.2s;
+}
+
+.speed-lab-collapsible-chevron.open {
+  transform: rotate(180deg);
+}
+
+.speed-lab-collapsible-title {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.speed-lab-collapsible-sub {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--speed-muted);
+  margin-top: 2px;
+}
+
+.speed-lab-collapsible-body {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.speed-lab-table tr.highlight-row td {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.speed-lab-table tr.formula-row td {
+  background: rgba(56, 189, 248, 0.08);
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.oee-formula-card {
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.oee-formula-card.accent {
+  border-color: rgba(167, 139, 250, 0.35);
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.oee-formula-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--speed-muted);
+  margin-bottom: 0.35rem;
+}
+
+.oee-formula-body {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.45;
+}
+
+.oee-formula-result {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #a78bfa;
+  margin-top: 0.35rem;
+}
+
+.oee-formula-note {
+  font-size: 0.68rem;
+  color: var(--speed-muted);
+  margin-top: 0.35rem;
+}
+
+.speed-lab-layout-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.speed-lab-section-block {
+  margin-top: 0.5rem;
+}
+
