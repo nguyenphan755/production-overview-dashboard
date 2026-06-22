@@ -14,6 +14,9 @@ import {
   Legend,
 } from 'chart.js';
 import { fmtIctFull, fmtIctHour } from './speed-lab-format';
+import type { SpeedLabChartOverlay } from './speed-reference-chart-annotations';
+import { findProductNoteAtTime } from './equipment-speed-analysis-chart';
+import type { SpeedChartBucket } from './multi-machine-speed-bucket';
 
 let registered = false;
 
@@ -35,25 +38,73 @@ export function multiMachineChartTimeOpts(
   winStartMs: number,
   winEndMs: number,
   yLabel: string,
-  yMax?: number | null
+  yMax?: number | null,
+  tooltipContext?: {
+    unit: string;
+    buckets: SpeedChartBucket[];
+    chartOverlay?: SpeedLabChartOverlay | null;
+  }
 ): import('chart.js').ChartOptions<'line'> {
   const endMs = Math.max(winEndMs, winStartMs + 60_000);
+  const unit = tooltipContext?.unit ?? '';
+  const buckets = tooltipContext?.buckets ?? [];
+  const overlay = tooltipContext?.chartOverlay;
 
   return {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
+    interaction: { mode: 'index', intersect: false, axis: 'x' },
     animation: false,
     plugins: {
       legend: { labels: { color: '#94a3b8', boxWidth: 12 } },
       tooltip: {
+        enabled: true,
+        mode: 'index',
+        intersect: false,
         backgroundColor: '#0e2f4f',
+        titleColor: '#ffffff',
+        bodyColor: 'rgba(255,255,255,0.92)',
+        borderColor: 'rgba(255,255,255,0.2)',
+        borderWidth: 1,
+        padding: 10,
         callbacks: {
           title: (items) => (items[0] ? fmtIctFull(Number(items[0].parsed.x)) : ''),
           label: (ctx) => {
             const y = ctx.parsed.y;
             if (y == null || Number.isNaN(Number(y))) return '';
-            return `${ctx.dataset.label}: ${Number(y).toFixed(2)}`;
+            const suffix = unit ? ` ${unit}` : '';
+            return `${ctx.dataset.label}: ${Number(y).toFixed(2)}${suffix}`;
+          },
+          afterBody: (items) => {
+            if (!items.length) return [];
+            const xMs = Number(items[0].parsed.x);
+            if (!Number.isFinite(xMs)) return [];
+
+            const lines: string[] = [];
+            const refs = overlay?.referenceLines;
+            const note = findProductNoteAtTime(overlay?.productNotes, xMs);
+            if (note) {
+              lines.push(`Sản phẩm: ${note.productName}`);
+              if (note.orderName) lines.push(`PO: ${note.orderName}`);
+            }
+            if (refs?.vKtcn != null) {
+              lines.push(`V_KTCN: ${refs.vKtcn.toFixed(2)} ${unit}`.trim());
+            }
+            if (refs?.vDesign != null) {
+              lines.push(`V_design: ${refs.vDesign.toFixed(2)} ${unit}`.trim());
+            }
+            if (overlay?.proposedTargetSpeed != null) {
+              lines.push(`ICT đề xuất: ${overlay.proposedTargetSpeed.toFixed(2)} ${unit}`.trim());
+            }
+
+            const bucket =
+              buckets.find((b) => Math.abs(b.x - xMs) < 500) ??
+              buckets[items[0].dataIndex ?? -1];
+            if (bucket && bucket.target > 0) {
+              const delta = ((bucket.actual - bucket.target) / bucket.target) * 100;
+              lines.push(`Δ vs target: ${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`);
+            }
+            return lines;
           },
         },
       },

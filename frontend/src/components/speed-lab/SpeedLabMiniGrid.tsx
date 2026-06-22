@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import type { SpeedChartBucket } from '../../utils/multi-machine-speed-bucket';
-import { machineColor } from '../../utils/speed-lab-format';
+import { machineColor, machineDisplayName } from '../../utils/speed-lab-format';
 import { useMiniSpeedChart } from './MultiMachineSpeedChart';
 
 function MiniSpeedChartCell({
@@ -30,6 +30,7 @@ type SpeedLabMiniGridProps = {
   windowStartMs: number;
   windowEndMs: number;
   onSelect: (id: string) => void;
+  nameById?: Readonly<Record<string, string>>;
 };
 
 export function SpeedLabMiniGrid({
@@ -37,8 +38,11 @@ export function SpeedLabMiniGrid({
   windowStartMs,
   windowEndMs,
   onSelect,
+  nameById = {},
 }: SpeedLabMiniGridProps) {
-  const sorted = [...machines].sort((a, b) => a.id.localeCompare(b.id));
+  const sorted = [...machines].sort((a, b) =>
+    machineDisplayName(a.id, nameById).localeCompare(machineDisplayName(b.id, nameById), 'vi')
+  );
 
   return (
     <div className="speed-lab-mini-grid">
@@ -51,7 +55,7 @@ export function SpeedLabMiniGrid({
         >
           <h4>
             <span className="speed-lab-dot inline-block mr-1" style={{ background: machineColor(idx) }} />
-            {m.id}
+            {machineDisplayName(m.id, nameById)}
           </h4>
           <div className="speed-lab-sub text-[0.72rem] mb-1">
             {m.rawRowCount.toLocaleString('vi-VN')} dòng · peak {m.peak.toFixed(1)} · dừng{' '}

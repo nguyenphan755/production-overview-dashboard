@@ -31,6 +31,15 @@ export function machineColor(index: number): string {
   return MACHINE_COLORS[index % MACHINE_COLORS.length];
 }
 
+/** Human-readable line name (e.g. DA13) from machines catalog; falls back to id (e.g. D-01). */
+export function machineDisplayName(
+  machineId: string,
+  nameById: Readonly<Record<string, string>>
+): string {
+  const name = nameById[machineId]?.trim();
+  return name || machineId;
+}
+
 export function fmtIctHour(ms: number): string {
   return new Date(ms).toLocaleString('vi-VN', {
     timeZone: FACTORY_TIME_ZONE,

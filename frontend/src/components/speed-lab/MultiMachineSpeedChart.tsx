@@ -3,7 +3,8 @@
  * Single module for detail / compare / running / mini (no duplicate chart logic).
  */
 import { useEffect, useRef, type RefObject } from 'react';
-import { Chart } from 'chart.js';
+import { Chart, Chart as ChartJS } from 'chart.js';
+import annotationPlugin from 'chartjs-plugin-annotation';
 import type { OeeCalculationRawRow } from '../../types/oee-analytics-lab';
 import type { SpeedChartBucket } from '../../utils/multi-machine-speed-bucket';
 import {
@@ -11,9 +12,24 @@ import {
   multiMachineChartTimeOpts,
   multiMachineMiniChartOpts,
 } from '../../utils/multi-machine-speed-chart';
-import { machineColor } from '../../utils/speed-lab-format';
+import {
+  buildSpeedLabChartAnnotations,
+  hasSpeedLabChartOverlay,
+  yMaxForSpeedReferenceLines,
+} from '../../utils/speed-reference-chart-annotations';
+import { machineColor, machineDisplayName } from '../../utils/speed-lab-format';
 
 type Win = { startMs: number; endMs: number };
+
+let detailAnnotationsRegistered = false;
+
+function ensureDetailSpeedAnnotationsRegistered(): void {
+  ensureMultiMachineSpeedChartRegistered();
+  if (!detailAnnotationsRegistered) {
+    ChartJS.register(annotationPlugin);
+    detailAnnotationsRegistered = true;
+  }
+}
 
 /** Detail tab §1 — renderDetail() speedChart in HTML */
 export function DetailSpeedTrendChart({
@@ -21,17 +37,27 @@ export function DetailSpeedTrendChart({
   winStartMs,
   winEndMs,
   unit = 'm/min',
+  chartOverlay = null,
+  isDrawingArea = false,
 }: {
   buckets: SpeedChartBucket[];
   winStartMs: number;
   winEndMs: number;
   unit?: string;
+  /** V_KTCN, V_design, ICT đề xuất, dải PO — overlay only */
+  chartOverlay?: SpeedLabChartOverlay | null;
+  isDrawingArea?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart<'line'> | null>(null);
 
   useEffect(() => {
-    ensureMultiMachineSpeedChartRegistered();
+    if (hasSpeedLabChartOverlay(chartOverlay)) {
+      ensureDetailSpeedAnnotationsRegistered();
+    } else {
+      ensureMultiMachineSpeedChartRegistered();
+    }
+
     const canvas = canvasRef.current;
     if (!canvas || !buckets.length) {
       chartRef.current?.destroy();
@@ -39,7 +65,47 @@ export function DetailSpeedTrendChart({
       return;
     }
 
+    const dataPeak = buckets.reduce(
+      (m, b) => Math.max(m, b.actual, b.target > 0 ? b.target : 0),
+      0
+    );
+    const useOverlay = hasSpeedLabChartOverlay(chartOverlay);
+    const yMax = useOverlay
+      ? yMaxForSpeedReferenceLines(
+          dataPeak,
+          chartOverlay?.referenceLines,
+          isDrawingArea,
+          chartOverlay?.proposedTargetSpeed
+        )
+      : undefined;
+
+    const baseOpts = multiMachineChartTimeOpts(winStartMs, winEndMs, unit, yMax, {
+      unit,
+      buckets,
+      chartOverlay,
+    });
+    const endMs = Math.max(winEndMs, winStartMs + 60_000);
+    const chartOpts = useOverlay
+      ? {
+          ...baseOpts,
+          plugins: {
+            ...baseOpts.plugins,
+            annotation: {
+              annotations: buildSpeedLabChartAnnotations(chartOverlay!, {
+                windowStartMs: winStartMs,
+                windowEndMs: endMs,
+                yMin: 0,
+                yMax: (yMax ?? dataPeak * 1.15) || 10,
+              }),
+              interaction: { mode: undefined },
+            },
+          },
+        }
+      : baseOpts;
+
     chartRef.current?.destroy();
+    const datasetOrder = useOverlay ? { order: 2 } : {};
+    const targetOrder = useOverlay ? { order: 1 } : {};
     chartRef.current = new Chart(canvas, {
       type: 'line',
       data: {
@@ -52,7 +118,10 @@ export function DetailSpeedTrendChart({
             fill: true,
             tension: 0.1,
             pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHitRadius: 14,
             borderWidth: 2,
+            ...datasetOrder,
           },
           {
             label: 'Target TB',
@@ -60,19 +129,22 @@ export function DetailSpeedTrendChart({
             borderColor: '#4fffbc',
             borderDash: [6, 4],
             pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHitRadius: 14,
             borderWidth: 1.5,
             spanGaps: true,
+            ...targetOrder,
           },
         ],
       },
-      options: multiMachineChartTimeOpts(winStartMs, winEndMs, unit),
+      options: chartOpts,
     });
 
     return () => {
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, [buckets, winStartMs, winEndMs, unit]);
+  }, [buckets, winStartMs, winEndMs, unit, chartOverlay, isDrawingArea]);
 
   if (!buckets.length) return null;
 
@@ -90,12 +162,14 @@ export function CompareOverlayChart({
   winStartMs,
   winEndMs,
   unit = 'm/min',
+  nameById = {},
 }: {
   series: { id: string; buckets: SpeedChartBucket[] }[];
   selectedIds: string[];
   winStartMs: number;
   winEndMs: number;
   unit?: string;
+  nameById?: Readonly<Record<string, string>>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart<'line'> | null>(null);
@@ -116,7 +190,7 @@ export function CompareOverlayChart({
       const idx = sortedIds.indexOf(id);
       const color = machineColor(idx >= 0 ? idx : 0);
       return {
-        label: id,
+        label: machineDisplayName(id, nameById),
         data: (s?.buckets ?? []).map((b) => ({ x: b.x, y: b.actual })),
         borderColor: color,
         backgroundColor: `${color}22`,
@@ -137,7 +211,7 @@ export function CompareOverlayChart({
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, [series, selectedIds, winStartMs, winEndMs, unit, sortedIds]);
+  }, [series, selectedIds, winStartMs, winEndMs, unit, sortedIds, nameById]);
 
   return (
     <div className="speed-lab-chart-canvas speed-lab-chart-compare">
