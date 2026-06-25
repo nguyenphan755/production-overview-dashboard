@@ -1,6 +1,22 @@
 # Grafana POC — Setup & chạy thử
 
-Dashboard song song với Speed Lab / Equipment Details. Không thay đổi code MES.
+Dashboard **Equipment Detail** và **Speed Lab** được embed trong MES qua iframe Grafana.
+
+## Embed trong MES (đã bật)
+
+- Tab **Equipment Detail** → dashboard `mes-equipment-detail`
+- Tab **Speed Lab** → dashboard `mes-speed-lab`
+- Env frontend: `VITE_GRAFANA_URL=http://localhost:3000` (xem `frontend/.env.production.example`)
+- Legacy React charts: `frontend/src/components/tabs/*.legacy.tsx`
+
+Sinh lại dashboard JSON sau khi sửa SQL/layout:
+
+```powershell
+node scripts/build-grafana-dashboards.mjs
+docker compose -f docker-compose.grafana.yml restart grafana
+```
+
+Dashboard song song với Speed Lab / Equipment Details (POC gốc vẫn giữ `mes-speed-lab-poc`).
 
 ## 1. Tạo user read-only (khuyến nghị production)
 
@@ -67,6 +83,7 @@ Xem [`POC_SCENARIOS.md`](POC_SCENARIOS.md). Dùng quick links trên dashboard ho
 | Script | Mục đích |
 |--------|----------|
 | `node scripts/render-grafana-datasource.mjs` | Sinh `postgres.yml` từ `.env` |
+| `node scripts/build-grafana-dashboards.mjs` | Sinh `mes-equipment-detail.json` + `mes-speed-lab.json` |
 | `node scripts/measure-speed-lab-baseline.mjs [--machine SH-08]` | Đo latency API MES |
 | `node scripts/measure-grafana-query-baseline.mjs [--machine SH-08]` | Đo SQL panel Grafana |
 | `node backend/scripts/report-oee-calculations-volume.mjs` | Báo cáo retention |
@@ -78,5 +95,6 @@ Xem [`POC_SCENARIOS.md`](POC_SCENARIOS.md). Dùng quick links trên dashboard ho
 | Datasource connection failed | Chạy lại `node scripts/render-grafana-datasource.mjs`; kiểm tra Postgres listen + `pg_hba.conf` |
 | `change_me` / wrong password | Đảm bảo `backend/.env` có `DB_PASSWORD`; recreate compose |
 | Dashboard trống | Chọn máy có `oee_calculations`; mở rộng time range |
+| Iframe MES trống / login Grafana | `GF_SECURITY_ALLOW_EMBEDDING=true` + anonymous Viewer (đã có trong `docker-compose.grafana.yml`); hard-refresh MES |
 
 Xem thêm [`EMBED_DECISION.md`](EMBED_DECISION.md), [`RETENTION_PLAN.md`](RETENTION_PLAN.md).
