@@ -75,6 +75,10 @@ yarn-error.log*
 .env
 .env.test
 
+# Grafana datasource (contains DB password; generated from .env)
+grafana/provisioning/datasources/postgres.yml
+grafana/.env
+
 # parcel-bundler cache
 .parcel-cache
 

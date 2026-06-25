@@ -1,0 +1,317 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Live 1 giờ (khuyến nghị)",
+      "url": "/d/mes-speed-lab-poc?var-machine_id=${machine_id}&from=now-1h&to=now",
+      "type": "link"
+    },
+    {
+      "title": "Scenario A: Ca hiện tại (~8h)",
+      "url": "/d/mes-speed-lab-poc?var-machine_id=${machine_id}&from=now-8h&to=now",
+      "type": "link"
+    },
+    {
+      "title": "Scenario B: 24h",
+      "url": "/d/mes-speed-lab-poc?var-machine_id=${machine_id}&from=now-24h&to=now",
+      "type": "link"
+    },
+    {
+      "title": "Scenario C: 7 ngày",
+      "url": "/d/mes-speed-lab-poc?var-machine_id=${machine_id}&from=now-7d&to=now",
+      "type": "link"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Target speed (m/min)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n  AVG(actual_speed) AS \"Actual speed (m/min)\",\n  AVG(target_speed) AS \"Target speed (m/min)\"\nFROM oee_calculations\nWHERE\n  $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))\n  AND machine_id = '$machine_id'\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Speed trend (oee_calculations) — POC vs Speed Lab",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 9 },
+      "id": 2,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n  AVG(oee) AS \"OEE\",\n  AVG(availability) AS \"Availability\",\n  AVG(performance) AS \"Performance\",\n  AVG(quality) AS \"Quality\"\nFROM oee_calculations\nWHERE\n  $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))\n  AND machine_id = '$machine_id'\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "OEE components (aggregate)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal" }
+          },
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+      "id": 3,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  hour AS time,\n  energy_kwh AS \"Energy kWh\"\nFROM energy_consumption\nWHERE\n  $__timeFilter(hour)\n  AND machine_id = '$machine_id'\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Energy (energy_consumption hourly)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "fillOpacity": 70,
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 0
+          },
+          "mappings": [
+            { "options": { "running": { "color": "green", "index": 0, "text": "running" } }, "type": "value" },
+            { "options": { "idle": { "color": "yellow", "index": 1, "text": "idle" } }, "type": "value" },
+            { "options": { "setup": { "color": "blue", "index": 2, "text": "setup" } }, "type": "value" },
+            { "options": { "stopped": { "color": "red", "index": 3, "text": "stopped" } }, "type": "value" },
+            { "options": { "error": { "color": "dark-red", "index": 4, "text": "error" } }, "type": "value" }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 16 },
+      "id": 4,
+      "options": {
+        "alignValue": "left",
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "mergeValues": false,
+        "rowHeight": 0.8,
+        "showValue": "never"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "table",
+          "rawSql": "SELECT\n  (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh') AS time,\n  COALESCE(status_end_time AT TIME ZONE 'Asia/Ho_Chi_Minh', NOW()) AS time_end,\n  status::text AS status\nFROM machine_status_history\nWHERE\n  machine_id = '$machine_id'\n  AND (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh') <= $__timeTo()\n  AND COALESCE(status_end_time AT TIME ZONE 'Asia/Ho_Chi_Minh', NOW()) >= $__timeFrom()\nORDER BY status_start_time",
+          "refId": "A"
+        }
+      ],
+      "title": "Operational states (machine_status_history) — Equipment Gantt POC",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 22 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*)::bigint AS row_count\nFROM oee_calculations\nWHERE machine_id = '$machine_id'\n  AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "refId": "A"
+        }
+      ],
+      "title": "oee_calculations rows in range",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 22 },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["mean"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "table",
+          "rawSql": "SELECT AVG(actual_speed) AS avg_speed\nFROM oee_calculations\nWHERE machine_id = '$machine_id'\n  AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))\n  AND actual_speed >= 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg running speed (≥1 m/min)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "mes-postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 22 },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "mes-postgres" },
+          "format": "table",
+          "rawSql": "SELECT AVG(oee) AS oee\nFROM oee_calculations\nWHERE machine_id = '$machine_id'\n  AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg OEE in range",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mes", "speed-lab", "equipment", "poc"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "SH-05",
+          "value": "SH-05"
+        },
+        "datasource": { "type": "postgres", "uid": "mes-postgres" },
+        "definition": "SELECT id AS __value, name || ' (' || id || ')' AS __text FROM machines ORDER BY area, id",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Machine",
+        "multi": false,
+        "name": "machine_id",
+        "options": [],
+        "query": "SELECT id AS __value, name || ' (' || id || ')' AS __text FROM machines ORDER BY area, id",
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "postgres", "uid": "mes-postgres" },
+        "definition": "SELECT area::text AS __value, area::text AS __text FROM machines GROUP BY area ORDER BY area",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Area",
+        "multi": true,
+        "name": "area",
+        "options": [],
+        "query": "SELECT area::text AS __value, area::text AS __text FROM machines GROUP BY area ORDER BY area",
+        "refresh": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  },
+  "timezone": "Asia/Ho_Chi_Minh",
+  "title": "MES Speed Lab POC",
+  "uid": "mes-speed-lab-poc",
+  "version": 1
+}

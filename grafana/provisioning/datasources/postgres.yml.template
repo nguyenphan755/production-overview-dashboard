@@ -1,0 +1,28 @@
+# Template reference — runtime file is postgres.yml (auto-generated).
+# Run: node scripts/render-grafana-datasource.mjs
+#
+# Values are taken from (in order, later wins):
+#   1. .env
+#   2. backend/.env  (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+#   3. grafana/.env    (optional GRAFANA_PG_* overrides)
+#
+# DB_HOST=localhost is mapped to host.docker.internal for Grafana in Docker.
+
+apiVersion: 1
+
+datasources:
+  - name: MES PostgreSQL
+    uid: mes-postgres
+    type: postgres
+    access: proxy
+    url: host.docker.internal:5432
+    user: postgres
+    secureJsonData:
+      password: "<from DB_PASSWORD>"
+    jsonData:
+      database: production_dashboard
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    isDefault: true
+    editable: true

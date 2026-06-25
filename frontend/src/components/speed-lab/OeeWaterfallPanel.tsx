@@ -177,13 +177,13 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
 
       <CollapsibleLabSection
         title="Chi tiết bucket thời gian"
-        subtitle="POT → FPT · giây & % POT"
+        subtitle="POT → FPT · phút & % POT"
       >
         <table className="speed-lab-table">
           <thead>
             <tr>
               <th>Bucket</th>
-              <th>Giây</th>
+              <th>Phút</th>
               <th>Thời lượng</th>
               <th>% POT</th>
             </tr>
@@ -201,7 +201,7 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
                     />
                     <b>{row.label}</b> — {row.name}
                   </td>
-                  <td>{Math.round(sec ?? 0).toLocaleString('vi-VN')}</td>
+                  <td>{fmtNum((sec ?? 0) / 60, 1)}</td>
                   <td>{fmtDur(sec ?? 0)}</td>
                   <td>{pct.toFixed(1)}%</td>
                 </tr>
@@ -302,7 +302,7 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
                 <th>Bucket</th>
                 <th>Lý do</th>
                 <th>Status</th>
-                <th>Giây</th>
+                <th>Phút</th>
                 <th>% POT</th>
               </tr>
             </thead>
@@ -312,7 +312,7 @@ export function OeeWaterfallPanel({ data, loading, error, unit, windowLabel }: O
                   <td>{row.bucket}</td>
                   <td>{row.reason}</td>
                   <td>{row.status}</td>
-                  <td>{row.seconds.toLocaleString('vi-VN')}</td>
+                  <td>{fmtNum(row.seconds / 60, 1)}</td>
                   <td>{row.pct_of_pot.toFixed(1)}%</td>
                 </tr>
               ))}

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: MES POC
+    orgId: 1
+    folder: MES
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

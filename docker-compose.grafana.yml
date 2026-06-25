@@ -1,0 +1,42 @@
+# Grafana POC — Docker on-prem
+# Reads Postgres credentials from .env / backend/.env automatically.
+#
+# Usage:
+#   docker compose -f docker-compose.grafana.yml up -d
+#
+# Optional: grafana/.env for GRAFANA_ADMIN_PASSWORD and GRAFANA_PG_* overrides
+# UI: http://localhost:3000
+
+services:
+  grafana-datasource-render:
+    image: node:22-alpine
+    working_dir: /work
+    volumes:
+      - .:/work
+    command: node scripts/render-grafana-datasource.mjs
+    restart: "no"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: mes-grafana-poc
+    depends_on:
+      grafana-datasource-render:
+        condition: service_completed_successfully
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/mes-speed-lab-poc.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  grafana-data:
