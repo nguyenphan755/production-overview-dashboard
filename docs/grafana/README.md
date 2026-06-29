@@ -73,6 +73,8 @@ Xem [`POC_SCENARIOS.md`](POC_SCENARIOS.md). Dùng quick links trên dashboard ho
 | Script | Mục đích |
 |--------|----------|
 | `node scripts/render-grafana-datasource.mjs` | Sinh `postgres.yml` từ `.env` |
+| `node scripts/setup-grafana.mjs` | **Cài Grafana một lệnh** (Docker + dashboard + datasource) |
+| `powershell -File scripts/setup-grafana.ps1` | Cùng trên, wrapper Windows |
 | `node scripts/build-grafana-dashboards.mjs` | Sinh `mes-equipment-detail.json` + `mes-speed-lab.json` |
 | `node scripts/measure-speed-lab-baseline.mjs [--machine SH-08]` | Đo latency API MES |
 | `node scripts/measure-grafana-query-baseline.mjs [--machine SH-08]` | Đo SQL panel Grafana |

@@ -4,6 +4,52 @@ Tài liệu dành cho vận hành và IT: cách dùng Grafana song song với ME
 
 ---
 
+## 0. Cài tự động một lệnh (PC mới)
+
+**Yêu cầu:** Docker Desktop đang chạy, Node.js 18+, đã clone repo MES.
+
+### Cùng PC với Postgres (DB local)
+
+```powershell
+cd "Production Overview Dashboard NEW"
+node scripts/setup-grafana.mjs
+```
+
+Hoặc Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-grafana.ps1
+```
+
+Script tự động:
+
+1. Tạo `grafana/.env` (nếu chưa có)
+2. Đọc `backend/.env` → render datasource Postgres
+3. Build dashboard JSON (`mes-speed-lab`, `mes-equipment-detail`)
+4. `docker compose -f docker-compose.grafana.yml up -d` (container `mes-grafana-poc`)
+5. Chờ health check và in URL + hướng dẫn `VITE_GRAFANA_URL`
+
+### Postgres trên PC/server khác
+
+```powershell
+node scripts/setup-grafana.mjs --db-host 192.168.1.100
+```
+
+### Tùy chọn
+
+| Tham số | Mô tả |
+|---------|--------|
+| `--db-host <ip>` | IP máy chạy PostgreSQL |
+| `--db-port 5432` | Port Postgres |
+| `--grafana-port 3000` | Port UI Grafana |
+| `--admin-password <pw>` | Mật khẩu admin Grafana |
+| `--skip-docker` | Chỉ sinh config, không start Docker |
+| `--help` | Trợ giúp |
+
+**Sau khi cài:** trên PC chạy MES, thêm `VITE_GRAFANA_URL=http://<IP-PC-GRAFANA>:3000` vào `frontend/.env` và restart dev server.
+
+---
+
 ## 1. Grafana trong hệ thống MES
 
 | Thành phần | Vai trò |
