@@ -48,6 +48,8 @@ node scripts/setup-grafana.mjs --db-host 192.168.1.100
 
 **Sau khi cài:** trên PC chạy MES, thêm `VITE_GRAFANA_URL=http://<IP-PC-GRAFANA>:3000` vào `frontend/.env` và restart dev server.
 
+**Lỗi port 3000 đã dùng?** Xem [mục 5 — Port 3000 bị chiếm](#lỗi-port-3000-đã-dùng).
+
 ---
 
 ## 1. Grafana trong hệ thống MES
@@ -243,7 +245,7 @@ psql -U postgres -d production_dashboard -f grafana/sql/create_grafana_readonly_
 Cập nhật `grafana/.env` dùng `GRAFANA_PG_USER=grafana_readonly`, rồi:
 
 ```powershell
-docker compose -f docker-compose.grafana.yml up -d --force-recreate grafana
+docker compose -f docker-compose.grafana.yml up -d grafana
 ```
 
 ### 3.4 Nối MES trên PC khác với Grafana
@@ -301,7 +303,7 @@ GRAFANA_ADMIN_PASSWORD=<mật-khẩu-admin>
 
 ```powershell
 node scripts/render-grafana-datasource.mjs
-docker compose -f docker-compose.grafana.yml up -d --force-recreate grafana
+docker compose -f docker-compose.grafana.yml up -d grafana
 ```
 
 ### 4.3 Cập nhật dashboard từ repo mới
@@ -322,7 +324,7 @@ docker compose -f docker-compose.grafana.yml restart grafana
 | Dashboard **trống** | Sai time range; máy không có `oee_calculations` | Chọn máy có dữ liệu (vd. SH-05); mở rộng `Last 24 hours` |
 | Thời gian lệch / không có điểm | Timestamp OEE lưu ICT wall-clock | Dashboard đã cast `AT TIME ZONE 'Asia/Ho_Chi_Minh'` — hard-refresh Grafana |
 | Nút **Mở Grafana** MES sai host | Thiếu `VITE_GRAFANA_URL` | Set URL đúng IP Grafana; rebuild frontend |
-| Port 3000 bị chiếm | Grafana khác đang chạy | Đổi `GRAFANA_PORT=3002` trong `grafana/.env` hoặc dừng container cũ |
+| Port 3000 bị chiếm | Container Grafana cũ (`nhed-grafana`, `mes-grafana-poc`) | `docker stop nhed-grafana` hoặc `node scripts/setup-grafana.mjs --grafana-port 3002` |
 | `change_me` trong datasource | Chưa render từ `.env` | `node scripts/render-grafana-datasource.mjs` |
 
 ### Kiểm tra nhanh bằng API
@@ -335,6 +337,53 @@ Invoke-RestMethod http://localhost:3000/api/health
 $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("admin:admin"))
 Invoke-RestMethod -Uri "http://localhost:3000/api/search?type=dash-db" -Headers @{Authorization="Basic $auth"}
 ```
+
+### Lỗi port 3000 đã dùng
+
+Thông báo Docker: `bind: Only one usage of each socket address` — đã có Grafana/process khác trên port 3000 (thường là `nhed-grafana` hoặc `mes-grafana-poc` đang chạy).
+
+**Từ bản script mới:** `node scripts/setup-grafana.mjs` tự xử lý:
+- Nếu `mes-grafana-poc` **đã chạy** trên port 3000 → chỉ `docker restart` (không `compose up --force-recreate`).
+- Nếu port 3000 **bận bởi container khác** → tự chuyển sang port **3002** và cập nhật `grafana/.env`.
+
+Chạy lại một lệnh:
+
+```powershell
+node scripts/setup-grafana.mjs
+```
+
+Nếu script chuyển sang 3002, cập nhật `frontend/.env`: `VITE_GRAFANA_URL=http://localhost:3002`
+
+**Cách A — Giữ Grafana cũ, chạy MES Grafana port 3002 (thủ công):**
+
+```powershell
+node scripts/setup-grafana.mjs --grafana-port 3002
+```
+
+Cập nhật `frontend/.env`:
+
+```env
+VITE_GRAFANA_URL=http://localhost:3002
+```
+
+**Cách B — Dừng container chiếm port 3000, chạy lại:**
+
+```powershell
+docker ps --format "table {{.Names}}\t{{.Ports}}"
+docker stop nhed-grafana
+# hoặc: docker stop mes-grafana-poc
+node scripts/setup-grafana.mjs
+```
+
+**Cách C — `mes-grafana-poc` đã chạy sẵn, chỉ cần cập nhật config:**
+
+```powershell
+node scripts/render-grafana-datasource.mjs
+node scripts/build-grafana-dashboards.mjs
+docker restart mes-grafana-poc
+```
+
+Mở http://localhost:3000 — không cần `docker compose up` lại.
 
 ---
 
