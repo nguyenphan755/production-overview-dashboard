@@ -322,6 +322,9 @@ async function main() {
   if (!dbPassword && !opts.skipDocker) {
     console.warn('⚠️  DB_PASSWORD chưa có trong backend/.env — datasource có thể lỗi.');
     console.warn('   Sửa backend/.env hoặc thêm GRAFANA_PG_PASSWORD vào grafana/.env');
+  } else if (!opts.skipDocker && dbPassword) {
+    const src = grafanaEnv.GRAFANA_PG_PASSWORD ? 'grafana/.env (GRAFANA_PG_PASSWORD)' : 'backend/.env (DB_PASSWORD)';
+    console.log(`ℹ️  Postgres password: ${src} — ${dbPassword.length} ký tự (mỗi PC có mật khẩu riêng, không copy .env từ máy khác)`);
   }
 
   run('node', ['scripts/render-grafana-datasource.mjs'], 'Render Postgres datasource');
@@ -387,6 +390,11 @@ async function main() {
     console.warn('⚠️  Grafana health check timed out. Check: docker logs mes-grafana-poc');
   } else {
     console.log('✅ Grafana is up');
+    try {
+      run('node', ['scripts/diagnose-grafana-postgres.mjs', '--grafana-url', baseUrl], 'Postgres query smoke test');
+    } catch {
+      console.warn('⚠️  Postgres smoke test failed — xem hướng dẫn bên dưới.');
+    }
   }
 
   const lanIp = (await import('os')).networkInterfaces();

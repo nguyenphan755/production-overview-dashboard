@@ -88,3 +88,4 @@ writeFileSync(outPath, yaml, 'utf8');
 
 console.log(`✅ Wrote ${outPath}`);
 console.log(`   host=${host}:${port} db=${database} user=${user}`);
+console.log(`   password=${password ? `(set, ${password.length} chars)` : '⚠️  NOT SET — sửa backend/.env DB_PASSWORD trên PC này'}`);

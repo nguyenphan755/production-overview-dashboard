@@ -43,7 +43,7 @@
       },
       "collapsed": false,
       "panels": [],
-      "id": 396828
+      "id": 18741
     },
     {
       "id": 101,
@@ -454,7 +454,7 @@
       },
       "collapsed": false,
       "panels": [],
-      "id": 282691
+      "id": 992529
     },
     {
       "id": 110,
@@ -516,7 +516,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(oee)::numeric, 1) AS oee FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT ROUND(AVG(oee)::numeric, 1) AS oee FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -584,7 +584,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(availability)::numeric, 1) AS a FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT ROUND(AVG(availability)::numeric, 1) AS a FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -652,7 +652,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(performance)::numeric, 1) AS p FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT ROUND(AVG(performance)::numeric, 1) AS p FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -720,7 +720,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(quality)::numeric, 1) AS q FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT ROUND(AVG(quality)::numeric, 1) AS q FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -739,7 +739,7 @@
       },
       "collapsed": false,
       "panels": [],
-      "id": 767162
+      "id": 525654
     },
     {
       "id": 120,
@@ -830,7 +830,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n        AVG(actual_speed) AS \"Actual speed\",\n        AVG(target_speed) AS \"Target speed\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) / 30) * 30) AS \"time\",\n        AVG(actual_speed) AS \"Actual speed\",\n        AVG(target_speed) AS \"Target speed\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -928,7 +928,7 @@
             "type": "postgres",
             "uid": "mes-postgres"
           },
-          "rawSql": "SELECT\n          (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh') AS time,\n          COALESCE(status_end_time AT TIME ZONE 'Asia/Ho_Chi_Minh', NOW()) AS time_end,\n          status::text AS status\n        FROM machine_status_history\n        WHERE machine_id='$machine_id'\n          AND (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh') <= $__timeTo()\n          AND COALESCE(status_end_time AT TIME ZONE 'Asia/Ho_Chi_Minh', NOW()) >= $__timeFrom()\n        ORDER BY status_start_time"
+          "rawSql": "SELECT\n          (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS time,\n          (COALESCE(status_end_time, NOW()) AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS time_end,\n          status::text AS status\n        FROM machine_status_history\n        WHERE machine_id='$machine_id'\n          AND (status_start_time AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') <= $__timeTo()\n          AND (COALESCE(status_end_time, NOW()) AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') >= $__timeFrom()\n        ORDER BY status_start_time"
         }
       ]
     },
@@ -943,7 +943,7 @@
       },
       "collapsed": false,
       "panels": [],
-      "id": 250444
+      "id": 75077
     },
     {
       "id": 130,
@@ -993,7 +993,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", value AS temperature\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='temperature'\n         AND (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') >= NOW() - INTERVAL '2 hours'\n       ORDER BY 1",
+          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", value AS temperature\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='temperature'\n         AND $__timeFilter((timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -1049,7 +1049,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", value AS speed\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='speed'\n         AND (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') >= NOW() - INTERVAL '2 hours'\n       ORDER BY 1",
+          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", value AS speed\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='speed'\n         AND $__timeFilter((timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -1105,7 +1105,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", value AS current\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='current'\n         AND (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') >= NOW() - INTERVAL '2 hours'\n       ORDER BY 1",
+          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", value AS current\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='current'\n         AND $__timeFilter((timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -1161,7 +1161,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", value AS power\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='power'\n         AND (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') >= NOW() - INTERVAL '2 hours'\n       ORDER BY 1",
+          "rawSql": "SELECT (timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", value AS power\n       FROM machine_metrics\n       WHERE machine_id='$machine_id' AND metric_type='power'\n         AND $__timeFilter((timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -1217,7 +1217,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (hour AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", energy_kwh AS \"Energy kWh\"\n       FROM energy_consumption\n       WHERE machine_id='$machine_id' AND $__timeFilter((hour AT TIME ZONE 'Asia/Ho_Chi_Minh'))\n       ORDER BY 1",
+          "rawSql": "SELECT (hour AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", energy_kwh AS \"Energy kWh\"\n       FROM energy_consumption\n       WHERE machine_id='$machine_id' AND $__timeFilter((hour AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -1236,7 +1236,7 @@
       },
       "collapsed": false,
       "panels": [],
-      "id": 757638
+      "id": 886405
     },
     {
       "id": 140,

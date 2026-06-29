@@ -8,6 +8,39 @@ Tài liệu dành cho vận hành và IT: cách dùng Grafana song song với ME
 
 **Yêu cầu:** Docker Desktop đang chạy, Node.js 18+, đã clone repo MES.
 
+### ⚠️ Mật khẩu Postgres khác nhau từng PC (đọc trước khi chạy)
+
+Mỗi máy có mật khẩu PostgreSQL **riêng**. Repo dev có thể dùng `root`, PC nhà máy có thể là mật khẩu khác — **không copy** `backend/.env` từ máy này sang máy kia.
+
+**Trên PC mới**, sửa `backend/.env` **trước** khi chạy `setup-grafana.mjs`:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=production_dashboard
+DB_USER=postgres
+DB_PASSWORD=<mật-khẩu-postgres-trên-pc-này>
+```
+
+Grafana đọc mật khẩu theo thứ tự: `grafana/.env` → `GRAFANA_PG_PASSWORD` (nếu có), không thì `backend/.env` → `DB_PASSWORD`.
+
+Sau khi sửa, **bắt buộc** render lại datasource (script setup làm tự động):
+
+```powershell
+node scripts/render-grafana-datasource.mjs
+docker restart mes-grafana-poc
+```
+
+Kiểm tra nhanh (không in mật khẩu):
+
+```powershell
+node scripts/diagnose-grafana-postgres.mjs --grafana-url http://localhost:3002
+```
+
+Nếu **Datasource connection failed** → gần như chắc `DB_PASSWORD` trong `backend/.env` sai với Postgres trên PC đó.
+
+> `grafana/provisioning/datasources/postgres.yml` được **sinh tự động** và **không commit** git — mỗi PC phải render lại sau khi đặt `DB_PASSWORD`.
+
 ### Cùng PC với Postgres (DB local)
 
 ```powershell
@@ -331,9 +364,9 @@ docker compose -f docker-compose.grafana.yml restart grafana
 
 | Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
 |-------------|------------------------|------------|
-| Datasource **connection failed** | Sai host/password; Postgres không listen LAN | Kiểm tra `backend/.env` / `grafana/.env`; chạy lại `render-grafana-datasource.mjs`; kiểm tra `pg_hba.conf` |
-| Dashboard **trống** | Sai time range; máy không có `oee_calculations` | Chọn máy có dữ liệu (vd. SH-05); mở rộng `Last 24 hours` |
-| Thời gian lệch / không có điểm | Timestamp OEE lưu ICT wall-clock | Dashboard đã cast `AT TIME ZONE 'Asia/Ho_Chi_Minh'` — hard-refresh Grafana |
+| Dashboard **trống** / chart loading | Sai time range; SQL timezone lệch MES; máy không có dữ liệu trong cửa sổ | Chọn **Last 24 hours**; chạy `node scripts/build-grafana-dashboards.mjs` + `docker restart mes-grafana-poc`; `node scripts/diagnose-grafana-postgres.mjs --machine D-03` |
+| **Samples** có số nhưng chart trống | Postgres OK — thường do time bucket lệch timezone | Pull code mới, rebuild dashboard JSON (đã sửa `$__timeFilter(calculation_timestamp)`) |
+| Datasource **connection failed** | Sai host/password; Postgres không listen từ Docker | `node scripts/render-grafana-datasource.mjs`; kiểm tra `backend/.env` DB_PASSWORD; Postgres phải listen và cho phép `host.docker.internal` |
 | Nút **Mở Grafana** MES sai host | Thiếu `VITE_GRAFANA_URL` | Set URL đúng IP Grafana; rebuild frontend |
 | Port 3000 bị chiếm | Container Grafana cũ (`nhed-grafana`, `mes-grafana-poc`) | `docker stop nhed-grafana` hoặc `node scripts/setup-grafana.mjs --grafana-port 3002` |
 | `change_me` trong datasource | Chưa render từ `.env` | `node scripts/render-grafana-datasource.mjs` |

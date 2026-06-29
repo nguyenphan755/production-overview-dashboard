@@ -103,7 +103,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT MAX(actual_speed) AS peak FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT COALESCE(MAX(actual_speed), 0) AS peak FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -169,7 +169,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(actual_speed)::numeric, 2) AS avg FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND actual_speed >= 1",
+          "rawSql": "SELECT COALESCE(ROUND(AVG(actual_speed)::numeric, 2), 0) AS avg FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND actual_speed >= 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -237,7 +237,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN actual_speed < 0.5 THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1) AS pct\n       FROM oee_calculations WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT COALESCE(ROUND(100.0 * SUM(CASE WHEN actual_speed < 0.5 THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1), 0) AS pct\n       FROM oee_calculations WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -303,7 +303,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT COUNT(*)::bigint AS n FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'))",
+          "rawSql": "SELECT COUNT(*)::bigint AS n FROM oee_calculations\n       WHERE machine_id='$machine_id' AND $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -400,7 +400,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n        AVG(actual_speed) AS \"Actual speed\",\n        AVG(target_speed) AS \"Target speed\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) / 30) * 30) AS \"time\",\n        AVG(actual_speed) AS \"Actual speed\",\n        AVG(target_speed) AS \"Target speed\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -458,7 +458,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n        AVG(oee) AS OEE, AVG(availability) AS Availability,\n        AVG(performance) AS Performance, AVG(quality) AS Quality\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) / 30) * 30) AS \"time\",\n        AVG(oee) AS OEE, AVG(availability) AS Availability,\n        AVG(performance) AS Performance, AVG(quality) AS Quality\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -514,7 +514,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS \"time\",\n        MAX(running_time_seconds) AS \"Running time\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) / 30) * 30) AS \"time\",\n        MAX(running_time_seconds) AS \"Running time\"\n       FROM oee_calculations\n       WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND machine_id='$machine_id'\n       GROUP BY 1 ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"
@@ -585,7 +585,7 @@
             "type": "postgres",
             "uid": "mes-postgres"
           },
-          "rawSql": "WITH buckets AS (\n          SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) / 30) * 30) AS t,\n            AVG(actual_speed) AS spd\n          FROM oee_calculations\n          WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')) AND machine_id='$machine_id'\n          GROUP BY 1\n        )\n        SELECT t AS time, t + INTERVAL '30 seconds' AS time_end,\n          CASE WHEN spd >= 1 THEN 'running' WHEN spd > 0 THEN 'creep' ELSE 'stopped' END AS status\n        FROM buckets ORDER BY t"
+          "rawSql": "WITH buckets AS (\n          SELECT to_timestamp(floor(extract(epoch from (calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) / 30) * 30) AS t,\n            AVG(actual_speed) AS spd\n          FROM oee_calculations\n          WHERE $__timeFilter((calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')) AND machine_id='$machine_id'\n          GROUP BY 1\n        )\n        SELECT t AS time, t + INTERVAL '30 seconds' AS time_end,\n          CASE WHEN spd >= 1 THEN 'running' WHEN spd > 0 THEN 'creep' ELSE 'stopped' END AS status\n        FROM buckets ORDER BY t"
         }
       ]
     },
@@ -637,7 +637,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT (hour AT TIME ZONE 'Asia/Ho_Chi_Minh') AS \"time\", energy_kwh AS kwh\n       FROM energy_consumption\n       WHERE machine_id='$machine_id'\n         AND $__timeFilter((hour AT TIME ZONE 'Asia/Ho_Chi_Minh'))\n       ORDER BY 1",
+          "rawSql": "SELECT (hour AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC') AS \"time\", energy_kwh AS kwh\n       FROM energy_consumption\n       WHERE machine_id='$machine_id'\n         AND $__timeFilter((hour AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC'))\n       ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "mes-postgres"

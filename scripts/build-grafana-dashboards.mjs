@@ -14,13 +14,16 @@ const outDir = join(root, 'grafana', 'dashboards');
 const DS = { type: 'postgres', uid: 'mes-postgres' };
 const TZ = 'Asia/Ho_Chi_Minh';
 
-/** oee_calculations timestamps are ICT wall-clock stored as timestamp without time zone */
-const TS_OEE = `(calculation_timestamp AT TIME ZONE '${TZ}')`;
-const TS_FILTER_OEE = `$__timeFilter(${TS_OEE})`;
-const BUCKET_OEE = `to_timestamp(floor(extract(epoch from ${TS_OEE}) / 30) * 30)`;
+/** ICT wall-clock (timestamp without tz) → UTC for Grafana queries & charts. */
+const TS_UTC_OEE = `(calculation_timestamp AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC')`;
+const TS_FILTER_OEE = `$__timeFilter(${TS_UTC_OEE})`;
+const BUCKET_OEE = `to_timestamp(floor(extract(epoch from ${TS_UTC_OEE}) / 30) * 30)`;
 
-const TS_METRIC = `(timestamp AT TIME ZONE '${TZ}')`;
-const TS_FILTER_METRIC = `$__timeFilter(${TS_METRIC})`;
+const TS_UTC_METRIC = `(timestamp AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC')`;
+const TS_FILTER_METRIC = `$__timeFilter(${TS_UTC_METRIC})`;
+
+const TS_UTC_ENERGY = `(hour AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC')`;
+const TS_FILTER_ENERGY = `$__timeFilter(${TS_UTC_ENERGY})`;
 
 const machineVar = {
   current: { selected: true, text: 'SH-05', value: 'SH-05' },
@@ -290,13 +293,13 @@ function buildEquipmentDetail() {
         format: 'table',
         datasource: DS,
         rawSql: `SELECT
-          (status_start_time AT TIME ZONE '${TZ}') AS time,
-          COALESCE(status_end_time AT TIME ZONE '${TZ}', NOW()) AS time_end,
+          (status_start_time AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC') AS time,
+          (COALESCE(status_end_time, NOW()) AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC') AS time_end,
           status::text AS status
         FROM machine_status_history
         WHERE machine_id='$machine_id'
-          AND (status_start_time AT TIME ZONE '${TZ}') <= $__timeTo()
-          AND COALESCE(status_end_time AT TIME ZONE '${TZ}', NOW()) >= $__timeFrom()
+          AND (status_start_time AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC') <= $__timeTo()
+          AND (COALESCE(status_end_time, NOW()) AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC') >= $__timeFrom()
         ORDER BY status_start_time`,
       },
     ],
@@ -308,10 +311,10 @@ function buildEquipmentDetail() {
     timeseries(
       130,
       'Temperature',
-      `SELECT ${TS_METRIC} AS "time", value AS temperature
+      `SELECT ${TS_UTC_METRIC} AS "time", value AS temperature
        FROM machine_metrics
        WHERE machine_id='$machine_id' AND metric_type='temperature'
-         AND ${TS_METRIC} >= NOW() - INTERVAL '2 hours'
+         AND ${TS_FILTER_METRIC}
        ORDER BY 1`,
       { h: 6, w: 8, x: 0, y },
       { unit: 'celsius' }
@@ -319,20 +322,20 @@ function buildEquipmentDetail() {
     timeseries(
       131,
       'Speed (5m buffer)',
-      `SELECT ${TS_METRIC} AS "time", value AS speed
+      `SELECT ${TS_UTC_METRIC} AS "time", value AS speed
        FROM machine_metrics
        WHERE machine_id='$machine_id' AND metric_type='speed'
-         AND ${TS_METRIC} >= NOW() - INTERVAL '2 hours'
+         AND ${TS_FILTER_METRIC}
        ORDER BY 1`,
       { h: 6, w: 8, x: 8, y }
     ),
     timeseries(
       132,
       'Motor current',
-      `SELECT ${TS_METRIC} AS "time", value AS current
+      `SELECT ${TS_UTC_METRIC} AS "time", value AS current
        FROM machine_metrics
        WHERE machine_id='$machine_id' AND metric_type='current'
-         AND ${TS_METRIC} >= NOW() - INTERVAL '2 hours'
+         AND ${TS_FILTER_METRIC}
        ORDER BY 1`,
       { h: 6, w: 8, x: 16, y },
       { unit: 'amp' }
@@ -344,10 +347,10 @@ function buildEquipmentDetail() {
     timeseries(
       133,
       'Power & energy meter',
-      `SELECT ${TS_METRIC} AS "time", value AS power
+      `SELECT ${TS_UTC_METRIC} AS "time", value AS power
        FROM machine_metrics
        WHERE machine_id='$machine_id' AND metric_type='power'
-         AND ${TS_METRIC} >= NOW() - INTERVAL '2 hours'
+         AND ${TS_FILTER_METRIC}
        ORDER BY 1`,
       { h: 6, w: 12, x: 0, y },
       { unit: 'kwatt' }
@@ -355,9 +358,9 @@ function buildEquipmentDetail() {
     timeseries(
       134,
       'Energy kWh (hourly)',
-      `SELECT (hour AT TIME ZONE '${TZ}') AS "time", energy_kwh AS "Energy kWh"
+      `SELECT ${TS_UTC_ENERGY} AS "time", energy_kwh AS "Energy kWh"
        FROM energy_consumption
-       WHERE machine_id='$machine_id' AND $__timeFilter((hour AT TIME ZONE '${TZ}'))
+       WHERE machine_id='$machine_id' AND ${TS_FILTER_ENERGY}
        ORDER BY 1`,
       { h: 6, w: 12, x: 12, y },
       { bars: true, unit: 'kwatth' }
@@ -436,21 +439,21 @@ function buildSpeedLab() {
     statPanel(
       201,
       'Peak speed',
-      `SELECT MAX(actual_speed) AS peak FROM oee_calculations
+      `SELECT COALESCE(MAX(actual_speed), 0) AS peak FROM oee_calculations
        WHERE machine_id='$machine_id' AND ${TS_FILTER_OEE}`,
       { h: 4, w: 6, x: 0, y }
     ),
     statPanel(
       202,
       'Avg running speed',
-      `SELECT ROUND(AVG(actual_speed)::numeric, 2) AS avg FROM oee_calculations
+      `SELECT COALESCE(ROUND(AVG(actual_speed)::numeric, 2), 0) AS avg FROM oee_calculations
        WHERE machine_id='$machine_id' AND ${TS_FILTER_OEE} AND actual_speed >= 1`,
       { h: 4, w: 6, x: 6, y }
     ),
     statPanel(
       203,
       '% time at speed=0',
-      `SELECT ROUND(100.0 * SUM(CASE WHEN actual_speed < 0.5 THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1) AS pct
+      `SELECT COALESCE(ROUND(100.0 * SUM(CASE WHEN actual_speed < 0.5 THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1), 0) AS pct
        FROM oee_calculations WHERE machine_id='$machine_id' AND ${TS_FILTER_OEE}`,
       { h: 4, w: 6, x: 12, y },
       { unit: 'percent', max: 100 }
@@ -562,10 +565,10 @@ function buildSpeedLab() {
     timeseries(
       214,
       'Energy kWh (hourly)',
-      `SELECT (hour AT TIME ZONE '${TZ}') AS "time", energy_kwh AS kwh
+      `SELECT ${TS_UTC_ENERGY} AS "time", energy_kwh AS kwh
        FROM energy_consumption
        WHERE machine_id='$machine_id'
-         AND $__timeFilter((hour AT TIME ZONE '${TZ}'))
+         AND ${TS_FILTER_ENERGY}
        ORDER BY 1`,
       { h: 6, w: 24, x: 0, y },
       { bars: true, unit: 'kwatth' }
