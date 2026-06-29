@@ -160,7 +160,24 @@ function runDockerCompose(port) {
   }
 }
 
-function printPortConflictHelp(port, occupants) {
+function syncFrontendGrafanaUrl(port) {
+  const grafanaUrl = `http://localhost:${port}`;
+  const targets = [
+    join(root, 'frontend', '.env'),
+    join(root, 'frontend', '.env.production'),
+  ];
+  let updated = 0;
+  for (const path of targets) {
+    if (!existsSync(path)) continue;
+    upsertEnvFile(path, { VITE_GRAFANA_URL: grafanaUrl });
+    updated += 1;
+  }
+  if (updated > 0) {
+    console.log(`✅ Đã cập nhật VITE_GRAFANA_URL=${grafanaUrl} trong frontend/.env`);
+    console.log('   → Restart dev server: npm run dev (hoặc build lại production)');
+  }
+  return grafanaUrl;
+}
   console.error(`\n❌ Port ${port} đã được dùng bởi: ${occupants.join(', ')}`);
   console.error('\nChọn một trong các cách sau:\n');
   console.error('  1) Dùng Grafana đang chạy (nếu đã là mes-grafana-poc):');
@@ -384,6 +401,7 @@ async function main() {
   }
 
   const adminPw = opts.adminPassword || grafanaEnv.GRAFANA_ADMIN_PASSWORD || 'admin';
+  const mesGrafanaUrl = syncFrontendGrafanaUrl(port);
 
   console.log('\n═══════════════════════════════════════════');
   console.log(' Done');
@@ -393,10 +411,14 @@ async function main() {
   console.log(` Speed Lab:      ${baseUrl}/d/mes-speed-lab`);
   console.log(` Equipment:      ${baseUrl}/d/mes-equipment-detail`);
   console.log('');
-  console.log(' Trên PC chạy MES (frontend), thêm vào frontend/.env:');
-  console.log(`   VITE_GRAFANA_URL=http://${hintIp}:${port}`);
-  console.log(' Rồi restart: npm run dev  (hoặc build lại production)');
+  console.log(' Nút Mở Grafana trên MES dùng:');
+  console.log(`   VITE_GRAFANA_URL=${mesGrafanaUrl}`);
+  if (!existsSync(join(root, 'frontend', '.env'))) {
+    console.log('   (tạo frontend/.env và thêm dòng trên nếu chưa có)');
+  }
   console.log('');
+  console.log(' MES trên PC khác: dùng IP LAN thay localhost, ví dụ:');
+  console.log(`   VITE_GRAFANA_URL=http://${hintIp}:${port}`);
   console.log(' Nếu DB trên PC khác: chạy lại với --db-host <IP-server-postgres>');
   console.log(' Docs: docs/grafana/HUONG_DAN_SU_DUNG.md');
 }
