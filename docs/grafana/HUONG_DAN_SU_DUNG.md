@@ -204,9 +204,10 @@ GRAFANA_PG_PASSWORD=<mật-khẩu-readonly>
 
 ```powershell
 copy grafana\.env.example grafana\.env
+notepad grafana\.env
 ```
 
-Sửa `grafana/.env`:
+Sửa **file** `grafana/.env` (không dán `KEY=value` trực tiếp vào PowerShell — đó là cú pháp Linux/bash):
 
 ```env
 GRAFANA_PORT=3000
@@ -215,16 +216,26 @@ GRAFANA_ADMIN_PASSWORD=<đặt-mật-khẩu-mạnh>
 GRAFANA_URL=http://localhost:3000
 ```
 
-**Bước 4 — Sinh dashboard JSON (nếu chưa có hoặc sau khi sửa SQL)**
+Hoặc tạo file bằng PowerShell:
 
 ```powershell
-node scripts/build-grafana-dashboards.mjs
+@"
+GRAFANA_PORT=3002
+GRAFANA_ADMIN_PASSWORD=admin
+GRAFANA_URL=http://localhost:3002
+"@ | Set-Content -Path grafana\.env -Encoding UTF8
 ```
 
 **Bước 5 — Khởi động Grafana**
 
 ```powershell
-docker compose -f docker-compose.grafana.yml up -d
+node scripts/setup-grafana.mjs
+```
+
+Hoặc thủ công (bắt buộc `--env-file` để Compose đọc `GRAFANA_PORT`):
+
+```powershell
+docker compose --env-file grafana/.env -f docker-compose.grafana.yml up -d
 ```
 
 Kiểm tra:
@@ -245,7 +256,7 @@ psql -U postgres -d production_dashboard -f grafana/sql/create_grafana_readonly_
 Cập nhật `grafana/.env` dùng `GRAFANA_PG_USER=grafana_readonly`, rồi:
 
 ```powershell
-docker compose -f docker-compose.grafana.yml up -d grafana
+docker compose --env-file grafana/.env -f docker-compose.grafana.yml up -d grafana
 ```
 
 ### 3.4 Nối MES trên PC khác với Grafana
@@ -343,16 +354,23 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/search?type=dash-db" -Headers 
 Thông báo Docker: `bind: Only one usage of each socket address` — đã có Grafana/process khác trên port 3000 (thường là `nhed-grafana` hoặc `mes-grafana-poc` đang chạy).
 
 **Từ bản script mới:** `node scripts/setup-grafana.mjs` tự xử lý:
-- Nếu `mes-grafana-poc` **đã chạy** trên port 3000 → chỉ `docker restart` (không `compose up --force-recreate`).
-- Nếu port 3000 **bận bởi container khác** → tự chuyển sang port **3002** và cập nhật `grafana/.env`.
+- Nếu `mes-grafana-poc` **đã chạy** → chỉ `docker restart`.
+- Nếu port 3000 **bận** → tự chuyển sang **3002**, ghi `grafana/.env`, và chạy compose với `--env-file grafana/.env` (Compose **không** đọc `grafana/.env` nếu thiếu flag này).
 
-Chạy lại một lệnh:
+**Trên PC MES (lỗi bind 3000 dù đã “chuyển 3002”):** pull code mới rồi:
 
 ```powershell
+docker rm -f mes-grafana-poc 2>$null
 node scripts/setup-grafana.mjs
 ```
 
-Nếu script chuyển sang 3002, cập nhật `frontend/.env`: `VITE_GRAFANA_URL=http://localhost:3002`
+Kiểm tra log phải có dòng `on host port 3002` và compose dùng `--env-file grafana/.env`.
+
+Nếu script chuyển sang 3002, cập nhật `frontend/.env`:
+
+```env
+VITE_GRAFANA_URL=http://localhost:3002
+```
 
 **Cách A — Giữ Grafana cũ, chạy MES Grafana port 3002 (thủ công):**
 

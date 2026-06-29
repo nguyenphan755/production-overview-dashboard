@@ -2,10 +2,11 @@
 # Reads Postgres credentials from .env / backend/.env automatically.
 #
 # Usage:
-#   docker compose -f docker-compose.grafana.yml up -d
+#   docker compose --env-file grafana/.env -f docker-compose.grafana.yml up -d
+#   node scripts/setup-grafana.mjs   # recommended — sets port + env automatically
 #
-# Optional: grafana/.env for GRAFANA_ADMIN_PASSWORD and GRAFANA_PG_* overrides
-# UI: http://localhost:3000
+# Port: GRAFANA_PORT in grafana/.env (Compose does NOT read grafana/.env unless --env-file)
+# UI: http://localhost:${GRAFANA_PORT:-3000}
 
 services:
   grafana-datasource-render:

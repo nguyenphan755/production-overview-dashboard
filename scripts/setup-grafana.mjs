@@ -116,8 +116,48 @@ function pickAvailablePort(preferred) {
   return null;
 }
 
-function runDockerCompose() {
-  run('docker', ['compose', '-f', 'docker-compose.grafana.yml', 'up', '-d'], 'Start Grafana container (mes-grafana-poc)');
+function removeMesGrafanaIfPortMismatch(desiredPort) {
+  if (!mesGrafanaContainerExists()) return;
+  const ports = dockerOutput(['ps', '-a', '--filter', 'name=^mes-grafana-poc$', '--format', '{{.Ports}}']);
+  const needle = `:${desiredPort}->`;
+  if (ports && !ports.includes(needle)) {
+    console.log(`\nℹ️  Gỡ mes-grafana-poc cũ (port mapping ≠ ${desiredPort})`);
+    const r = spawnSync('docker', ['rm', '-f', 'mes-grafana-poc'], {
+      cwd: root,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    if (r.status !== 0) {
+      throw new Error('Remove mes-grafana-poc failed');
+    }
+  }
+}
+
+function runDockerCompose(port) {
+  const grafanaEnvPath = join(root, 'grafana', '.env');
+  upsertEnvFile(grafanaEnvPath, {
+    GRAFANA_PORT: String(port),
+    GRAFANA_URL: `http://localhost:${port}`,
+  });
+
+  const env = { ...process.env };
+  for (const [k, v] of Object.entries(loadEnvFile(grafanaEnvPath))) {
+    env[k] = v;
+  }
+  env.GRAFANA_PORT = String(port);
+
+  removeMesGrafanaIfPortMismatch(port);
+
+  console.log(`\n▶ Start Grafana container (mes-grafana-poc) on host port ${port}`);
+  console.log('  docker compose --env-file grafana/.env -f docker-compose.grafana.yml up -d');
+  const result = spawnSync(
+    'docker',
+    ['compose', '--env-file', 'grafana/.env', '-f', 'docker-compose.grafana.yml', 'up', '-d'],
+    { cwd: root, stdio: 'inherit', shell: process.platform === 'win32', env },
+  );
+  if (result.status !== 0) {
+    throw new Error(`Start Grafana container (mes-grafana-poc) failed (exit ${result.status ?? 'unknown'})`);
+  }
 }
 
 function printPortConflictHelp(port, occupants) {
@@ -275,7 +315,7 @@ async function main() {
 
   if (opts.skipDocker) {
     console.log('\n✅ Config ready (--skip-docker). Start manually:');
-    console.log('   docker compose -f docker-compose.grafana.yml up -d');
+    console.log('   docker compose --env-file grafana/.env -f docker-compose.grafana.yml up -d');
     return;
   }
 
@@ -283,34 +323,44 @@ async function main() {
   let port = String(opts.grafanaPort || grafanaEnvAfter.GRAFANA_PORT || '3000');
   let occupants = containersOnHostPort(port);
   const mesRunning = isMesGrafanaRunning();
-  const portBusy = isHostPortInUse(port);
+  let portBusy = isHostPortInUse(port);
 
-  // mes-grafana-poc đã chạy đúng port → chỉ restart, KHÔNG compose recreate (tránh bind conflict)
-  if (mesRunning && (occupants.includes('mes-grafana-poc') || portBusy)) {
+  // Port bận bởi process khác (không phải mes-grafana-poc) → chọn port trống trước khi compose
+  if (
+    !opts.grafanaPort &&
+    portBusy &&
+    !occupants.includes('mes-grafana-poc')
+  ) {
+    const alt = pickAvailablePort('3002');
+    if (alt && alt !== port) {
+      console.log(`\n⚠️  Port ${port} đang bận (${occupants.length ? occupants.join(', ') : 'process khác'}) → dùng port ${alt}`);
+      port = alt;
+      portBusy = isHostPortInUse(port);
+      occupants = containersOnHostPort(port);
+    }
+  }
+
+  // mes-grafana-poc đã chạy đúng port → chỉ restart, KHÔNG compose (tránh bind conflict)
+  if (mesRunning && occupants.includes('mes-grafana-poc')) {
     console.log(`\n✅ mes-grafana-poc đang chạy trên port ${port} — chỉ restart để nạp config mới.`);
     run('docker', ['restart', 'mes-grafana-poc'], 'Restart mes-grafana-poc');
+  } else if (portBusy && occupants.includes('mes-grafana-poc') && !mesRunning) {
+    console.log(`\nℹ️  mes-grafana-poc đã tồn tại (stopped) — start lại trên port ${port}`);
+    runDockerCompose(port);
   } else if (portBusy || (occupants.length > 0 && !occupants.includes('mes-grafana-poc'))) {
-    const blockedBy = occupants.length ? occupants : ['(process khác trên port ' + port + ')'];
-    const alt = pickAvailablePort('3002');
+    const blockedBy = occupants.length ? occupants : [`process khác trên port ${port}`];
+    const alt = pickAvailablePort(port === '3000' ? '3002' : port);
     if (!alt) {
       printPortConflictHelp(port, blockedBy);
       process.exit(1);
     }
     if (alt !== port) {
-      console.log(`\n⚠️  Port ${port} đang bận (${blockedBy.join(', ')}) → chuyển sang port ${alt}`);
+      console.log(`\n⚠️  Port ${port} vẫn bận (${blockedBy.join(', ')}) → chuyển sang port ${alt}`);
       port = alt;
-      upsertEnvFile(grafanaEnvPath, {
-        GRAFANA_PORT: port,
-        GRAFANA_URL: `http://localhost:${port}`,
-      });
-      occupants = containersOnHostPort(port);
     }
-    runDockerCompose();
-    if (mesGrafanaContainerExists()) {
-      run('docker', ['restart', 'mes-grafana-poc'], 'Restart mes-grafana-poc sau khi đổi port');
-    }
+    runDockerCompose(port);
   } else {
-    runDockerCompose();
+    runDockerCompose(port);
   }
 
   const baseUrl = `http://localhost:${port}`;
