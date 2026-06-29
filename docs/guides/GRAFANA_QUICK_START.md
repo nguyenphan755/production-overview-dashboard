@@ -1,5 +1,7 @@
 # Grafana Quick Start Guide
 
+> **Tài liệu vận hành MES hiện tại (tiếng Việt, Docker POC, PC khác):** [`docs/grafana/HUONG_DAN_SU_DUNG.md`](../grafana/HUONG_DAN_SU_DUNG.md)
+
 ## Prerequisites
 
 - Grafana installed (see installation steps below)

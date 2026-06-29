@@ -36,11 +36,15 @@ function stddev(values) {
 }
 
 async function fetchMachineArea(machineId) {
-  const result = await query('SELECT area, target_speed FROM machines WHERE id = $1', [machineId]);
+  const result = await query(
+    'SELECT area, target_speed, product_name FROM machines WHERE id = $1',
+    [machineId]
+  );
   const row = result.rows[0];
   return {
     area: row?.area ?? null,
     targetSpeed: row?.target_speed != null ? parseFloat(row.target_speed) : null,
+    productName: row?.product_name != null ? String(row.product_name).trim() : null,
   };
 }
 
@@ -248,80 +252,235 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-function buildProductNotes(orders, classifiedPoints, rangeStart, rangeEnd, now = new Date()) {
+const TELEMETRY_PRODUCT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function normalizeProductName(name) {
+  if (name == null) return 'UNKNOWN';
+  const s = String(name).trim();
+  return s === '' ? 'UNKNOWN' : s;
+}
+
+function normalizeMaterialCode(code) {
+  if (code == null) return '';
+  const s = String(code).trim();
+  return s === '' ? '' : s;
+}
+
+async function fetchTelemetryProductRows(machineId, rangeStart, rangeEnd) {
+  const lowerBound = new Date(rangeStart.getTime() - TELEMETRY_PRODUCT_LOOKBACK_MS);
+  const result = await query(
+    `SELECT sampled_at, product_name, material_code, target_speed
+     FROM machine_line_telemetry
+     WHERE machine_id = $1
+       AND sampled_at >= $2
+       AND sampled_at <= $3
+     ORDER BY sampled_at ASC`,
+    [machineId, lowerBound, rangeEnd]
+  );
+
+  let lastProduct = null;
+  let lastMaterial = null;
+  const rows = [];
+  for (const row of result.rows) {
+    const rawP = row.product_name != null ? String(row.product_name).trim() : '';
+    const rawM = row.material_code != null ? String(row.material_code).trim() : '';
+    if (rawP !== '') lastProduct = rawP;
+    if (rawM !== '') lastMaterial = rawM;
+    rows.push({
+      sampledAt: new Date(row.sampled_at),
+      productName: normalizeProductName(rawP !== '' ? rawP : lastProduct),
+      materialCode: rawM !== '' ? rawM : (lastMaterial || ''),
+      targetSpeed:
+        row.target_speed != null && Number.isFinite(parseFloat(row.target_speed))
+          ? parseFloat(row.target_speed)
+          : null,
+    });
+  }
+  return rows;
+}
+
+/** Product sessions from machine_line_telemetry (same source as machines.product_name snapshot). */
+function buildTelemetryProductSessions(rows, rangeStart, rangeEnd) {
+  const w0t = rangeStart.getTime();
+  const w1t = rangeEnd.getTime();
+  if (!rows.length) return [];
+
+  let productAtWindowStart = 'UNKNOWN';
+  let materialAtWindowStart = '';
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (rows[i].sampledAt.getTime() < w0t) {
+      productAtWindowStart = rows[i].productName;
+      materialAtWindowStart = normalizeMaterialCode(rows[i].materialCode);
+      break;
+    }
+  }
+  if (productAtWindowStart === 'UNKNOWN') {
+    const firstIn = rows.find((r) => {
+      const t = r.sampledAt.getTime();
+      return t >= w0t && t < w1t;
+    });
+    if (firstIn) {
+      productAtWindowStart = firstIn.productName;
+      materialAtWindowStart = normalizeMaterialCode(firstIn.materialCode);
+    }
+  }
+
+  const sessions = [];
+  let currentProduct = productAtWindowStart;
+  let currentMaterial = materialAtWindowStart;
+  let sessionStartMs = w0t;
+
+  const emitSession = (endMs) => {
+    if (endMs <= sessionStartMs) return;
+    sessions.push({
+      product: currentProduct,
+      materialCode: currentMaterial,
+      start: new Date(sessionStartMs),
+      end: new Date(endMs),
+    });
+  };
+
+  for (const r of rows) {
+    const t = r.sampledAt.getTime();
+    if (t < w0t) continue;
+    if (t >= w1t) break;
+    const rowMat = normalizeMaterialCode(r.materialCode);
+    if (r.productName !== currentProduct || rowMat !== currentMaterial) {
+      emitSession(t);
+      currentProduct = r.productName;
+      currentMaterial = rowMat;
+      sessionStartMs = t;
+    }
+  }
+  emitSession(w1t);
+  return sessions;
+}
+
+function findBestOverlappingOrder(orders, segStartMs, segEndMs, nowMs) {
+  let best = null;
+  let bestOverlap = 0;
+  for (const order of orders) {
+    const oStart = new Date(order.start_time).getTime();
+    const oEnd = order.end_time ? new Date(order.end_time).getTime() : nowMs;
+    const overlapStart = Math.max(segStartMs, oStart);
+    const overlapEnd = Math.min(segEndMs, oEnd);
+    const overlap = overlapEnd - overlapStart;
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      best = order;
+    }
+  }
+  return bestOverlap > 0 ? best : null;
+}
+
+function segmentSpeedStats(segPoints) {
+  const stableSpeeds = segPoints
+    .filter((p) => p.phase === 'stable_running')
+    .map((p) => p.actualSpeed);
+  const runSpeeds = segPoints
+    .filter((p) => (p.phase === 'stable_running' || p.phase === 'variable_running') && p.actualSpeed > 0)
+    .map((p) => p.actualSpeed);
+  const targets = segPoints.map((p) => p.targetSpeed).filter((v) => v > 0);
+  return {
+    stableSpeedMedian: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+    avgRunningSpeed: runSpeeds.length ? round2(mean(runSpeeds)) : null,
+    ictMedian: targets.length ? round2(median(targets)) : null,
+    proposedIct: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
+    pointCount: segPoints.length,
+  };
+}
+
+function displayProductName(raw) {
+  if (raw == null || raw === 'UNKNOWN') return 'Chưa xác định';
+  const s = String(raw).trim();
+  return s === '' ? 'Chưa xác định' : s;
+}
+
+/**
+ * Product notes by machine snapshot timeline (machine_line_telemetry), not PO product_name.
+ * PO id/name attached only when overlapping for reference.
+ */
+function buildProductNotes(
+  telemetrySessions,
+  machineProductName,
+  orders,
+  classifiedPoints,
+  rangeStart,
+  rangeEnd,
+  now = new Date()
+) {
   const rangeStartMs = rangeStart.getTime();
   const rangeEndMs = rangeEnd.getTime();
   const nowMs = now.getTime();
   const notes = [];
-  const assignedMs = new Set();
 
-  for (const order of orders) {
-    const oStart = Math.max(rangeStartMs, new Date(order.start_time).getTime());
-    const oEnd = Math.min(rangeEndMs, order.end_time ? new Date(order.end_time).getTime() : nowMs);
-    if (oEnd <= oStart) continue;
+  let sessions = telemetrySessions;
+  if (!sessions.length && machineProductName) {
+    sessions = [
+      {
+        product: normalizeProductName(machineProductName),
+        materialCode: '',
+        start: rangeStart,
+        end: rangeEnd,
+      },
+    ];
+  }
+
+  for (const session of sessions) {
+    const sStart = Math.max(rangeStartMs, session.start.getTime());
+    const sEnd = Math.min(rangeEndMs, session.end.getTime());
+    if (sEnd <= sStart) continue;
 
     const segPoints = classifiedPoints.filter((p) => {
       const t = p.timestamp.getTime();
-      return t >= oStart && t < oEnd;
+      return t >= sStart && t < sEnd;
     });
+    if (segPoints.length === 0 && session.product === 'UNKNOWN') continue;
 
-    for (const p of segPoints) {
-      assignedMs.add(p.timestamp.getTime());
-    }
-
-    const stableSpeeds = segPoints
-      .filter((p) => p.phase === 'stable_running')
-      .map((p) => p.actualSpeed);
-    const runSpeeds = segPoints
-      .filter((p) => (p.phase === 'stable_running' || p.phase === 'variable_running') && p.actualSpeed > 0)
-      .map((p) => p.actualSpeed);
-    const targets = segPoints.map((p) => p.targetSpeed).filter((v) => v > 0);
+    const stats = segmentSpeedStats(segPoints);
+    const order = findBestOverlappingOrder(orders, sStart, sEnd, nowMs);
 
     notes.push({
-      orderId: order.id,
-      orderName: order.name,
-      productName: String(order.product_name || '').trim() || '—',
-      segmentStart: new Date(oStart).toISOString(),
-      segmentEnd: new Date(oEnd).toISOString(),
-      stableSpeedMedian: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
-      avgRunningSpeed: runSpeeds.length ? round2(mean(runSpeeds)) : null,
-      ictMedian: targets.length ? round2(median(targets)) : null,
-      proposedIct: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
-      pointCount: segPoints.length,
-      durationSec: Math.round((oEnd - oStart) / 1000),
-      status: order.status,
+      orderId: order?.id ?? null,
+      orderName: order?.name ?? null,
+      productName: displayProductName(session.product),
+      segmentStart: new Date(sStart).toISOString(),
+      segmentEnd: new Date(sEnd).toISOString(),
+      ...stats,
+      durationSec: Math.round((sEnd - sStart) / 1000),
+      status: order?.status ?? null,
     });
+  }
+
+  const assignedMs = new Set();
+  for (const note of notes) {
+    const sStart = new Date(note.segmentStart).getTime();
+    const sEnd = new Date(note.segmentEnd).getTime();
+    for (const p of classifiedPoints) {
+      const t = p.timestamp.getTime();
+      if (t >= sStart && t < sEnd) assignedMs.add(t);
+    }
   }
 
   const unassigned = classifiedPoints.filter((p) => !assignedMs.has(p.timestamp.getTime()));
   if (unassigned.length > 0) {
-    const stableSpeeds = unassigned
-      .filter((p) => p.phase === 'stable_running')
-      .map((p) => p.actualSpeed);
-    const runSpeeds = unassigned
-      .filter((p) => (p.phase === 'stable_running' || p.phase === 'variable_running') && p.actualSpeed > 0)
-      .map((p) => p.actualSpeed);
-    const targets = unassigned.map((p) => p.targetSpeed).filter((v) => v > 0);
+    const stats = segmentSpeedStats(unassigned);
     const uStart = Math.min(...unassigned.map((p) => p.timestamp.getTime()));
     const uEnd = Math.max(...unassigned.map((p) => p.timestamp.getTime()));
 
     notes.push({
       orderId: null,
       orderName: null,
-      productName: 'Chưa gán PO / không xác định',
+      productName: 'Chưa xác định',
       segmentStart: new Date(Math.max(uStart, rangeStartMs)).toISOString(),
       segmentEnd: new Date(Math.min(uEnd + 1, rangeEndMs)).toISOString(),
-      stableSpeedMedian: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
-      avgRunningSpeed: runSpeeds.length ? round2(mean(runSpeeds)) : null,
-      ictMedian: targets.length ? round2(median(targets)) : null,
-      proposedIct: stableSpeeds.length ? round2(median(stableSpeeds)) : null,
-      pointCount: unassigned.length,
+      ...stats,
       durationSec: Math.round((Math.min(uEnd, rangeEndMs) - Math.max(uStart, rangeStartMs)) / 1000),
       status: null,
     });
   }
 
-  return notes;
+  return notes.sort((a, b) => new Date(a.segmentStart).getTime() - new Date(b.segmentStart).getTime());
 }
 
 function buildSummary(points, bucketSec, machineTargetSpeed = null) {
@@ -331,10 +490,10 @@ function buildSummary(points, bucketSec, machineTargetSpeed = null) {
 
   const proposedTargetSpeed = median(stableSpeeds);
   const lastTarget = points.length ? points[points.length - 1].targetSpeed : null;
-  const currentTargetSpeed = (lastTarget != null && lastTarget > 0)
-    ? lastTarget
-    : (points.find((p) => p.targetSpeed > 0)?.targetSpeed
-      ?? (machineTargetSpeed != null && machineTargetSpeed > 0 ? machineTargetSpeed : null));
+  const currentTargetSpeed =
+    (machineTargetSpeed != null && machineTargetSpeed > 0 ? machineTargetSpeed : null)
+    ?? (lastTarget != null && lastTarget > 0 ? lastTarget : null)
+    ?? (points.find((p) => p.targetSpeed > 0)?.targetSpeed ?? null);
 
   let deltaVsTargetPct = null;
   if (proposedTargetSpeed != null && currentTargetSpeed != null && currentTargetSpeed > 0) {
@@ -401,8 +560,19 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
     phase: p.phase,
   }));
 
+  const telemetryRows = await fetchTelemetryProductRows(machineId, rangeStart, rangeEnd);
+  const telemetrySessions = buildTelemetryProductSessions(telemetryRows, rangeStart, rangeEnd);
+
   const summary = buildSummary(classified, bucket, machineInfo.targetSpeed);
-  const productNotes = buildProductNotes(orders, classified, rangeStart, rangeEnd, new Date());
+  const productNotes = buildProductNotes(
+    telemetrySessions,
+    machineInfo.productName,
+    orders,
+    classified,
+    rangeStart,
+    rangeEnd,
+    new Date()
+  );
 
   return {
     points,

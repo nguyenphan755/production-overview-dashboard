@@ -21,7 +21,7 @@ export function EquipmentSpeedProductNotes({
     return (
       <div className="mb-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-white/50">
         <Package className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5 text-white/40" />
-        Chưa có PO chồng lấn trong cửa sổ OEE — không suy ra được sản phẩm / tốc độ chuyên môn.
+        Chưa có snapshot sản phẩm trên máy trong cửa sổ OEE — không suy ra được sản phẩm / tốc độ chuyên môn.
       </div>
     );
   }
@@ -31,7 +31,7 @@ export function EquipmentSpeedProductNotes({
       <div className="flex items-center gap-2 mb-2">
         <Package className="w-4 h-4 speed-accent-purple" strokeWidth={2.5} />
         <h3 className="text-sm speed-text-soft font-medium">
-          Sản phẩm &amp; tốc độ chuyên môn (theo PO)
+          Sản phẩm &amp; tốc độ chuyên môn (theo snapshot máy)
         </h3>
       </div>
       <div className="space-y-2">

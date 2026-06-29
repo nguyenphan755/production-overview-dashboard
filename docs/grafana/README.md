@@ -1,22 +1,12 @@
 # Grafana POC — Setup & chạy thử
 
-Dashboard **Equipment Detail** và **Speed Lab** được embed trong MES qua iframe Grafana.
+> **Hướng dẫn đầy đủ (sử dụng + cài trên PC khác):** [`HUONG_DAN_SU_DUNG.md`](HUONG_DAN_SU_DUNG.md)
 
-## Embed trong MES (đã bật)
+Dashboard Grafana **bổ sung** (không thay thế UI MES). Tab Equipment Detail và Speed Lab giữ nguyên giao diện MES; có thêm nút **Mở Grafana** mở dashboard tương ứng trong tab mới.
 
-- Tab **Equipment Detail** → dashboard `mes-equipment-detail`
-- Tab **Speed Lab** → dashboard `mes-speed-lab`
-- Env frontend: `VITE_GRAFANA_URL=http://localhost:3000` (xem `frontend/.env.production.example`)
-- Legacy React charts: `frontend/src/components/tabs/*.legacy.tsx`
-
-Sinh lại dashboard JSON sau khi sửa SQL/layout:
-
-```powershell
-node scripts/build-grafana-dashboards.mjs
-docker compose -f docker-compose.grafana.yml restart grafana
-```
-
-Dashboard song song với Speed Lab / Equipment Details (POC gốc vẫn giữ `mes-speed-lab-poc`).
+- Equipment Detail → `mes-equipment-detail`
+- Speed Lab → `mes-speed-lab`
+- Env frontend: `VITE_GRAFANA_URL=http://localhost:3000`
 
 ## 1. Tạo user read-only (khuyến nghị production)
 
