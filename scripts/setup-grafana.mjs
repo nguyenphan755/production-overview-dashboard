@@ -178,6 +178,8 @@ function syncFrontendGrafanaUrl(port) {
   }
   return grafanaUrl;
 }
+
+function printPortConflictHelp(port, occupants) {
   console.error(`\n❌ Port ${port} đã được dùng bởi: ${occupants.join(', ')}`);
   console.error('\nChọn một trong các cách sau:\n');
   console.error('  1) Dùng Grafana đang chạy (nếu đã là mes-grafana-poc):');
