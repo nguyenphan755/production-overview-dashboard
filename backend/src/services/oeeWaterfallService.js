@@ -1,5 +1,4 @@
 import { query } from '../../database/connection.js';
-import { getMachineSpeedHistory } from './oeeSpeedHistoryService.js';
 
 const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const DTL_THRESHOLD_SEC = 300;
@@ -144,6 +143,30 @@ async function fetchSnapshotSpeed(machineId, rangeEnd) {
   };
 }
 
+/** Lightweight ILS study — one aggregate query instead of full speed-history pipeline. */
+async function fetchStableSpeedSummary(machineId, rangeStart, rangeEnd) {
+  const result = await query(
+    `SELECT
+       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY actual_speed)
+         FILTER (WHERE actual_speed >= 1)::float AS stable_median,
+       (ARRAY_AGG(target_speed ORDER BY calculation_timestamp DESC)
+         FILTER (WHERE target_speed > 0))[1]::float AS last_target
+     FROM oee_calculations
+     WHERE machine_id = $1
+       AND calculation_timestamp >= $2
+       AND calculation_timestamp <= $3`,
+    [machineId, rangeStart, rangeEnd]
+  );
+  const row = result.rows[0];
+  if (!row) return { stableRunningMedian: null, currentTargetSpeed: null };
+  const stable = row.stable_median != null ? parseFloat(row.stable_median) : null;
+  const target = row.last_target != null ? parseFloat(row.last_target) : null;
+  return {
+    stableRunningMedian: stable != null && Number.isFinite(stable) ? Math.round(stable * 100) / 100 : null,
+    currentTargetSpeed: target != null && Number.isFinite(target) ? Math.round(target * 100) / 100 : null,
+  };
+}
+
 function aggregateBreakdown(clipped, potSec) {
   const breakdownAgg = {};
   for (const seg of clipped) {
@@ -198,12 +221,15 @@ export async function queryOeeWaterfall(machineId, rangeStart, rangeEnd) {
   const potSec = Math.max(1, (rangeEnd.getTime() - rangeStart.getTime()) / 1000);
   const pstSec = 0;
 
-  const [machineRow, rawSegments, lengthInfo, snapshot, speedHistory] = await Promise.all([
+  const [machineRow, rawSegments, lengthInfo, snapshot, speedSummary] = await Promise.all([
     fetchMachine(machineId),
     fetchStatusSegments(machineId, rangeStart, rangeEnd),
     fetchLengthTotal(machineId, rangeStart, rangeEnd),
     fetchSnapshotSpeed(machineId, rangeEnd),
-    getMachineSpeedHistory(machineId, rangeStart, rangeEnd, 60).catch(() => null),
+    fetchStableSpeedSummary(machineId, rangeStart, rangeEnd).catch(() => ({
+      stableRunningMedian: null,
+      currentTargetSpeed: null,
+    })),
   ]);
 
   const clipped = clipSegments(rawSegments, rangeStart, rangeEnd, reportNowMs);
@@ -232,9 +258,9 @@ export async function queryOeeWaterfall(machineId, rangeStart, rangeEnd) {
   const ilsPlan =
     parseFloat(machineRow.target_speed || 0) > 0
       ? parseFloat(machineRow.target_speed)
-      : speedHistory?.summary?.currentTargetSpeed ?? null;
+      : speedSummary?.currentTargetSpeed ?? null;
 
-  const ilsStudy = speedHistory?.summary?.stableRunningMedian ?? null;
+  const ilsStudy = speedSummary?.stableRunningMedian ?? null;
 
   const notPlanSec = notSecFromL(lTotalM, ilsPlan);
   const notStudySec = notSecFromL(lTotalM, ilsStudy);

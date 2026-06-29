@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '../services/api';
 import type { SpeedHistoryResponse } from '../utils/equipment-speed-analysis-chart';
 
@@ -22,6 +22,7 @@ type UseEquipmentSpeedHistoryResult = {
   data: SpeedHistoryPayload | null;
   loading: boolean;
   error: string | null;
+  refetch: () => void;
 };
 
 export function useEquipmentSpeedHistory({
@@ -37,8 +38,12 @@ export function useEquipmentSpeedHistory({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
+  const inFlightRef = useRef(false);
+  const [tick, setTick] = useState(0);
   const queryRef = useRef({ queryStart, queryEnd, chartWindowEnd, bucketSec, rangeKey, pollMs });
   queryRef.current = { queryStart, queryEnd, chartWindowEnd, bucketSec, rangeKey, pollMs };
+
+  const refetch = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     if (!machineId) {
@@ -55,6 +60,9 @@ export function useEquipmentSpeedHistory({
     const ac = new AbortController();
 
     const fetchSpeedHistory = async (isPoll = false) => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+
       const q = queryRef.current;
       if (!isPoll) setLoading(true);
 
@@ -89,6 +97,7 @@ export function useEquipmentSpeedHistory({
         console.error('Error fetching speed history:', err);
         setError(err instanceof Error ? err.message : 'Lỗi mạng');
       } finally {
+        inFlightRef.current = false;
         if (!ac.signal.aborted && seq === requestSeqRef.current) {
           setLoading(false);
         }
@@ -108,7 +117,7 @@ export function useEquipmentSpeedHistory({
       clearInterval(interval);
       ac.abort();
     };
-  }, [machineId, rangeKey, pollMs]);
+  }, [machineId, rangeKey, pollMs, tick]);
 
-  return { data, loading, error };
+  return { data, loading, error, refetch };
 }

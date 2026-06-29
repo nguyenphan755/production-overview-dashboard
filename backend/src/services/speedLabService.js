@@ -79,7 +79,7 @@ async function fetchRawRows(machineId, rangeStart, rangeEnd, limit) {
   }));
 }
 
-/** Full-range lightweight series for Gantt / segments (no row cap — 3 ca ≈ 86k rows). */
+/** Full-range lightweight series — only used when includeRaw=false and segment inference needed. */
 async function fetchSegmentSeries(machineId, rangeStart, rangeEnd) {
   const result = await query(
     `SELECT
@@ -278,13 +278,12 @@ export async function querySpeedLab(
 
   await assertMachineExists(machineId);
 
-  const [bucketRows, rawRows, segmentSeries] = await Promise.all([
+  const [bucketRows, rawRows] = await Promise.all([
     fetchBuckets(machineId, rangeStart, rangeEnd, bucket),
     includeRaw ? fetchRawRows(machineId, rangeStart, rangeEnd, limitN) : Promise.resolve([]),
-    includeRaw ? fetchSegmentSeries(machineId, rangeStart, rangeEnd) : Promise.resolve([]),
   ]);
 
-  const analysisRows = segmentSeries.length ? segmentSeries : rawRows;
+  const analysisRows = rawRows.length ? rawRows : bucketRows;
   const summary = buildSummaryFromRaw(analysisRows, bucketRows);
 
   const buckets = bucketRows.map((b) => ({
@@ -312,11 +311,10 @@ export async function querySpeedLab(
       windowStart: rangeStart.toISOString(),
       windowEnd: rangeEnd.toISOString(),
       dataEnd: rangeEnd.toISOString(),
-      rawRowCount: segmentSeries.length || rawRows.length,
+      rawRowCount: rawRows.length,
       bucketCount: buckets.length,
       timezone: LAB_TIMEZONE,
       rawLimitApplied: includeRaw ? limitN : null,
-      segmentRowCount: segmentSeries.length || null,
     },
     summary,
     buckets,

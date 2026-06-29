@@ -72,7 +72,16 @@ export function SpeedLab({
   pastIsoShiftNumber,
   onPastIsoShiftNumberChange,
 }: SpeedLabProps) {
+  const [bucketSecInput, setBucketSecInput] = useState(30);
   const [bucketSec, setBucketSec] = useState(30);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = Math.min(3600, Math.max(5, bucketSecInput || 30));
+      setBucketSec(next);
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [bucketSecInput]);
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
 
   const machineNameById = useMemo(() => {
@@ -169,11 +178,6 @@ export function SpeedLab({
     enabled: !machinesLoading && Boolean(selectedMachineId),
   });
 
-  const refetchAll = useCallback(() => {
-    refetchDetail();
-    refetchWaterfall();
-  }, [refetchDetail, refetchWaterfall]);
-
   const speedHistoryFetchKey = useMemo(
     () =>
       `${equipmentOeeMode}|${referenceDate}|${pastIsoShiftNumber}|${speedQuery.queryStart.toISOString()}|${speedQuery.chartWindowEnd.toISOString()}|${speedQuery.bucketSec}|refs|${selectedMachineId}`,
@@ -197,6 +201,12 @@ export function SpeedLab({
     bucketSec: speedQuery.bucketSec,
     rangeKey: speedHistoryFetchKey,
   });
+
+  const refetchAll = useCallback(() => {
+    refetchDetail();
+    refetchWaterfall();
+    speedHistory.refetch();
+  }, [refetchDetail, refetchWaterfall, speedHistory.refetch]);
 
   const activeSpeedHistory = useMemo(() => {
     if (!speedHistory.data || speedHistory.data.rangeKey !== speedHistoryFetchKey) return null;
@@ -401,8 +411,8 @@ export function SpeedLab({
             min={5}
             max={300}
             step={5}
-            value={bucketSec}
-            onChange={(e) => setBucketSec(Number(e.target.value) || 30)}
+            value={bucketSecInput}
+            onChange={(e) => setBucketSecInput(Number(e.target.value) || 30)}
             className="speed-lab-input-narrow"
           />
         </label>

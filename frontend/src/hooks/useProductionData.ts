@@ -236,12 +236,14 @@ export function useProductionAreas() {
 // Hook for all machines
 export function useMachines(
   areaId?: string,
-  options?: { activeTab?: string }
+  options?: { activeTab?: string; machineDetailOpen?: boolean }
 ) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const pollMs = getFleetPollIntervalMs(options?.activeTab);
+  const pollMs = getFleetPollIntervalMs(options?.activeTab, {
+    machineDetailOpen: options?.machineDetailOpen,
+  });
 
   const machineIdsKey = useMemo(
     () =>
@@ -353,10 +355,12 @@ export function useMachineDetail(machineId: string | null) {
     }
 
     let mounted = true;
-
     let isInitialLoad = true;
-    
+    let inFlight = false;
+
     const fetchMachine = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         // Only show loading on initial load, not on polling
         if (isInitialLoad) {
@@ -396,6 +400,7 @@ export function useMachineDetail(machineId: string | null) {
           setError(err instanceof Error ? err.message : 'Unknown error');
         }
       } finally {
+        inFlight = false;
         if (mounted) {
           setLoading(false);
         }

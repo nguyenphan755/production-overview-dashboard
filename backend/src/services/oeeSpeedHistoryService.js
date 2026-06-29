@@ -532,7 +532,12 @@ export async function getMachineSpeedHistory(machineId, rangeStart, rangeEnd, bu
     throw new Error('Requested time range exceeds 31 days');
   }
 
-  const bucket = Math.min(Math.max(parseInt(String(bucketSec), 10) || 60, 10), 3600);
+  let bucket = Math.min(Math.max(parseInt(String(bucketSec), 10) || 60, 10), 3600);
+  const spanSec = (rangeEnd.getTime() - rangeStart.getTime()) / 1000;
+  const MAX_BUCKETS = 4000;
+  while (spanSec > 0 && spanSec / bucket > MAX_BUCKETS && bucket < 3600) {
+    bucket = Math.min(3600, bucket * 2);
+  }
 
   const [machineInfo, segments, orders] = await Promise.all([
     fetchMachineArea(machineId),

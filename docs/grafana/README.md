@@ -76,6 +76,8 @@ Xem [`POC_SCENARIOS.md`](POC_SCENARIOS.md). Dùng quick links trên dashboard ho
 | `node scripts/build-grafana-dashboards.mjs` | Sinh `mes-equipment-detail.json` + `mes-speed-lab.json` |
 | `node scripts/measure-speed-lab-baseline.mjs [--machine SH-08]` | Đo latency API MES |
 | `node scripts/measure-grafana-query-baseline.mjs [--machine SH-08]` | Đo SQL panel Grafana |
+
+Xem [`docs/guides/EQUIPMENT_SPEED_LAB_QUERY_OPTIMIZATION.md`](../guides/EQUIPMENT_SPEED_LAB_QUERY_OPTIMIZATION.md) — rà soát truy vấn Equipment Detail & Speed Lab.
 | `node backend/scripts/report-oee-calculations-volume.mjs` | Báo cáo retention |
 
 ## Troubleshooting

@@ -42,9 +42,13 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
   const [activeTab, setActiveTab] = useState("production");
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
 
   // Keep bobbin detector running for all production lines globally.
-  const { machines, loading: machinesLoading } = useMachines(undefined, { activeTab });
+  const { machines, loading: machinesLoading } = useMachines(undefined, {
+    activeTab,
+    machineDetailOpen: selectedMachineId != null,
+  });
   useBobbinCutDetectorForFleet(machines);
 
   // Error boundary - catch any rendering errors
@@ -70,7 +74,6 @@ export default function Dashboard({ onLogout, user, token }: DashboardProps) {
     };
   }, []);
 
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [equipmentOeeMode, setEquipmentOeeMode] = useState<EquipmentOeeMode>("realtime");
   const initCompletedShift = useMemo(() => getLastCompletedShiftSelection(), []);
   const [referenceDate, setReferenceDate] = useState(initCompletedShift.shiftDate);
