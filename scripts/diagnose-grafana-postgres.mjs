@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Verify Grafana → Postgres and sample dashboard queries.
- * Usage: node scripts/diagnose-grafana-postgres.mjs [--grafana-url http://localhost:3002] [--machine SH-05]
+ * Verify Grafana → Postgres and explain empty dashboards.
+ * Usage: node scripts/diagnose-grafana-postgres.mjs [--grafana-url http://localhost:3002] [--machine D-01]
  */
 
 import { readFileSync, existsSync } from 'fs';
@@ -9,6 +9,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const TZ_TS = `(calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')`;
 
 function loadEnv(path) {
   if (!existsSync(path)) return {};
@@ -31,13 +32,16 @@ function parseArgs() {
   return opts;
 }
 
-async function grafanaQuery(baseUrl, rawSql, format = 'table', rangeMs = 24 * 3600_000) {
-  const auth = Buffer.from('admin:admin').toString('base64');
-  const to = Date.now();
-  const from = to - rangeMs;
+function authHeader() {
+  return { Authorization: `Basic ${Buffer.from('admin:admin').toString('base64')}` };
+}
+
+async function grafanaQuery(baseUrl, rawSql, format = 'table', fromMs, toMs) {
+  const to = toMs ?? Date.now();
+  const from = fromMs ?? to - 24 * 3600_000;
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/ds/query`, {
     method: 'POST',
-    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+    headers: { ...authHeader(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: String(from),
       to: String(to),
@@ -57,74 +61,183 @@ async function grafanaQuery(baseUrl, rawSql, format = 'table', rangeMs = 24 * 36
   return r.frames?.[0];
 }
 
+function frameScalar(frame) {
+  const v = frame?.data?.values?.[0]?.[0];
+  return v == null ? null : Number(v);
+}
+
+function frameRows(frame) {
+  return frame?.data?.values?.[0]?.length ?? 0;
+}
+
 async function main() {
   const opts = parseArgs();
   const grafanaEnv = loadEnv(join(root, 'grafana', '.env'));
+  const backendEnv = loadEnv(join(root, 'backend', '.env'));
   const baseUrl = opts.grafanaUrl || grafanaEnv.GRAFANA_URL || 'http://localhost:3002';
   const machine = opts.machine;
 
   console.log('═══════════════════════════════════════════');
   console.log(' Grafana ↔ Postgres diagnostic');
   console.log('═══════════════════════════════════════════');
-  console.log(` Grafana:  ${baseUrl}`);
-  console.log(` Machine:  ${machine}`);
+  console.log(` Grafana:   ${baseUrl}`);
+  console.log(` Machine:   ${machine}`);
+  console.log(` DB pass:   ${backendEnv.DB_PASSWORD ? `backend/.env (${backendEnv.DB_PASSWORD.length} chars)` : '⚠️  thiếu DB_PASSWORD'}`);
   console.log('');
 
   try {
     const health = await fetch(`${baseUrl}/api/health`);
-    console.log(health.ok ? '✅ Grafana health OK' : `❌ Grafana health HTTP ${health.status}`);
+    console.log(health.ok ? '✅ Grafana UI health OK' : `❌ Grafana health HTTP ${health.status}`);
   } catch (e) {
     console.error(`❌ Cannot reach Grafana: ${e.message}`);
     process.exit(1);
   }
 
-  const dsRes = await fetch(`${baseUrl}/api/datasources/uid/mes-postgres`, {
-    headers: { Authorization: `Basic ${Buffer.from('admin:admin').toString('base64')}` },
-  });
+  const dsRes = await fetch(`${baseUrl}/api/datasources/uid/mes-postgres`, { headers: authHeader() });
   if (!dsRes.ok) {
-    console.error('❌ Datasource mes-postgres not found — run: node scripts/render-grafana-datasource.mjs && docker restart mes-grafana-poc');
+    console.error('❌ Datasource mes-postgres không có — chạy:');
+    console.error('   node scripts/render-grafana-datasource.mjs');
+    console.error('   docker restart mes-grafana-poc');
     process.exit(1);
   }
   const ds = await dsRes.json();
   console.log(`✅ Datasource: ${ds.name} → ${ds.url} db=${ds.jsonData?.database}`);
 
-  const TS = `(calculation_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AT TIME ZONE 'UTC')`;
-  const tests = [
-    {
-      label: 'Samples in range (COUNT)',
-      format: 'table',
-      sql: `SELECT COUNT(*)::bigint AS n FROM oee_calculations WHERE machine_id='${machine}' AND $__timeFilter(${TS})`,
-    },
-    {
-      label: 'Peak speed (MAX)',
-      format: 'table',
-      sql: `SELECT COALESCE(MAX(actual_speed), 0) AS peak FROM oee_calculations WHERE machine_id='${machine}' AND $__timeFilter(${TS})`,
-    },
-    {
-      label: 'Speed trend (bucket 30s, UTC-aligned)',
-      format: 'time_series',
-      sql: `SELECT to_timestamp(floor(extract(epoch from ${TS}) / 30) * 30) AS time,
-        AVG(actual_speed) AS "Actual speed"
-       FROM oee_calculations
-       WHERE $__timeFilter(${TS}) AND machine_id='${machine}'
-       GROUP BY 1 ORDER BY 1`,
-    },
+  try {
+    const hRes = await fetch(`${baseUrl}/api/datasources/${ds.id}/health`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const h = await hRes.json();
+    const ok = hRes.ok && (h.status === 'OK' || h.message === 'Database Connection OK');
+    console.log(ok ? '✅ Datasource Save & test: OK' : `❌ Datasource test failed: ${h.message || h.status || hRes.status}`);
+    if (!ok) {
+      console.log('\n→ Sửa backend/.env DB_PASSWORD (mỗi PC khác nhau), rồi:');
+      console.log('   node scripts/render-grafana-datasource.mjs');
+      console.log('   docker restart mes-grafana-poc');
+      process.exit(1);
+    }
+  } catch (e) {
+    console.warn(`⚠️  Không test được datasource health: ${e.message}`);
+  }
+
+  const now = Date.now();
+  const ranges = [
+    { label: '24 giờ qua', ms: 24 * 3600_000 },
+    { label: '7 ngày qua', ms: 7 * 24 * 3600_000 },
   ];
 
-  for (const t of tests) {
+  console.log('\n--- Dữ liệu oee_calculations ---');
+  for (const r of ranges) {
     try {
-      const frame = await grafanaQuery(baseUrl, t.sql, t.format);
-      const fields = frame?.schema?.fields?.map((f) => f.name) ?? [];
-      const n = frame?.data?.values?.[0]?.length ?? 0;
-      const preview = frame?.data?.values?.map((col) => col.slice(0, 2));
-      console.log(`✅ ${t.label}: fields=[${fields.join(', ')}] rows=${n} sample=${JSON.stringify(preview)}`);
+      const frame = await grafanaQuery(
+        baseUrl,
+        `SELECT COUNT(*)::bigint AS n FROM oee_calculations WHERE machine_id='${machine}' AND $__timeFilter(${TZ_TS})`,
+        'table',
+        now - r.ms,
+        now,
+      );
+      console.log(`  ${machine} · ${r.label}: ${frameScalar(frame) ?? 0} mẫu`);
     } catch (e) {
-      console.log(`❌ ${t.label}: ${e.message}`);
+      console.log(`  ${machine} · ${r.label}: ❌ ${e.message}`);
     }
   }
 
-  console.log('\nNếu COUNT > 0 nhưng trend = 0 rows → đổi time range trên dashboard (Last 24h).');
-  console.log('Nếu tất cả ❌ connection → kiểm tra backend/.env DB_PASSWORD + Postgres listen + host.docker.internal');
+  try {
+    const latest = await grafanaQuery(
+      baseUrl,
+      `SELECT MAX(calculation_timestamp) AS t FROM oee_calculations WHERE machine_id='${machine}'`,
+      'table',
+      now - 365 * 24 * 3600_000,
+      now,
+    );
+    const t = latest?.data?.values?.[0]?.[0];
+    console.log(`  ${machine} · mẫu mới nhất trong DB: ${t ?? '(không có)'}`);
+  } catch (e) {
+    console.log(`  Không đọc được latest timestamp: ${e.message}`);
+  }
+
+  try {
+    const top = await grafanaQuery(
+      baseUrl,
+      `SELECT machine_id, COUNT(*)::bigint AS n, MAX(calculation_timestamp) AS latest
+       FROM oee_calculations
+       WHERE $__timeFilter(${TZ_TS})
+       GROUP BY machine_id
+       ORDER BY n DESC
+       LIMIT 5`,
+      'table',
+      now - 24 * 3600_000,
+      now,
+    );
+    const ids = top?.data?.values?.[0] ?? [];
+    if (ids.length) {
+      console.log('\n  Máy có dữ liệu trong 24h qua (top 5):');
+      for (let i = 0; i < ids.length; i += 1) {
+        console.log(`    - ${ids[i]}: ${top.data.values[1][i]} mẫu, latest ${top.data.values[2][i]}`);
+      }
+    } else {
+      console.log('\n  ⚠️  Không máy nào có oee_calculations trong 24h qua.');
+    }
+  } catch (e) {
+    console.log(`\n  Không liệt kê được máy: ${e.message}`);
+  }
+
+  console.log('\n--- Query giống dashboard Speed Lab (24h) ---');
+  try {
+    const count = await grafanaQuery(
+      baseUrl,
+      `SELECT COUNT(*)::bigint AS n FROM oee_calculations WHERE machine_id='${machine}' AND $__timeFilter(${TZ_TS})`,
+      'table',
+      now - 24 * 3600_000,
+      now,
+    );
+    const peak = await grafanaQuery(
+      baseUrl,
+      `SELECT COALESCE(MAX(actual_speed), 0) AS peak FROM oee_calculations WHERE machine_id='${machine}' AND $__timeFilter(${TZ_TS})`,
+      'table',
+      now - 24 * 3600_000,
+      now,
+    );
+    const trend = await grafanaQuery(
+      baseUrl,
+      `SELECT to_timestamp(floor(extract(epoch from ${TZ_TS}) / 30) * 30) AS time,
+        AVG(actual_speed) AS "Actual speed"
+       FROM oee_calculations
+       WHERE $__timeFilter(${TZ_TS}) AND machine_id='${machine}'
+       GROUP BY 1 ORDER BY 1`,
+      'time_series',
+      now - 24 * 3600_000,
+      now,
+    );
+    const n = frameScalar(count);
+    const p = frameScalar(peak);
+    const pts = frameRows(trend);
+    console.log(`  Samples: ${n ?? 0} | Peak: ${p ?? 0} | Chart points: ${pts}`);
+
+    console.log('\n═══════════════════════════════════════════');
+    if ((n ?? 0) === 0) {
+      console.log(' KẾT LUẬN: Postgres OK nhưng KHÔNG CÓ DỮ LIỆU trong cửa sổ thời gian.');
+      console.log('═══════════════════════════════════════════');
+      console.log(' 1) Trên Grafana: đổi time range → Last 7 days');
+      console.log(' 2) Chọn máy có dữ liệu (xem danh sách top 5 ở trên)');
+      console.log(' 3) Nút Mở Grafana từ MES truyền ca/ngày — nếu ca đó không có telemetry → trống');
+      console.log(' 4) Kiểm tra backend MES đang ghi oee_calculations (tab Speed Lab có chart không?)');
+    } else if (pts === 0) {
+      console.log(' KẾT LUẬN: Có mẫu nhưng chart trống → rebuild dashboard.');
+      console.log('═══════════════════════════════════════════');
+      console.log('   node scripts/build-grafana-dashboards.mjs');
+      console.log('   docker restart mes-grafana-poc');
+    } else {
+      console.log(' KẾT LUẬN: Dữ liệu OK — nếu UI vẫn trống, hard-refresh (Ctrl+Shift+R)');
+      console.log('           hoặc time range trên dashboard quá hẹp (Last 5 minutes).');
+      console.log('═══════════════════════════════════════════');
+    }
+  } catch (e) {
+    console.log(`❌ Query dashboard failed: ${e.message}`);
+    console.log('\n→ Chạy lại: node scripts/build-grafana-dashboards.mjs && docker restart mes-grafana-poc');
+  }
 }
 
 main().catch((e) => {
