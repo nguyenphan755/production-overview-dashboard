@@ -172,10 +172,12 @@ async function main() {
       now,
     );
     const ids = top?.data?.values?.[0] ?? [];
+    const counts = top?.data?.values?.[1] ?? [];
+    const latests = top?.data?.values?.[2] ?? [];
     if (ids.length) {
       console.log('\n  Máy có dữ liệu trong 24h qua (top 5):');
       for (let i = 0; i < ids.length; i += 1) {
-        console.log(`    - ${ids[i]}: ${top.data.values[1][i]} mẫu, latest ${top.data.values[2][i]}`);
+        console.log(`    - ${ids[i]}: ${counts[i] ?? '?'} mẫu, latest ${latests[i] ?? '?'}`);
       }
     } else {
       console.log('\n  ⚠️  Không máy nào có oee_calculations trong 24h qua.');
