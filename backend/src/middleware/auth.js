@@ -2,7 +2,24 @@
 
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const INSECURE_DEFAULT_SECRET = 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || INSECURE_DEFAULT_SECRET;
+
+// In production a real secret is mandatory: a known fallback lets anyone forge
+// tokens. Fail fast at boot instead of silently accepting forgeable tokens.
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === INSECURE_DEFAULT_SECRET) {
+    console.error(
+      '❌ FATAL: JWT_SECRET is missing or uses the insecure default in production.\n' +
+        '   Set a strong random value in backend/.env, e.g.\n' +
+        '   JWT_SECRET=' + 'change-me-to-64-random-hex-chars'
+    );
+    process.exit(1);
+  }
+  if (process.env.JWT_SECRET.length < 32) {
+    console.warn('⚠️  JWT_SECRET is shorter than 32 characters — use a longer random secret.');
+  }
+}
 
 /**
  * Verify JWT token from Authorization header

@@ -3,8 +3,10 @@
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
-  export default defineConfig({
+  export default defineConfig(({ mode }) => ({
     plugins: [react()],
+    // Strip console.*/debugger from production bundles (smaller JS, no log leaks).
+    esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : {},
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
@@ -53,9 +55,22 @@
       target: 'esnext',
       outDir: 'build',
       sourcemap: false,
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          // Split heavy vendors into long-term-cacheable chunks so a code change
+          // does not invalidate the entire vendor bundle for every user.
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-charts': ['chart.js', 'react-chartjs-2', 'chartjs-adapter-date-fns', 'chartjs-plugin-annotation'],
+            'vendor-recharts': ['recharts'],
+            'vendor-export': ['jspdf', 'pptxgenjs', 'html2canvas-pro', 'file-saver'],
+          },
+        },
+      },
     },
     server: {
       port: 5173,
       open: true,
     },
-  });
+  }));

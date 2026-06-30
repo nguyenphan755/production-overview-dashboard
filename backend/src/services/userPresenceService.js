@@ -80,7 +80,7 @@ export function getPresenceSnapshot() {
 
 export function startPresenceCleanup() {
   if (cleanupTimer) {
-    return;
+    return stopPresenceCleanup;
   }
 
   cleanupTimer = setInterval(() => {
@@ -90,4 +90,13 @@ export function startPresenceCleanup() {
       maybeBroadcastCount();
     }
   }, CLEANUP_INTERVAL_MS);
+
+  return stopPresenceCleanup;
+}
+
+export function stopPresenceCleanup() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
 }

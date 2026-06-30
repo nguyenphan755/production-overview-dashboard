@@ -35,14 +35,24 @@ export const broadcast = (event, data) => {
         sentCount++;
       } catch (error) {
         console.error('Error broadcasting to client:', error);
+        // Drop the dead client so the Set does not leak stale sockets.
+        clients.delete(client);
       }
+    } else if (client.readyState === 2 || client.readyState === 3) {
+      // CLOSING or CLOSED — remove so we never iterate dead sockets again.
+      clients.delete(client);
     }
   });
 
-  if (sentCount > 0) {
+  if (sentCount > 0 && process.env.NODE_ENV !== 'production') {
     console.log(`📡 Broadcasted ${event} to ${sentCount} client(s)`);
   }
 };
+
+/**
+ * Iterate clients (used by the heartbeat to terminate dead connections).
+ */
+export const getClients = () => clients;
 
 /**
  * Get number of connected clients

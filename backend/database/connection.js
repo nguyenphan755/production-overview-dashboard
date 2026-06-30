@@ -36,16 +36,29 @@ pool.on('error', (err) => {
   // Do not process.exit(-1): one bad client should not kill the app; pool can create new connections.
 });
 
+// Log every query only when explicitly enabled (DB_LOG_QUERIES=true).
+// Outside production we keep the verbose log for convenience; in production
+// we stay quiet but still surface slow queries to aid 3am debugging.
+const LOG_ALL_QUERIES = process.env.DB_LOG_QUERIES === 'true';
+const VERBOSE_QUERIES = LOG_ALL_QUERIES || process.env.NODE_ENV !== 'production';
+const SLOW_QUERY_MS = parseInt(process.env.DB_SLOW_QUERY_MS || '1000', 10);
+
 // Helper function to execute queries
 export const query = async (text, params) => {
   const start = Date.now();
   try {
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('Executed query', { text, duration, rows: res.rowCount });
+    if (VERBOSE_QUERIES) {
+      console.log('Executed query', { text, duration, rows: res.rowCount });
+    } else if (duration >= SLOW_QUERY_MS) {
+      // Keep slow queries visible even when verbose logging is off.
+      const preview = typeof text === 'string' ? text.replace(/\s+/g, ' ').slice(0, 120) : '';
+      console.warn(`🐢 Slow query ${duration}ms (rows=${res.rowCount}): ${preview}`);
+    }
     return res;
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('Database query error:', error.message || error);
     throw error;
   }
 };

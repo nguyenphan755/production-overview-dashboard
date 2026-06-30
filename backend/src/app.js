@@ -17,10 +17,10 @@ import reportsRouter from './routes/reports.js';
 import presenceRouter from './routes/presence.js';
 import bobbinCutsRouter from './routes/bobbinCuts.js';
 import speedLabRouter from './routes/speedLab.js';
-import { startPresenceCleanup } from './services/userPresenceService.js';
+import { startPresenceCleanup, stopPresenceCleanup } from './services/userPresenceService.js';
 import { startContinuousSync } from './services/availabilitySync.js';
 import { initializeCache } from './services/machineStatusCache.js';
-import { query } from '../database/connection.js';
+import pool, { query } from '../database/connection.js';
 import { startAnalyticsScheduler } from './services/analyticsService.js';
 import { startMachineLineTelemetrySampler } from './services/machineLineTelemetrySampler.js';
 
@@ -31,21 +31,29 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // WebSocket Server for real-time updates
-import { addClient, removeClient } from './websocket/broadcast.js';
+import { addClient, removeClient, getClients } from './websocket/broadcast.js';
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', (ws) => {
-  console.log('✅ WebSocket client connected');
+  if (process.env.NODE_ENV !== 'production') console.log('✅ WebSocket client connected');
   addClient(ws);
 
+  // Heartbeat: mark alive on pong; the interval below terminates stale sockets
+  // so dead connections (network drop, sleeping laptop) are cleaned up.
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   ws.on('close', () => {
-    console.log('❌ WebSocket client disconnected');
+    if (process.env.NODE_ENV !== 'production') console.log('❌ WebSocket client disconnected');
     removeClient(ws);
   });
 
   ws.on('error', (error) => {
-    console.error('❌ WebSocket error:', error);
+    console.error('❌ WebSocket error:', error.message || error);
+    removeClient(ws);
   });
 
   // Send welcome message
@@ -55,6 +63,21 @@ wss.on('connection', (ws) => {
     timestamp: new Date().toISOString(),
   }));
 });
+
+// Ping all clients periodically; terminate any that did not pong since last tick.
+const WS_HEARTBEAT_MS = parseInt(process.env.WS_HEARTBEAT_MS || '30000', 10);
+const wsHeartbeat = setInterval(() => {
+  for (const ws of getClients()) {
+    if (ws.isAlive === false) {
+      removeClient(ws);
+      try { ws.terminate(); } catch { /* already gone */ }
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { /* will be reaped next tick */ }
+  }
+}, WS_HEARTBEAT_MS);
+wsHeartbeat.unref?.();
 
 // Middleware - CORS configuration for remote access support
 const getCorsOrigin = () => {
@@ -97,18 +120,39 @@ console.log(`   CORS allows all origins: ${corsOptions.origin === true}`);
 
 app.use(cors(corsOptions));
 
-// Debug middleware - log all requests (helpful for CORS debugging)
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
-  next();
-});
+// Debug middleware - log all requests (helpful for CORS debugging).
+// Disabled in production (set LOG_REQUESTS=true to force on) to cut log volume
+// and per-request I/O under load.
+if (process.env.NODE_ENV !== 'production' || process.env.LOG_REQUESTS === 'true') {
+  app.use((req, res, next) => {
+    console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+    next();
+  });
+}
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '2mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 
-// Health check
+// Liveness: process is up (fast, no dependencies). Use for "is the app running".
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Readiness: verifies the database is actually reachable. Use this for load
+// balancers / monitors so a DB outage is not reported as "healthy".
+app.get('/health/ready', async (req, res) => {
+  try {
+    await query('SELECT 1');
+    res.json({ status: 'ready', db: 'ok', timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(503).json({
+      status: 'not_ready',
+      db: 'error',
+      message: err.message || 'database unavailable',
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // Root route - API information
@@ -196,10 +240,13 @@ server.on('error', (err) => {
   throw err;
 });
 
+// Stop handles for background schedulers, drained on graceful shutdown.
+const stopHandles = [];
+
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
-  console.log(`💚 Health check: http://localhost:${PORT}/health`);
+  console.log(`💚 Health check: http://localhost:${PORT}/health (liveness), /health/ready (DB)`);
   console.log(`🔌 WebSocket server available at ws://localhost:${PORT}/ws`);
   console.log(`🌐 Server accessible from remote machines (Tailscale/VPN)`);
   
@@ -213,17 +260,73 @@ server.listen(PORT, '0.0.0.0', async () => {
   const SYNC_INTERVAL_SECONDS = parseInt(process.env.AVAILABILITY_SYNC_INTERVAL || '30', 10);
   const USE_SHIFT_BASED = process.env.AVAILABILITY_USE_SHIFTS !== 'false'; // Default to true
   
-  startContinuousSync(SYNC_INTERVAL_SECONDS, USE_SHIFT_BASED);
+  stopHandles.push(startContinuousSync(SYNC_INTERVAL_SECONDS, USE_SHIFT_BASED));
   const syncType = USE_SHIFT_BASED ? 'shift-based (3 shifts: 06:00-14:00, 14:00-22:00, 22:00-06:00)' : 'rolling window';
   console.log(`🔄 Continuous availability synchronization started (interval: ${SYNC_INTERVAL_SECONDS}s, calculation: ${syncType})`);
 
   const ANALYTICS_REFRESH_SECONDS = parseInt(process.env.ANALYTICS_REFRESH_INTERVAL || '60', 10);
-  startAnalyticsScheduler({ ranges: ['shift', 'today'], intervalSeconds: ANALYTICS_REFRESH_SECONDS });
+  stopHandles.push(startAnalyticsScheduler({ ranges: ['shift', 'today'], intervalSeconds: ANALYTICS_REFRESH_SECONDS }));
   console.log(`🤖 Analytics cache scheduler started (interval: ${ANALYTICS_REFRESH_SECONDS}s)`);
 
-  startMachineLineTelemetrySampler();
+  stopHandles.push(startMachineLineTelemetrySampler());
 
-  startPresenceCleanup();
+  stopHandles.push(startPresenceCleanup());
   console.log('👥 User presence tracking started');
+});
+
+// ── Graceful shutdown ────────────────────────────────────────────────────────
+// On SIGTERM/SIGINT (PM2 reload, deploy, Ctrl+C): stop background timers, stop
+// accepting new connections, close WebSockets, drain the HTTP server, then end
+// the DB pool. Prevents dropped in-flight work and leaked connections/intervals.
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n🛑 ${signal} received — shutting down gracefully...`);
+
+  clearInterval(wsHeartbeat);
+  for (const stop of stopHandles) {
+    try { if (typeof stop === 'function') stop(); } catch (e) { console.error('stop handle error:', e?.message || e); }
+  }
+  try { stopPresenceCleanup(); } catch { /* noop */ }
+
+  // Close WebSocket connections.
+  for (const ws of getClients()) {
+    try { ws.close(1001, 'Server shutting down'); } catch { /* noop */ }
+  }
+  try { wss.close(); } catch { /* noop */ }
+
+  // Stop accepting new HTTP connections and wait for in-flight ones to finish.
+  const forceTimer = setTimeout(() => {
+    console.error('⚠️  Shutdown timed out — forcing exit.');
+    process.exit(1);
+  }, parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '10000', 10));
+  forceTimer.unref?.();
+
+  server.close(async () => {
+    try {
+      await pool.end();
+      console.log('✅ HTTP server closed and DB pool drained. Bye.');
+    } catch (e) {
+      console.error('Error draining DB pool:', e?.message || e);
+    } finally {
+      clearTimeout(forceTimer);
+      process.exit(0);
+    }
+  });
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Last-resort safety nets: log instead of dying silently. A repeatedly crashing
+// process is still restarted by PM2, but these prevent silent data loss.
+process.on('unhandledRejection', (reason) => {
+  console.error('🚨 Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('🚨 Uncaught exception:', err);
+  // Trigger a graceful shutdown; PM2 will restart a clean process.
+  gracefulShutdown('uncaughtException');
 });
 
