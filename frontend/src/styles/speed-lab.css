@@ -107,6 +107,62 @@
   text-transform: uppercase;
 }
 
+/* Date inputs — keep native calendar control; do NOT reuse select chevron overlay. */
+.speed-lab-date {
+  min-width: 220px;
+  border-radius: 8px;
+  background-color: #0a1e3a;
+  border: 1px solid rgba(79, 255, 188, 0.45);
+  padding: 0.55rem 0.75rem;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  cursor: pointer;
+  color-scheme: dark;
+  box-shadow:
+    0 0 0 1px rgba(79, 255, 188, 0.12) inset,
+    0 2px 8px rgba(0, 0, 0, 0.25);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.speed-lab-date:hover:not(:disabled) {
+  border-color: rgba(79, 255, 188, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(79, 255, 188, 0.2) inset,
+    0 0 12px rgba(79, 255, 188, 0.12);
+}
+
+.speed-lab-date:focus {
+  outline: none;
+  border-color: #4fffbc;
+  box-shadow:
+    0 0 0 2px rgba(79, 255, 188, 0.28),
+    0 0 0 1px rgba(79, 255, 188, 0.35) inset;
+}
+
+.speed-lab-date:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.speed-lab-date::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.95;
+  filter: invert(0.82) sepia(1) saturate(4) hue-rotate(118deg);
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.35rem;
+  padding: 0.2rem;
+}
+
+.speed-lab-date::-webkit-datetime-edit-fields-wrapper {
+  cursor: pointer;
+}
+
 .speed-lab-input-narrow {
   width: 5rem;
   border-radius: 8px;

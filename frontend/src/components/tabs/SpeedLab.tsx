@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Database, RefreshCw, ExternalLink } from 'lucide-react';
+import { Database, RefreshCw, ExternalLink, FileSpreadsheet } from 'lucide-react';
 import { EquipmentOeeToolbar } from '../EquipmentOeeToolbar';
 import { EquipmentSpeedProductNotes } from '../EquipmentSpeedProductNotes';
 import {
@@ -18,6 +18,11 @@ import {
   speedUnitForArea,
 } from '../../utils/equipment-speed-analysis-chart';
 import { hasSpeedLabChartOverlay } from '../../utils/speed-reference-chart-annotations';
+import { exportDowntimeReport } from '../../utils/export-downtime-report';
+import {
+  fetchDowntimeStopBlocksByDates,
+  fetchDowntimeStopBlocksByRange,
+} from '../../utils/fetch-downtime-stop-blocks';
 import {
   bucketFromApiBuckets,
   bucketFromRawRows,
@@ -33,6 +38,7 @@ import {
   machineDisplayName,
   totalSegmentDuration,
 } from '../../utils/speed-lab-format';
+import { formatYmdLocal } from '../../utils/shiftCalculator';
 import '../../styles/speed-lab.css';
 import '../../styles/equipment-speed-panel.css';
 
@@ -59,6 +65,16 @@ type SpeedLabProps = {
   onPastIsoShiftNumberChange: (n: 1 | 2 | 3) => void;
 };
 
+function openNativeDatePicker(input: HTMLInputElement) {
+  if (typeof input.showPicker === 'function') {
+    try {
+      input.showPicker();
+    } catch {
+      input.focus();
+    }
+  }
+}
+
 export function SpeedLab({
   machines,
   machinesLoading = false,
@@ -83,6 +99,11 @@ export function SpeedLab({
     return () => window.clearTimeout(handle);
   }, [bucketSecInput]);
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
+  const [exportingDowntime, setExportingDowntime] = useState(false);
+  const [downtimeExportError, setDowntimeExportError] = useState<string | null>(null);
+  const [downtimeExportMode, setDowntimeExportMode] = useState<'current' | 'custom'>('current');
+  const [exportFromDate, setExportFromDate] = useState(referenceDate);
+  const [exportToDate, setExportToDate] = useState(referenceDate);
 
   const machineNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -123,6 +144,12 @@ export function SpeedLab({
 
   const windowStartMs = speedQuery.chartWindowStart.getTime();
   const windowEndMs = speedQuery.chartWindowEnd.getTime();
+
+  useEffect(() => {
+    if (downtimeExportMode !== 'current') return;
+    setExportFromDate(formatYmdLocal(new Date(windowStartMs)));
+    setExportToDate(formatYmdLocal(new Date(Math.max(windowStartMs, windowEndMs - 60_000))));
+  }, [windowStartMs, windowEndMs, downtimeExportMode]);
 
   const rangeKey = useMemo(
     () =>
@@ -320,6 +347,70 @@ export function SpeedLab({
   const windowHours = ((windowEndMs - windowStartMs) / 3_600_000).toFixed(1);
   const selectedName = selectedMachineId ? machineLabel(selectedMachineId) : '—';
   const hasData = (detailData?.meta.rawRowCount ?? 0) > 0;
+
+  const handleExportDateInput = useCallback((event: React.MouseEvent<HTMLInputElement>) => {
+    openNativeDatePicker(event.currentTarget);
+  }, []);
+
+  const handleExportDowntime = useCallback(async () => {
+    if (!selectedMachineId) return;
+    setExportingDowntime(true);
+    setDowntimeExportError(null);
+    try {
+      const fetched =
+        downtimeExportMode === 'custom'
+          ? await fetchDowntimeStopBlocksByDates(selectedMachineId, exportFromDate, exportToDate)
+          : await fetchDowntimeStopBlocksByRange(
+              selectedMachineId,
+              new Date(windowStartMs),
+              new Date(windowEndMs)
+            );
+
+      if (!fetched.stopBlocks.length) {
+        throw new Error('Không có đoạn dừng ≥ 2 phút trong khoảng thời gian đã chọn.');
+      }
+
+      const rangeLabel =
+        downtimeExportMode === 'custom'
+          ? `Từ ngày ${exportFromDate} → ${exportToDate} (06:00 ICT, tối đa 31 ngày)`
+          : (shiftLabel ?? `Ca ${pastIsoShiftNumber} · ${referenceDate}`);
+
+      await exportDowntimeReport({
+        machineId: selectedMachineId,
+        machineName: selectedName,
+        selectedStartMs: fetched.rangeStart.getTime(),
+        selectedEndMs: fetched.rangeEnd.getTime(),
+        exportFromYmd:
+          downtimeExportMode === 'custom'
+            ? exportFromDate
+            : formatYmdLocal(new Date(windowStartMs)),
+        exportToYmd:
+          downtimeExportMode === 'custom'
+            ? exportToDate
+            : formatYmdLocal(new Date(Math.max(windowStartMs, windowEndMs - 60_000))),
+        shiftLabel: rangeLabel,
+        stopBlocks: fetched.stopBlocks,
+      });
+    } catch (error) {
+      console.error('Downtime Excel export failed:', error);
+      setDowntimeExportError(
+        error instanceof Error ? error.message : 'Không thể tạo file Excel. Vui lòng thử lại.'
+      );
+    } finally {
+      setExportingDowntime(false);
+    }
+  }, [
+    selectedMachineId,
+    selectedName,
+    windowStartMs,
+    windowEndMs,
+    shiftLabel,
+    downtimeExportMode,
+    exportFromDate,
+    exportToDate,
+    pastIsoShiftNumber,
+    referenceDate,
+  ]);
 
   const grafanaUrl = useMemo(() => {
     if (!selectedMachineId) return '';
@@ -641,14 +732,91 @@ export function SpeedLab({
                 </div>
               )}
 
-              {(detailData?.stopBlocks.length ?? 0) > 0 && (
-                <div className="speed-lab-section-block">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <h2 className="speed-lab-section-title m-0">Đoạn dừng (≥2 phút)</h2>
+              <div className="speed-lab-section-block">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <h2 className="speed-lab-section-title m-0">Đoạn dừng (≥2 phút)</h2>
+                  {(detailData?.stopBlocks.length ?? 0) > 0 ? (
                     <span className="speed-lab-chip text-[0.65rem]">
-                      {detailData!.stopBlocks.length}
+                      {detailData!.stopBlocks.length} trong khung đang xem
                     </span>
+                  ) : null}
+                </div>
+
+                <div className="speed-lab-panel p-3 mb-3 space-y-3">
+                  <p className="speed-lab-sub text-xs m-0">
+                    Xuất Excel theo từng ngày sản xuất (cùng nguồn raw như bảng bên dưới): mỗi ngày
+                    có bao nhiêu lần dừng, mỗi lần từ mấy giờ đến mấy giờ.
+                  </p>
+                  <div className="flex flex-wrap gap-4 text-sm text-white/85">
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="downtime-export-mode"
+                        checked={downtimeExportMode === 'current'}
+                        onChange={() => setDowntimeExportMode('current')}
+                      />
+                      Theo khung đang xem
+                    </label>
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="downtime-export-mode"
+                        checked={downtimeExportMode === 'custom'}
+                        onChange={() => setDowntimeExportMode('custom')}
+                      />
+                      Chọn từ ngày → đến ngày
+                    </label>
                   </div>
+                  {downtimeExportMode === 'custom' ? (
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label className="speed-lab-control min-w-[10rem]">
+                        <span className="speed-lab-field-label">Từ ngày (ICT)</span>
+                        <input
+                          type="date"
+                          className="speed-lab-date"
+                          value={exportFromDate}
+                          max={exportToDate}
+                          onClick={handleExportDateInput}
+                          onChange={(e) => setExportFromDate(e.target.value)}
+                        />
+                      </label>
+                      <label className="speed-lab-control min-w-[10rem]">
+                        <span className="speed-lab-field-label">Đến ngày (ICT)</span>
+                        <input
+                          type="date"
+                          className="speed-lab-date"
+                          value={exportToDate}
+                          min={exportFromDate}
+                          onClick={handleExportDateInput}
+                          onChange={(e) => setExportToDate(e.target.value)}
+                        />
+                      </label>
+                      <p className="speed-lab-sub text-xs m-0 pb-1">
+                        Mỗi ngày = 06:00 → 06:00 sáng hôm sau (ca sản xuất). Tối đa 31 ngày.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="speed-lab-sub text-xs m-0">
+                      Khung xuất: {fmtIctFull(windowStartMs)} → {fmtIctFull(windowEndMs)}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="speed-lab-btn secondary inline-flex items-center gap-1.5"
+                      onClick={handleExportDowntime}
+                      disabled={exportingDowntime || !selectedMachineId}
+                    >
+                      <FileSpreadsheet size={15} />
+                      {exportingDowntime ? 'Đang tạo Excel…' : 'Xuất Excel downtime'}
+                    </button>
+                  </div>
+                  {downtimeExportError ? (
+                    <p className="speed-lab-err text-xs m-0">{downtimeExportError}</p>
+                  ) : null}
+                </div>
+
+                {(detailData?.stopBlocks.length ?? 0) > 0 ? (
                   <table className="speed-lab-table speed-lab-panel">
                     <thead>
                       <tr>
@@ -669,8 +837,13 @@ export function SpeedLab({
                       ))}
                     </tbody>
                   </table>
-                </div>
-              )}
+                ) : (
+                  <p className="speed-lab-sub text-xs m-0">
+                    Không có đoạn dừng ≥ 2 phút trong khung đang xem — vẫn có thể xuất theo khoảng
+                    ngày tùy chọn.
+                  </p>
+                )}
+              </div>
 
               <div className="speed-lab-section-block">
                 <h2 className="speed-lab-section-title m-0 mb-1">Dữ liệu thô &amp; audit</h2>

@@ -85,6 +85,38 @@ Script là **idempotent**, chạy lại nhiều lần vẫn ổn:
 
 Sau khi xong, mở `http://<server-ip>/` trên trình duyệt.
 
+## 3.1 Sau `git pull` — tối ưu chart (Equipment / Speed Lab)
+
+Khi đã deploy rồi và chỉ cần kéo code mới + index DB + env poll:
+
+```powershell
+cd 'C:\apps\production-dashboard'   # đường dẫn repo trên PC nhà máy
+git pull origin main
+
+# Một lệnh: kiểm tra DB → index CONCURRENTLY → env → build FE → pm2 reload → benchmark
+powershell -ExecutionPolicy Bypass -File .\scripts\factory-post-pull.ps1
+```
+
+**Trước khi chạy lần đầu**, đảm bảo `backend\.env` có:
+
+- `DB_PASSWORD` đúng (nhà máy thường `Cadivi1975`)
+- `JWT_SECRET` chuỗi ngẫu nhiên ≥32 ký tự (bắt buộc khi `NODE_ENV=production`)
+
+Script tự thêm (nếu chưa có): `AVAILABILITY_SYNC_INTERVAL=60`, `VITE_POLL_MS_MACHINES=2000`, `VITE_POLL_MS_MACHINE_DETAIL=5000`.
+
+Chỉ index, không build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\factory-post-pull.ps1 -SkipBuild
+```
+
+Kiểm tra / đo lại:
+
+```powershell
+node scripts/check-factory-readiness.mjs
+node scripts/benchmark-chart-apis.mjs
+```
+
 ## 4. Lệnh thường dùng
 
 ### PM2 (backend)
