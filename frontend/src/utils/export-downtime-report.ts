@@ -1,6 +1,8 @@
 import { saveAs } from 'file-saver';
+import ExcelJS from 'exceljs';
 import type { SpeedLabStopBlock } from '../types/oee-analytics-lab';
 import { getProductionDayLabelDate } from './shiftCalculator';
+import { downtimeMinStopLabelVi } from '../constants/downtime-threshold';
 
 type DowntimeReportInput = {
   machineId: string;
@@ -253,9 +255,26 @@ function autoFitWorksheetColumns(sheet: import('exceljs').Worksheet, columnCount
   }
 }
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+  try {
+    saveAs(blob, filename);
+    return;
+  } catch {
+    // saveAs can fail after long async work — fallback to manual anchor click.
+  }
+  const blobUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = blobUrl;
+  anchor.download = filename;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+}
+
 export async function exportDowntimeReport(input: DowntimeReportInput): Promise<void> {
-  const { Workbook } = await import('exceljs');
-  const workbook = new Workbook();
+  const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Production Overview Dashboard';
   workbook.created = new Date();
   workbook.modified = new Date();
@@ -299,7 +318,7 @@ export async function exportDowntimeReport(input: DowntimeReportInput): Promise<
       'Ghi chú',
       input.shiftLabel,
       'Tiêu chí',
-      'Đoạn dừng ≥ 2 phút · dữ liệu raw oee_calculations (~1 Hz)',
+      'Đoạn dừng ' + downtimeMinStopLabelVi() + ' · dữ liệu raw oee_calculations (~1 Hz)',
     ],
     [
       'Thời gian xuất',
@@ -432,5 +451,6 @@ export async function exportDowntimeReport(input: DowntimeReportInput): Promise<
   const machinePart = safeFilePart(input.machineName || input.machineId) || 'machine';
   const fromPart = safeFilePart(input.exportFromYmd) || 'from';
   const toPart = safeFilePart(input.exportToYmd) || 'to';
-  saveAs(blob, `bao-cao-downtime-${machinePart}-${fromPart}_${toPart}-${timestamp}.xlsx`);
+  const filename = `bao-cao-downtime-${machinePart}-${fromPart}_${toPart}-${timestamp}.xlsx`;
+  triggerBlobDownload(blob, filename);
 }

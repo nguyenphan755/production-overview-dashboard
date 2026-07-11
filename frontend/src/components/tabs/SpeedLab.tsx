@@ -22,6 +22,7 @@ import { exportDowntimeReport } from '../../utils/export-downtime-report';
 import {
   fetchDowntimeStopBlocksByDates,
   fetchDowntimeStopBlocksByRange,
+  type DowntimeExportProgress,
 } from '../../utils/fetch-downtime-stop-blocks';
 import {
   bucketFromApiBuckets,
@@ -39,6 +40,7 @@ import {
   totalSegmentDuration,
 } from '../../utils/speed-lab-format';
 import { formatYmdLocal } from '../../utils/shiftCalculator';
+import { downtimeMinStopLabelVi } from '../../constants/downtime-threshold';
 import '../../styles/speed-lab.css';
 import '../../styles/equipment-speed-panel.css';
 
@@ -101,6 +103,7 @@ export function SpeedLab({
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [exportingDowntime, setExportingDowntime] = useState(false);
   const [downtimeExportError, setDowntimeExportError] = useState<string | null>(null);
+  const [downtimeExportProgress, setDowntimeExportProgress] = useState<string | null>(null);
   const [downtimeExportMode, setDowntimeExportMode] = useState<'current' | 'custom'>('current');
   const [exportFromDate, setExportFromDate] = useState(referenceDate);
   const [exportToDate, setExportToDate] = useState(referenceDate);
@@ -352,22 +355,40 @@ export function SpeedLab({
     openNativeDatePicker(event.currentTarget);
   }, []);
 
+  const handleDowntimeExportProgress = useCallback((progress: DowntimeExportProgress) => {
+    if (progress.phase === 'excel') {
+      setDowntimeExportProgress('Đang ghi file Excel…');
+      return;
+    }
+    setDowntimeExportProgress(
+      `Đang tải dữ liệu ngày ${progress.dayIndex}/${progress.dayTotal} (${progress.dayYmd})…`
+    );
+  }, []);
+
   const handleExportDowntime = useCallback(async () => {
     if (!selectedMachineId) return;
     setExportingDowntime(true);
     setDowntimeExportError(null);
+    setDowntimeExportProgress('Đang chuẩn bị…');
     try {
+      const fetchOptions = { onProgress: handleDowntimeExportProgress };
       const fetched =
         downtimeExportMode === 'custom'
-          ? await fetchDowntimeStopBlocksByDates(selectedMachineId, exportFromDate, exportToDate)
+          ? await fetchDowntimeStopBlocksByDates(
+              selectedMachineId,
+              exportFromDate,
+              exportToDate,
+              fetchOptions
+            )
           : await fetchDowntimeStopBlocksByRange(
               selectedMachineId,
               new Date(windowStartMs),
-              new Date(windowEndMs)
+              new Date(windowEndMs),
+              fetchOptions
             );
 
       if (!fetched.stopBlocks.length) {
-        throw new Error('Không có đoạn dừng ≥ 2 phút trong khoảng thời gian đã chọn.');
+        throw new Error(`Không có đoạn dừng ${downtimeMinStopLabelVi()} trong khoảng thời gian đã chọn.`);
       }
 
       const rangeLabel =
@@ -375,6 +396,7 @@ export function SpeedLab({
           ? `Từ ngày ${exportFromDate} → ${exportToDate} (06:00 ICT, tối đa 31 ngày)`
           : (shiftLabel ?? `Ca ${pastIsoShiftNumber} · ${referenceDate}`);
 
+      handleDowntimeExportProgress({ phase: 'excel' });
       await exportDowntimeReport({
         machineId: selectedMachineId,
         machineName: selectedName,
@@ -398,6 +420,7 @@ export function SpeedLab({
       );
     } finally {
       setExportingDowntime(false);
+      setDowntimeExportProgress(null);
     }
   }, [
     selectedMachineId,
@@ -410,6 +433,7 @@ export function SpeedLab({
     exportToDate,
     pastIsoShiftNumber,
     referenceDate,
+    handleDowntimeExportProgress,
   ]);
 
   const grafanaUrl = useMemo(() => {
@@ -734,7 +758,9 @@ export function SpeedLab({
 
               <div className="speed-lab-section-block">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <h2 className="speed-lab-section-title m-0">Đoạn dừng (≥2 phút)</h2>
+                  <h2 className="speed-lab-section-title m-0">
+                    Đoạn dừng ({downtimeMinStopLabelVi()})
+                  </h2>
                   {(detailData?.stopBlocks.length ?? 0) > 0 ? (
                     <span className="speed-lab-chip text-[0.65rem]">
                       {detailData!.stopBlocks.length} trong khung đang xem
@@ -808,9 +834,14 @@ export function SpeedLab({
                       disabled={exportingDowntime || !selectedMachineId}
                     >
                       <FileSpreadsheet size={15} />
-                      {exportingDowntime ? 'Đang tạo Excel…' : 'Xuất Excel downtime'}
+                      {exportingDowntime
+                        ? downtimeExportProgress ?? 'Đang tạo Excel…'
+                        : 'Xuất Excel downtime'}
                     </button>
                   </div>
+                  {downtimeExportProgress && exportingDowntime ? (
+                    <p className="speed-lab-sub text-xs m-0">{downtimeExportProgress}</p>
+                  ) : null}
                   {downtimeExportError ? (
                     <p className="speed-lab-err text-xs m-0">{downtimeExportError}</p>
                   ) : null}
@@ -839,7 +870,7 @@ export function SpeedLab({
                   </table>
                 ) : (
                   <p className="speed-lab-sub text-xs m-0">
-                    Không có đoạn dừng ≥ 2 phút trong khung đang xem — vẫn có thể xuất theo khoảng
+                    Không có đoạn dừng {downtimeMinStopLabelVi()} trong khung đang xem — vẫn có thể xuất theo khoảng
                     ngày tùy chọn.
                   </p>
                 )}
@@ -863,7 +894,7 @@ export function SpeedLab({
                     </div>
                   </div>
                   <div className="speed-lab-card compact">
-                    <div className="k">Đoạn dừng ≥2p</div>
+                    <div className="k">Đoạn dừng {downtimeMinStopLabelVi(true)}</div>
                     <div className="v">{detailData?.summary.stopSegmentCount ?? 0}</div>
                   </div>
                 </div>

@@ -1,6 +1,7 @@
 import type { SpeedLabStopBlock } from '../types/oee-analytics-lab';
+import { MIN_DOWNTIME_STOP_SEC } from '../constants/downtime-threshold';
 
-const MIN_STOP_SEC = 120;
+const MIN_STOP_SEC = MIN_DOWNTIME_STOP_SEC;
 const SPEED_RUN = 1;
 
 type SpeedPoint = {

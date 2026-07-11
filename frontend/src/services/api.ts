@@ -173,10 +173,12 @@ class APIClient {
     );
     
     try {
+      const bearer = readStoredAuthToken();
       const response = await fetch(url, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
+          ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
           ...options?.headers,
         },
       });

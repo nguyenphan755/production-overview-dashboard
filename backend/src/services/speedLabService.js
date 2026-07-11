@@ -3,7 +3,10 @@ import { query } from '../../database/connection.js';
 const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const DEFAULT_RAW_LIMIT = 30_000;
 const MAX_RAW_LIMIT = 90_000;
-const MIN_STOP_SEC = 120;
+const MIN_STOP_SEC = Math.max(
+  30,
+  parseInt(process.env.DOWNTIME_MIN_STOP_SEC || '60', 10)
+);
 const SPEED_RUN = 1;
 const LAB_TIMEZONE = 'Asia/Ho_Chi_Minh';
 

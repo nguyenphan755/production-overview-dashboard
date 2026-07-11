@@ -2,6 +2,7 @@ import { apiClient } from '../services/api';
 import { computeSpeedLabRawLimit } from '../hooks/useSpeedLabQuery';
 import type { SpeedLabStopBlock } from '../types/oee-analytics-lab';
 import { buildStopBlocksFromPoints } from './speed-lab-stop-blocks';
+import { MIN_DOWNTIME_STOP_SEC } from '../constants/downtime-threshold';
 import {
   addDaysToYmd,
   getProductionDayLabelDate,
@@ -12,6 +13,13 @@ const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_PRODUCTION_DAYS = 31;
 /** Match backend raw fetch ceiling (~25h) for a single API call. */
 const SINGLE_FETCH_RAW_MAX_MS = 26 * 3_600_000;
+/** Per production-day API call — factory DB can be slow on raw ~90k rows. */
+const PER_DAY_TIMEOUT_MS = 120_000;
+const FETCH_CONCURRENCY = 3;
+
+export type DowntimeExportProgress =
+  | { phase: 'fetch'; dayIndex: number; dayTotal: number; dayYmd: string }
+  | { phase: 'excel' };
 
 function pickBucketSec(spanMs: number): number {
   const days = spanMs / 86_400_000;
@@ -68,8 +76,58 @@ function clipStopBlocksToRange(
         durationSec: Math.max(0, Math.round((endMs - startMs) / 1000)),
       };
     })
-    .filter((block) => block.durationSec >= 120)
+    .filter((block) => block.durationSec >= MIN_DOWNTIME_STOP_SEC)
     .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+}
+
+function mergeAbortSignals(...signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
+  const active = signals.filter((s): s is AbortSignal => Boolean(s));
+  if (!active.length) return undefined;
+  if (active.length === 1) return active[0];
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  for (const signal of active) {
+    if (signal.aborted) {
+      controller.abort();
+      break;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+  return controller.signal;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+  parentSignal?: AbortSignal
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        controller.signal.addEventListener(
+          'abort',
+          () => {
+            if (parentSignal?.aborted) {
+              reject(new DOMException('Aborted', 'AbortError'));
+              return;
+            }
+            reject(new Error(timeoutMessage));
+          },
+          { once: true }
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
+  }
 }
 
 async function fetchRawStopBlocksForWindow(
@@ -100,29 +158,71 @@ async function fetchRawStopBlocksForWindow(
   return buildStopBlocksFromPoints(pointsFromResponse(res.data));
 }
 
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (!items.length) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
+
 async function fetchStopBlocksPerProductionDay(
   machineId: string,
   dayLabels: string[],
   rangeStartMs: number,
   rangeEndMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (progress: DowntimeExportProgress) => void
 ): Promise<SpeedLabStopBlock[]> {
-  const merged: SpeedLabStopBlock[] = [];
+  const dayWindows = dayLabels
+    .map((ymd) => {
+      const { start, end } = getProductionDayWindow(ymd);
+      const dayStartMs = Math.max(start.getTime(), rangeStartMs);
+      const dayEndMs = Math.min(end.getTime(), rangeEndMs);
+      return { ymd, dayStartMs, dayEndMs };
+    })
+    .filter((day) => day.dayEndMs > day.dayStartMs);
 
-  for (const ymd of dayLabels) {
-    const { start, end } = getProductionDayWindow(ymd);
-    const dayStartMs = Math.max(start.getTime(), rangeStartMs);
-    const dayEndMs = Math.min(end.getTime(), rangeEndMs);
-    if (dayEndMs <= dayStartMs) continue;
+  const dayResults = await runWithConcurrency(
+    dayWindows,
+    FETCH_CONCURRENCY,
+    async (day, index) => {
+      onProgress?.({
+        phase: 'fetch',
+        dayIndex: index + 1,
+        dayTotal: dayWindows.length,
+        dayYmd: day.ymd,
+      });
 
-    const dayBlocks = await fetchRawStopBlocksForWindow(
-      machineId,
-      new Date(dayStartMs),
-      new Date(dayEndMs),
-      signal
-    );
-    merged.push(...dayBlocks);
-  }
+      const daySignal = mergeAbortSignals(signal);
+      return withTimeout(
+        fetchRawStopBlocksForWindow(
+          machineId,
+          new Date(day.dayStartMs),
+          new Date(day.dayEndMs),
+          daySignal
+        ),
+        PER_DAY_TIMEOUT_MS,
+        `Quá thời gian chờ dữ liệu ngày ${day.ymd} (>${PER_DAY_TIMEOUT_MS / 1000}s). Thu hẹp khoảng ngày hoặc thử lại.`,
+        signal
+      );
+    }
+  );
+
+  const merged = dayResults.flat();
 
   const seen = new Set<string>();
   const unique = merged.filter((block) => {
@@ -142,12 +242,19 @@ export type DowntimeFetchResult = {
   bucketSec: number;
 };
 
+export type DowntimeFetchOptions = {
+  signal?: AbortSignal;
+  onProgress?: (progress: DowntimeExportProgress) => void;
+};
+
 export async function fetchDowntimeStopBlocksByDates(
   machineId: string,
   fromYmd: string,
   toYmd: string,
-  signal?: AbortSignal
+  options?: DowntimeFetchOptions
 ): Promise<DowntimeFetchResult> {
+  const { signal, onProgress } = options ?? {};
+
   if (fromYmd > toYmd) {
     throw new Error('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.');
   }
@@ -165,7 +272,8 @@ export async function fetchDowntimeStopBlocksByDates(
     dayLabels,
     rangeStart.getTime(),
     rangeEnd.getTime(),
-    signal
+    signal,
+    onProgress
   );
 
   return {
@@ -180,8 +288,9 @@ export async function fetchDowntimeStopBlocksByRange(
   machineId: string,
   rangeStart: Date,
   rangeEnd: Date,
-  signal?: AbortSignal
+  options?: DowntimeFetchOptions
 ): Promise<DowntimeFetchResult> {
+  const { signal, onProgress } = options ?? {};
   const rangeStartMs = rangeStart.getTime();
   const rangeEndMs = rangeEnd.getTime();
   const spanMs = rangeEndMs - rangeStartMs;
@@ -201,8 +310,14 @@ export async function fetchDowntimeStopBlocksByRange(
   let stopBlocks: SpeedLabStopBlock[];
 
   if (dayLabels.length === 1 && spanMs <= SINGLE_FETCH_RAW_MAX_MS) {
+    onProgress?.({ phase: 'fetch', dayIndex: 1, dayTotal: 1, dayYmd: dayLabels[0] });
     stopBlocks = clipStopBlocksToRange(
-      await fetchRawStopBlocksForWindow(machineId, rangeStart, rangeEnd, signal),
+      await withTimeout(
+        fetchRawStopBlocksForWindow(machineId, rangeStart, rangeEnd, signal),
+        PER_DAY_TIMEOUT_MS,
+        `Quá thời gian chờ dữ liệu (>${PER_DAY_TIMEOUT_MS / 1000}s). Thu hẹp khoảng ngày hoặc thử lại.`,
+        signal
+      ),
       rangeStartMs,
       rangeEndMs
     );
@@ -212,7 +327,8 @@ export async function fetchDowntimeStopBlocksByRange(
       dayLabels,
       rangeStartMs,
       rangeEndMs,
-      signal
+      signal,
+      onProgress
     );
   }
 
