@@ -104,6 +104,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\factory-post-pull.ps1
 
 Script tự thêm (nếu chưa có): `AVAILABILITY_SYNC_INTERVAL=60`, `VITE_POLL_MS_MACHINES=2000`, `VITE_POLL_MS_MACHINE_DETAIL=5000`.
 
+Nếu `npm install` báo **ERESOLVE** (`date-fns` vs `react-day-picker`), dùng:
+
+```powershell
+cd frontend
+npm install --legacy-peer-deps
+npm run build
+```
+
+(File `frontend\.npmrc` trong repo đã bật `legacy-peer-deps=true` — sau khi pull mới chỉ cần `npm install`.)
+
 Chỉ index, không build:
 
 ```powershell

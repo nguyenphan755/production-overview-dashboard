@@ -143,7 +143,7 @@ if ($SkipFrontendBuild) {
     Push-Location $FrontendDir
     try {
         Write-Info "npm install"
-        npm install
+        npm install --legacy-peer-deps
         if ($LASTEXITCODE -ne 0) { throw "frontend npm install failed (exit $LASTEXITCODE)" }
 
         Write-Info "npm run build"

@@ -175,7 +175,7 @@ if ($SkipBuild) {
         Push-Location $FrontendDir
         try {
             Write-Host "  frontend npm install + build (poll env embedded)"
-            npm install
+            npm install --legacy-peer-deps
             if ($LASTEXITCODE -ne 0) { throw "frontend npm install failed" }
             npm run build
             if ($LASTEXITCODE -ne 0) { throw "frontend npm run build failed" }

@@ -5,7 +5,7 @@ backend:
 	cd backend && npm start
 
 install:
-	cd frontend && npm install
+	cd frontend && npm install --legacy-peer-deps
 	cd backend && npm install
 
 test:
