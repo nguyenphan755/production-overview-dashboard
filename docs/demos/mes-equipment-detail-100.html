@@ -7,12 +7,13 @@
   <!--
     Grafana-style Equipment Detail (HTML contract demo).
     URL: mes-equipment-detail-100.html?machine_id=D-01
+    Time: Auto 50@1s | 15m | 1h | 8h | 24h | Custom from→to (absolute, Grafana-like)
     APIs:
       GET /api/machines
       GET /api/machines/:id
-      GET /api/machines/:id/status-history?hours=8 | start&end
+      GET /api/machines/:id/status-history?hours=… | start&end
       GET /api/machines/:id/speed-history?start&end
-    Mirrors React EquipmentDetail + grafana/dashboards/mes-equipment-detail.json
+    Multi-zone: cards + line chart (multiZoneTemperatureTrend | Auto RT from multiZoneTemperatures)
   -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
@@ -76,7 +77,29 @@
     .live.mock { color: var(--g-orange); }
     .live.mock i { background: var(--g-orange); }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-    select.machine-select, .range-select {
+    .g-time {
+      display: flex; align-items: center; border: 1px solid var(--g-panel-border);
+      border-radius: 2px; overflow: hidden; background: var(--g-input);
+    }
+    .g-time button {
+      border: 0; background: transparent; color: var(--g-text); font: inherit; font-size: 12px;
+      padding: 5px 8px; cursor: pointer; white-space: nowrap;
+    }
+    .g-time button:hover { background: var(--g-hover); }
+    .g-time button.active { background: rgba(87, 148, 242, 0.2); color: var(--g-blue); }
+    .g-time .divider { width: 1px; align-self: stretch; background: var(--g-panel-border); }
+    .custom-range-row {
+      display: none; align-items: center; gap: 8px; margin: 0 14px 8px; flex-wrap: wrap;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .custom-range-row.open { display: flex; }
+    .custom-range-row input[type="datetime-local"] {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px;
+      color-scheme: dark;
+    }
+    html[data-theme="light"] .custom-range-row input[type="datetime-local"] { color-scheme: light; }
+    select.machine-select {
       background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
       font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; max-width: 160px;
     }
@@ -186,13 +209,21 @@
     .kpi-mini .k { font-size: 10px; color: var(--g-text-secondary); }
     .kpi-mini .v { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
-    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; height: 100%; overflow: auto; }
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; overflow: auto; align-content: start; }
+    .zones-layout {
+      display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 10px; height: 100%; min-height: 0;
+    }
+    .zones-layout .chart-wrap { position: relative; inset: auto; height: 100%; min-height: 160px; }
     .zone-card {
       background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
       padding: 8px; text-align: center;
     }
     .zone-card .zn { font-size: 10px; color: var(--g-text-secondary); }
     .zone-card .zv { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    @media (max-width: 900px) {
+      .zones-layout { grid-template-columns: 1fr; }
+      .zones-layout .chart-wrap { min-height: 200px; }
+    }
 
     .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .data-table th {
@@ -238,11 +269,15 @@
     </div>
     <div class="g-spacer"></div>
     <select id="machineSelect" class="machine-select" title="Chọn dây chuyền"></select>
-    <select id="rangeSelect" class="range-select" title="Cửa sổ lịch sử">
-      <option value="8">Last 8h (ca)</option>
-      <option value="24">Last 24h</option>
-      <option value="72">Last 3d</option>
-    </select>
+    <div class="g-time" id="timeRange" role="group" aria-label="Time range">
+      <button type="button" data-range="auto" class="active">Auto 1s</button><span class="divider"></span>
+      <button type="button" data-range="15m">15m</button><span class="divider"></span>
+      <button type="button" data-range="1h">1h</button><span class="divider"></span>
+      <button type="button" data-range="8h">8h</button><span class="divider"></span>
+      <button type="button" data-range="24h">24h</button><span class="divider"></span>
+      <button type="button" data-range="custom">Custom</button>
+    </div>
+    <span class="tag" id="windowTag">window=auto · pts=50 · tick=1s</span>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
     <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
     <button type="button" class="g-btn" id="btnLive">Live API</button>
@@ -254,12 +289,10 @@
   <div class="g-dashbar">
     <h1>MES Equipment Detail</h1>
     <p class="sub">
-      Chi tiết 1 dây chuyền — map từ React <code style="font-family:var(--mono);font-size:11px">EquipmentDetail</code>
-      + Grafana <code style="font-family:var(--mono);font-size:11px">mes-equipment-detail</code>.
-      API: <code style="font-family:var(--mono);font-size:11px">/machines/:id</code>,
-      <code style="font-family:var(--mono);font-size:11px">/status-history</code>,
-      <code style="font-family:var(--mono);font-size:11px">/speed-history</code>.
-      Deep-link: <code style="font-family:var(--mono);font-size:11px">?machine_id=SH-05</code>.
+      Chi tiết 1 dây chuyền — map từ React <code style="font-family:var(--mono);font-size:11px">EquipmentDetail</code>.
+      Time: <strong>Auto 50 pts @ 1s</strong> (giống Energy) · relative 15m/1h/8h/24h · <strong>Custom from→to</strong>.
+      Panel <em>Tba · Multi-zone</em>: thẻ nhiệt độ zone + line chart theo thời gian.
+      Deep-link: <code style="font-family:var(--mono);font-size:11px">?machine_id=SH-05</code> (có multi-zone mock).
     </p>
   </div>
 
@@ -274,6 +307,15 @@
     <div class="hmeta">Operator<br><b id="hdrOp">—</b></div>
     <div class="hmeta">Area<br><b id="hdrArea">—</b></div>
     <span class="tag" id="rtTag">rt=—</span>
+  </div>
+
+  <div class="custom-range-row" id="customRangeRow">
+    <span>From</span>
+    <input type="datetime-local" id="rangeFrom" />
+    <span>To</span>
+    <input type="datetime-local" id="rangeTo" />
+    <button type="button" class="g-btn primary" id="btnApplyRange">Apply range</button>
+    <span class="hint" style="padding:0">Giống Grafana absolute time · ISO gửi API status/speed-history</span>
   </div>
 
   <div class="api-base-row">
@@ -319,7 +361,7 @@
     { id: "chart_current", w: 8, h: 7 },
     { id: "chart_power", w: 8, h: 7 },
     { id: "chart_energy", w: 8, h: 7 },
-    { id: "zones", w: 12, h: 6 },
+    { id: "zones", w: 24, h: 10 },
     { id: "alarms", w: 12, h: 6 },
     { id: "energy_buckets", w: 12, h: 8 },
     { id: "orders", w: 12, h: 8 },
@@ -336,15 +378,27 @@
     length: { title: "Production Length", api: "producedLengthOk / targetLength" },
     speed_kpi: { title: "Speed history summary", api: "/speed-history.summary" },
     gantt: { title: "Operational States (shift window)", api: "/status-history" },
-    chart_speed: { title: "Speed Trend · actual vs target", api: "speedTrend | /speed-history" },
-    chart_temp: { title: "Temperature Trend", api: "temperatureTrend" },
-    chart_current: { title: "Motor Current", api: "currentTrend" },
-    chart_power: { title: "Power Trend", api: "powerTrend" },
+    chart_speed: { title: "Speed Trend · actual vs target", api: "speed-history | Auto RT 50@1s" },
+    chart_temp: { title: "Temperature Trend", api: "temperatureTrend | Auto RT" },
+    chart_current: { title: "Motor Current", api: "currentTrend | Auto RT" },
+    chart_power: { title: "Power Trend", api: "powerTrend | Auto RT" },
     chart_energy: { title: "Energy Meter (kWh)", api: "energyMeterTrend · energyMeterKwh" },
-    zones: { title: "Multi-Zone Temperature", api: "multiZoneTemperatures" },
+    zones: { title: "Tba · Multi-zone temperature", api: "multiZoneTemperatures + multiZoneTemperatureTrend (line)" },
     alarms: { title: "Alarms", api: "machines/:id.alarms" },
     energy_buckets: { title: "kWh by bucket (meter)", api: "energyConsumption[]" },
     orders: { title: "Production Order History", api: "orderHistory[] · productionOrder" },
+  };
+
+  const ZONE_PALETTE = ["#f2495c", "#ff9830", "#fade2a", "#73bf69", "#5794f2", "#b877d9", "#8ab8ff", "#e0b400"];
+
+  /** Grafana-like windows — Auto mirrors Energy Control Tower (50 pts @ 1s) */
+  const RANGE_CFG = {
+    auto: { points: 50, spanMs: 50 * 1000, pollMs: 1000, title: "Auto · 50 pts @ 1s" },
+    "15m": { points: 30, spanMs: 15 * 60 * 1000, pollMs: 5000, title: "Last 15 minutes" },
+    "1h": { points: 40, spanMs: 60 * 60 * 1000, pollMs: 8000, title: "Last 1 hour" },
+    "8h": { points: 48, spanMs: 8 * 60 * 60 * 1000, pollMs: 10000, title: "Last 8 hours (shift)" },
+    "24h": { points: 48, spanMs: 24 * 60 * 60 * 1000, pollMs: 15000, title: "Last 24 hours" },
+    custom: { points: 60, spanMs: null, pollMs: 15000, title: "Custom absolute range" },
   };
 
   function cssVar(name, fallback) {
@@ -513,6 +567,20 @@
       zone5: 145 + rng() * 6, zone6: 140 + rng() * 6,
     } : null;
 
+    let multiZoneTemperatureTrend = null;
+    if (multiZone) {
+      const zoneKeys = Object.keys(multiZone);
+      const bases = zoneKeys.map((k) => Number(multiZone[k]));
+      multiZoneTemperatureTrend = Array.from({ length: 48 }, (_, i) => {
+        const t = new Date(now - (47 - i) * 60000).toISOString();
+        const row = { time: t };
+        zoneKeys.forEach((k, zi) => {
+          row[k] = +(bases[zi] + (rng() - 0.5) * 4 + Math.sin(i / 6 + zi) * 1.5).toFixed(1);
+        });
+        return row;
+      });
+    }
+
     const energyConsumption = Array.from({ length: 8 }, (_, i) => {
       const end = now - i * 3600e3;
       const start = end - 3600e3;
@@ -560,6 +628,7 @@
       current: +(power * 0.72).toFixed(1), power,
       energyMeterKwh: +meter.toFixed(2), temperature: temp,
       multiZoneTemperatures: multiZone,
+      multiZoneTemperatureTrend,
       alarms: status === "warning" || status === "error" ? [{
         id: "ALM-1", machineId: id, severity: status === "error" ? "error" : "warning",
         message: status === "error" ? "High temperature" : "Speed below target",
@@ -599,13 +668,120 @@
 
   let dataMode = localStorage.getItem(MODE_KEY) || "mock";
   let machineId = qs("machine_id") || "D-01";
-  let rangeHours = Number(localStorage.getItem("mes-ed-range-hours") || 8);
+  let timeRange = localStorage.getItem("mes-ed-time-range") || "auto";
+  let customFrom = localStorage.getItem("mes-ed-custom-from") || "";
+  let customTo = localStorage.getItem("mes-ed-custom-to") || "";
   let fleet = [];
   let detail = null;
   let statusHistory = [];
   let speedHistory = null;
   let pollTimer = null;
   let lastRtAt = 0;
+  /** Auto RT buffers: { t, speed, target, temp, current, power, zones:{} } */
+  let rtSeries = [];
+  let rtMachineId = null;
+
+  function rangeCfg() {
+    return RANGE_CFG[timeRange] || RANGE_CFG.auto;
+  }
+
+  function toLocalInputValue(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+      "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function parseLocalInput(val) {
+    if (!val) return null;
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function getWindowRange() {
+    const cfg = rangeCfg();
+    const end = new Date();
+    if (timeRange === "custom") {
+      const from = parseLocalInput(customFrom);
+      const to = parseLocalInput(customTo) || end;
+      if (from && to && from < to) return { start: from, end: to, hours: (to - from) / 3600e3 };
+      return { start: new Date(end.getTime() - 8 * 3600e3), end, hours: 8 };
+    }
+    const span = cfg.spanMs || 8 * 3600e3;
+    return { start: new Date(end.getTime() - span), end, hours: span / 3600e3 };
+  }
+
+  function updateWindowTag() {
+    const el = document.getElementById("windowTag");
+    if (!el) return;
+    const cfg = rangeCfg();
+    if (timeRange === "auto") {
+      el.textContent = "window=auto · pts=" + cfg.points + " · tick=1s";
+    } else if (timeRange === "custom") {
+      const w = getWindowRange();
+      el.textContent = "custom · " + w.start.toLocaleString("vi-VN") + " → " + w.end.toLocaleString("vi-VN");
+    } else {
+      el.textContent = "window=" + timeRange + " · " + cfg.title;
+    }
+  }
+
+  function syncTimeRangeUi() {
+    document.querySelectorAll("#timeRange button").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-range") === timeRange);
+    });
+    const row = document.getElementById("customRangeRow");
+    if (row) row.classList.toggle("open", timeRange === "custom");
+    const fromEl = document.getElementById("rangeFrom");
+    const toEl = document.getElementById("rangeTo");
+    if (fromEl && toEl) {
+      if (!customFrom || !customTo) {
+        const end = new Date();
+        const start = new Date(end.getTime() - 8 * 3600e3);
+        if (!customFrom) customFrom = toLocalInputValue(start);
+        if (!customTo) customTo = toLocalInputValue(end);
+      }
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    }
+    updateWindowTag();
+  }
+
+  function resetRtSeries() {
+    rtSeries = [];
+    rtMachineId = machineId;
+  }
+
+  function pushRtSample(m) {
+    if (!m) return;
+    if (rtMachineId !== machineId) resetRtSeries();
+    const sp = speedInfo(m);
+    const zones = {};
+    const mz = m.multiZoneTemperatures;
+    if (mz && typeof mz === "object") {
+      Object.keys(mz).forEach((k) => { if (mz[k] != null) zones[k] = Number(mz[k]); });
+    }
+    rtSeries.push({
+      t: Date.now(),
+      speed: sp.v,
+      target: sp.t,
+      temp: m.temperature != null ? Number(m.temperature) : null,
+      current: m.current != null ? Number(m.current) : null,
+      power: m.power != null ? Number(m.power) : null,
+      zones,
+    });
+    const maxPts = (RANGE_CFG.auto && RANGE_CFG.auto.points) || 50;
+    while (rtSeries.length > maxPts) rtSeries.shift();
+  }
+
+  function fmtAxisTs(ts) {
+    const d = new Date(ts);
+    if (timeRange === "auto" || timeRange === "15m") {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    if (timeRange === "24h" || timeRange === "custom") {
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
 
   function destroyCharts() {
     Object.keys(charts).forEach((k) => {
@@ -641,7 +817,11 @@
       } else if (p.id.indexOf("chart_") === 0) {
         inner = '<div class="chart-wrap"><canvas id="' + p.id + '_c"></canvas></div>';
       } else if (p.id === "zones") {
-        inner = '<div class="zone-grid" id="zoneGrid"></div>';
+        inner =
+          '<div class="zones-layout">' +
+          '<div class="zone-grid" id="zoneGrid"></div>' +
+          '<div class="chart-wrap"><canvas id="chart_zones_c"></canvas></div>' +
+          "</div>";
       } else if (p.id === "alarms") {
         inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Sev</th><th>Message</th><th>Age</th></tr></thead><tbody id="alarmBody"></tbody></table></div>';
       } else if (p.id === "energy_buckets") {
@@ -657,10 +837,15 @@
     if (!canvas) return;
     const muted = cssVar("--g-muted-hex", "#8e8e9a");
     const grid = cssVar("--g-grid", "rgba(44,50,53,0.6)");
-    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected) {
+    const sameLen = charts[key] && charts[key].data && charts[key].data.datasets &&
+      charts[key].data.datasets.length === datasets.length;
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected && sameLen) {
       charts[key].data.labels = labels;
       charts[key].data.datasets.forEach((ds, i) => {
-        if (datasets[i]) ds.data = datasets[i].data;
+        if (datasets[i]) {
+          ds.data = datasets[i].data;
+          if (datasets[i].label != null) ds.label = datasets[i].label;
+        }
       });
       charts[key].update("none");
       return;
@@ -685,8 +870,7 @@
 
   function fmtTime(iso) {
     if (!iso) return "—";
-    const d = new Date(iso);
-    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    return fmtAxisTs(new Date(iso).getTime());
   }
 
   function renderHeader() {
@@ -811,12 +995,16 @@
   function renderCharts() {
     if (!detail) return;
     const spUnit = speedInfo(detail).unit;
+    const useAuto = timeRange === "auto" && rtSeries.length > 0;
 
-    // Speed: prefer speed-history points, else speedTrend
     let speedLabels = [];
     let speedActual = [];
     let speedTarget = [];
-    if (speedHistory && Array.isArray(speedHistory.points) && speedHistory.points.length) {
+    if (useAuto) {
+      speedLabels = rtSeries.map((p) => fmtAxisTs(p.t));
+      speedActual = rtSeries.map((p) => p.speed);
+      speedTarget = rtSeries.map((p) => p.target);
+    } else if (speedHistory && Array.isArray(speedHistory.points) && speedHistory.points.length) {
       const pts = speedHistory.points.slice(-80);
       speedLabels = pts.map((p) => fmtTime(p.timestamp));
       speedActual = pts.map((p) => Number(p.actualSpeed) || 0);
@@ -832,20 +1020,33 @@
       { label: "Target", data: speedTarget, borderColor: "#ff9830", borderWidth: 1.2, pointRadius: 0, borderDash: [4, 4], tension: 0 },
     ], spUnit);
 
-    const tt = (detail.temperatureTrend || []).slice(-60);
-    lineChart("chart_temp", document.getElementById("chart_temp_c"), tt.map((p) => fmtTime(p.time)), [
-      { label: "Temp", data: tt.map((p) => Number(p.temp) || 0), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: false },
-    ], "°C");
+    if (useAuto) {
+      const labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      lineChart("chart_temp", document.getElementById("chart_temp_c"), labels, [
+        { label: "Temp", data: rtSeries.map((p) => p.temp != null ? p.temp : null), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ], "°C");
+      lineChart("chart_current", document.getElementById("chart_current_c"), labels, [
+        { label: "A", data: rtSeries.map((p) => p.current != null ? p.current : null), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ], "A");
+      lineChart("chart_power", document.getElementById("chart_power_c"), labels, [
+        { label: "kW", data: rtSeries.map((p) => p.power != null ? p.power : null), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ], "kW");
+    } else {
+      const tt = (detail.temperatureTrend || []).slice(-60);
+      lineChart("chart_temp", document.getElementById("chart_temp_c"), tt.map((p) => fmtTime(p.time)), [
+        { label: "Temp", data: tt.map((p) => Number(p.temp) || 0), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: false },
+      ], "°C");
 
-    const ct = (detail.currentTrend || []).slice(-60);
-    lineChart("chart_current", document.getElementById("chart_current_c"), ct.map((p) => fmtTime(p.time)), [
-      { label: "A", data: ct.map((p) => Number(p.current) || 0), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
-    ], "A");
+      const ct = (detail.currentTrend || []).slice(-60);
+      lineChart("chart_current", document.getElementById("chart_current_c"), ct.map((p) => fmtTime(p.time)), [
+        { label: "A", data: ct.map((p) => Number(p.current) || 0), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+      ], "A");
 
-    const pt = (detail.powerTrend || []).slice(-60);
-    lineChart("chart_power", document.getElementById("chart_power_c"), pt.map((p) => fmtTime(p.time)), [
-      { label: "kW", data: pt.map((p) => Number(p.power) || 0), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
-    ], "kW");
+      const pt = (detail.powerTrend || []).slice(-60);
+      lineChart("chart_power", document.getElementById("chart_power_c"), pt.map((p) => fmtTime(p.time)), [
+        { label: "kW", data: pt.map((p) => Number(p.power) || 0), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+      ], "kW");
+    }
 
     const et = (detail.energyMeterTrend || []).slice(-60);
     const meterNow = detail.energyMeterKwh != null ? Number(detail.energyMeterKwh).toFixed(1) + " kWh" : "";
@@ -854,18 +1055,87 @@
     ], "kWh");
   }
 
+  function zoneKeysFromDetail() {
+    const z = detail && detail.multiZoneTemperatures;
+    if (z && typeof z === "object") {
+      return Object.keys(z).filter((k) => z[k] != null);
+    }
+    const trend = detail && detail.multiZoneTemperatureTrend;
+    if (Array.isArray(trend) && trend[0]) {
+      return Object.keys(trend[0]).filter((k) => k !== "time" && k !== "timestamp");
+    }
+    return [];
+  }
+
+  function renderZoneChart() {
+    const canvas = document.getElementById("chart_zones_c");
+    if (!canvas) return;
+    const keys = zoneKeysFromDetail();
+    if (!keys.length) {
+      if (charts.chart_zones) { try { charts.chart_zones.destroy(); } catch (_) {} delete charts.chart_zones; }
+      return;
+    }
+
+    let labels = [];
+    let datasets = [];
+    const useAuto = timeRange === "auto" && rtSeries.length > 0 &&
+      rtSeries.some((p) => p.zones && Object.keys(p.zones).length);
+
+    if (useAuto) {
+      labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      datasets = keys.map((k, i) => ({
+        label: k,
+        data: rtSeries.map((p) => (p.zones && p.zones[k] != null) ? p.zones[k] : null),
+        borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.25,
+        spanGaps: true,
+      }));
+    } else {
+      const trend = (detail.multiZoneTemperatureTrend || []).slice(-60);
+      if (trend.length) {
+        labels = trend.map((p) => fmtTime(p.time || p.timestamp));
+        datasets = keys.map((k, i) => ({
+          label: k,
+          data: trend.map((p) => Number(p[k]) || null),
+          borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.25,
+          spanGaps: true,
+        }));
+      } else {
+        // Snapshot only — single-point bar-like line from current zones
+        const z = detail.multiZoneTemperatures || {};
+        labels = ["now"];
+        datasets = keys.map((k, i) => ({
+          label: k,
+          data: [Number(z[k]) || 0],
+          borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+          backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+          borderWidth: 2,
+          pointRadius: 4,
+        }));
+      }
+    }
+    lineChart("chart_zones", canvas, labels, datasets, "°C");
+  }
+
   function renderZones() {
     const el = document.getElementById("zoneGrid");
     if (!el) return;
     const z = detail && detail.multiZoneTemperatures;
     if (!z || typeof z !== "object") {
-      el.innerHTML = '<p class="hint">Không có multi-zone (thường Bọc / đùn)</p>';
+      el.innerHTML = '<p class="hint">Không có multi-zone (thường Bọc / đùn). Chọn SH-xx để xem mock.</p>';
+      if (charts.chart_zones) { try { charts.chart_zones.destroy(); } catch (_) {} delete charts.chart_zones; }
       return;
     }
-    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k) =>
-      '<div class="zone-card"><div class="zn">' + k + '</div><div class="zv">' +
-      Number(z[k]).toFixed(0) + "°</div></div>"
+    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k, i) =>
+      '<div class="zone-card"><div class="zn" style="color:' + ZONE_PALETTE[i % ZONE_PALETTE.length] + '">' + k +
+      '</div><div class="zv">' + Number(z[k]).toFixed(0) + "°</div></div>"
     ).join("") || '<p class="hint">Empty zones</p>';
+    renderZoneChart();
   }
 
   function renderAlarms() {
@@ -939,32 +1209,66 @@
   }
 
   async function loadDetailLive() {
-    const hours = rangeHours;
-    const end = new Date();
-    const start = new Date(end.getTime() - hours * 3600e3);
-    const startIso = encodeURIComponent(start.toISOString());
-    const endIso = encodeURIComponent(end.toISOString());
+    const win = getWindowRange();
+    const hours = Math.max(1, Math.ceil(win.hours));
+    const startIso = encodeURIComponent(win.start.toISOString());
+    const endIso = encodeURIComponent(win.end.toISOString());
+    const isAuto = timeRange === "auto";
 
-    const [detailRaw, statusRaw, speedRaw] = await Promise.all([
-      fetchJson("/api/machines/" + encodeURIComponent(machineId)),
-      fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=" + hours).catch(() => null),
-      fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/speed-history?start=" + startIso + "&end=" + endIso).catch(() => null),
-    ]);
-
+    const detailRaw = await fetchJson("/api/machines/" + encodeURIComponent(machineId));
     detail = unwrap(detailRaw);
-    statusHistory = unwrapList(statusRaw);
-    speedHistory = unwrap(speedRaw);
+    pushRtSample(detail);
+
+    if (isAuto) {
+      // Keep last history for KPI/gantt fallback; don't refetch every second
+      if (!statusHistory.length || !speedHistory) {
+        const [statusRaw, speedRaw] = await Promise.all([
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=8").catch(() => null),
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/speed-history?start=" + startIso + "&end=" + endIso).catch(() => null),
+        ]);
+        statusHistory = unwrapList(statusRaw);
+        speedHistory = unwrap(speedRaw);
+      }
+    } else {
+      const [statusRaw, speedRaw] = await Promise.all([
+        fetchJson(
+          "/api/machines/" + encodeURIComponent(machineId) +
+          "/status-history?start=" + startIso + "&end=" + endIso + "&hours=" + hours
+        ).catch(() =>
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=" + hours).catch(() => null)
+        ),
+        fetchJson(
+          "/api/machines/" + encodeURIComponent(machineId) +
+          "/speed-history?start=" + startIso + "&end=" + endIso
+        ).catch(() => null),
+      ]);
+      statusHistory = unwrapList(statusRaw);
+      speedHistory = unwrap(speedRaw);
+    }
+
     lastRtAt = Date.now();
     document.getElementById("dataStatus").textContent =
-      "source: live · " + machineId + " · " + getApiBase();
+      "source: live · " + machineId + " · " + timeRange + " · " + getApiBase();
   }
 
   function loadDetailMock() {
     detail = buildMockDetail(machineId);
     statusHistory = detail._statusHistory || [];
     speedHistory = detail._speedHistory || null;
+    // Simulate zone/speed drift each poll in auto
+    if (timeRange === "auto" && detail.multiZoneTemperatures) {
+      Object.keys(detail.multiZoneTemperatures).forEach((k) => {
+        detail.multiZoneTemperatures[k] = +(Number(detail.multiZoneTemperatures[k]) + (Math.random() - 0.5) * 1.2).toFixed(1);
+      });
+      detail.temperature = Math.round(Number(detail.temperature) + (Math.random() - 0.5) * 0.8);
+      detail.power = +(Number(detail.power) + (Math.random() - 0.5) * 1.5).toFixed(1);
+      detail.current = +(Number(detail.current) + (Math.random() - 0.5) * 0.8).toFixed(1);
+      const sp = speedInfo(detail);
+      detail.lineSpeed = sp.v + (Math.random() - 0.5) * (sp.unit === "m/s" ? 0.2 : 8);
+    }
+    pushRtSample(detail);
     lastRtAt = Date.now();
-    document.getElementById("dataStatus").textContent = "source: mock detail · " + machineId;
+    document.getElementById("dataStatus").textContent = "source: mock detail · " + machineId + " · " + timeRange;
   }
 
   async function refreshData(opts) {
@@ -1006,9 +1310,18 @@
 
   function restartPoll() {
     if (pollTimer) clearInterval(pollTimer);
+    const ms = rangeCfg().pollMs || (dataMode === "live" ? 5000 : 2000);
     pollTimer = setInterval(() => {
       refreshData({ quiet: true });
-    }, dataMode === "live" ? 5000 : 2000);
+    }, ms);
+  }
+
+  function setTimeRange(range) {
+    timeRange = RANGE_CFG[range] ? range : "auto";
+    localStorage.setItem("mes-ed-time-range", timeRange);
+    if (timeRange === "auto") resetRtSeries();
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
   }
 
   // Init
@@ -1021,25 +1334,37 @@
     localStorage.setItem(API_KEY, getApiBase());
   });
 
-  document.getElementById("rangeSelect").value = String(rangeHours);
-  document.getElementById("rangeSelect").addEventListener("change", (e) => {
-    rangeHours = Number(e.target.value) || 8;
-    localStorage.setItem("mes-ed-range-hours", String(rangeHours));
-    refreshData();
+  syncTimeRangeUi();
+  document.querySelectorAll("#timeRange button").forEach((btn) => {
+    btn.addEventListener("click", () => setTimeRange(btn.getAttribute("data-range")));
+  });
+  document.getElementById("btnApplyRange").addEventListener("click", () => {
+    customFrom = document.getElementById("rangeFrom").value;
+    customTo = document.getElementById("rangeTo").value;
+    localStorage.setItem("mes-ed-custom-from", customFrom);
+    localStorage.setItem("mes-ed-custom-to", customTo);
+    timeRange = "custom";
+    localStorage.setItem("mes-ed-time-range", "custom");
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
+    showToast("Applied custom range");
   });
 
   document.getElementById("machineSelect").addEventListener("change", (e) => {
     machineId = e.target.value;
+    resetRtSeries();
     setQsMachine(machineId);
     refreshData();
   });
 
   document.getElementById("btnMock").addEventListener("click", () => {
     setMode("mock");
+    resetRtSeries();
     refreshData().then(() => restartPoll());
   });
   document.getElementById("btnLive").addEventListener("click", () => {
     setMode("live");
+    resetRtSeries();
     refreshData().then(() => restartPoll());
   });
   document.getElementById("btnThemeDark").addEventListener("click", () => applyTheme("dark", { toast: true }));
