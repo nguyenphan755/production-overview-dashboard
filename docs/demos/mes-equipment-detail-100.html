@@ -14,6 +14,8 @@
       GET /api/machines/:id/status-history?hours=… | start&end
       GET /api/machines/:id/speed-history?start&end
     Multi-zone: cards + line chart (multiZoneTemperatureTrend | Auto RT from multiZoneTemperatures)
+    Alert thresholds: localStorage demo (mes-ed-alert-rules-v1) — warn/alarm + hold + hysteresis
+      before backend rule engine writes alarms table.
   -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
@@ -164,7 +166,8 @@
     .panel[data-h="8"] { grid-row: span 8; }
     .panel[data-h="10"] { grid-row: span 10; }
 
-    .panel-head { padding: 6px 8px 0; min-height: 26px; }
+    .panel-head { display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 26px; }
+    .panel-title-wrap { flex: 1; min-width: 0; }
     .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); }
     .panel-api { font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px; }
     .panel-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
@@ -248,6 +251,39 @@
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     .hint { font-size: 11px; color: var(--g-text-secondary); padding: 8px 0; }
 
+    .thr-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; overflow: auto; font-size: 12px; }
+    .thr-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .thr-toolbar label { color: var(--g-text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+    .thr-toolbar input[type="number"] {
+      width: 64px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 3px 6px; border-radius: 2px; font: inherit; font-size: 11px;
+    }
+    .thr-table { width: 100%; border-collapse: collapse; }
+    .thr-table th {
+      text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 4px;
+      border-bottom: 1px solid var(--g-panel-border); font-size: 10px;
+    }
+    .thr-table td { padding: 4px; border-bottom: 1px solid var(--g-panel-border); vertical-align: middle; }
+    .thr-table input[type="number"] {
+      width: 58px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 3px 4px; border-radius: 2px; font: inherit; font-size: 11px;
+    }
+    .thr-table .mono { font-family: var(--mono); font-size: 11px; }
+    .thr-level {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 2px;
+    }
+    .thr-level.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
+    .thr-level.warn { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .thr-level.alarm { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .zone-card.thr-warn { border-color: rgba(255, 152, 48, 0.65); box-shadow: inset 0 0 0 1px rgba(255, 152, 48, 0.25); }
+    .zone-card.thr-alarm { border-color: rgba(242, 73, 92, 0.75); box-shadow: inset 0 0 0 1px rgba(242, 73, 92, 0.3); }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+    .panel-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+    .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
+
     @media (max-width: 1100px) {
       .panel[data-w="3"], .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"] { grid-column: span 12; }
       .panel[data-w="12"], .panel[data-w="16"] { grid-column: span 24; }
@@ -293,6 +329,7 @@
       Chi tiết 1 dây chuyền — map từ React <code style="font-family:var(--mono);font-size:11px">EquipmentDetail</code>.
       Time: <strong>Auto 50 pts @ 1s</strong> (giống Energy) · relative 15m/1h/8h/24h · <strong>Custom from→to</strong>.
       Panel <em>Tba · Multi-zone</em>: thẻ nhiệt độ zone + line chart theo thời gian.
+      <strong>Alert thresholds</strong>: demo localStorage (warn/alarm + hold + hysteresis) — trước khi backend rule engine.
       Deep-link: <code style="font-family:var(--mono);font-size:11px">?machine_id=SH-05</code> (có multi-zone mock).
     </p>
   </div>
@@ -363,7 +400,8 @@
     { id: "chart_power", w: 8, h: 7 },
     { id: "chart_energy", w: 8, h: 7 },
     { id: "zones", w: 24, h: 10 },
-    { id: "alarms", w: 12, h: 6 },
+    { id: "thresholds", w: 12, h: 10 },
+    { id: "alarms", w: 12, h: 10 },
     { id: "energy_buckets", w: 12, h: 8 },
     { id: "orders", w: 12, h: 8 },
   ];
@@ -385,10 +423,317 @@
     chart_power: { title: "Power Trend", api: "powerTrend | Auto RT" },
     chart_energy: { title: "Energy Meter (kWh)", api: "energyMeterTrend · energyMeterKwh" },
     zones: { title: "Tba · Multi-zone temperature", api: "multiZoneTemperatures + multiZoneTemperatureTrend (line)" },
-    alarms: { title: "Alarms", api: "machines/:id.alarms" },
+    thresholds: {
+      title: "Alert Thresholds (demo)",
+      api: "localStorage mes-ed-alert-rules-v1 · proposed backend",
+      badge: "proposed",
+    },
+    alarms: { title: "Alarms", api: "machines/:id.alarms + derived thresholds" },
     energy_buckets: { title: "kWh by bucket (meter)", api: "energyConsumption[]" },
     orders: { title: "Production Order History", api: "orderHistory[] · productionOrder" },
   };
+
+  const ALERT_RULES_KEY = "mes-ed-alert-rules-v1";
+  /** Per-machine eval state: { [metric]: { level, candidate, since, fired } } */
+  let thrEvalState = {};
+  let thrDerivedAlarms = [];
+  let thrLastToastFp = "";
+  let thrPanelMachine = null;
+
+  function defaultAlertRules() {
+    return {
+      enabled: true,
+      holdMs: 3000,
+      hysteresis: 2,
+      metrics: {
+        temperature: { enabled: true, warn: 75, alarm: 82, unit: "°C" },
+        current: { enabled: true, warn: 55, alarm: 70, unit: "A" },
+        power: { enabled: true, warn: 70, alarm: 95, unit: "kW" },
+      },
+    };
+  }
+
+  function loadAllAlertRules() {
+    try {
+      return JSON.parse(localStorage.getItem(ALERT_RULES_KEY) || "{}") || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveAllAlertRules(map) {
+    localStorage.setItem(ALERT_RULES_KEY, JSON.stringify(map));
+  }
+
+  function getAlertRules(mid) {
+    const all = loadAllAlertRules();
+    const base = defaultAlertRules();
+    const saved = all[mid];
+    if (!saved) return base;
+    return {
+      enabled: saved.enabled !== false,
+      holdMs: Number(saved.holdMs) > 0 ? Number(saved.holdMs) : base.holdMs,
+      hysteresis: saved.hysteresis != null ? Number(saved.hysteresis) : base.hysteresis,
+      metrics: Object.assign({}, base.metrics, saved.metrics || {}),
+    };
+  }
+
+  function setAlertRules(mid, rules) {
+    const all = loadAllAlertRules();
+    all[mid] = rules;
+    saveAllAlertRules(all);
+  }
+
+  function ensureZoneRules(rules, zones) {
+    const z = zones || {};
+    Object.keys(z).forEach((k) => {
+      const key = "zone_" + k;
+      if (!rules.metrics[key]) {
+        const v = Number(z[k]) || 180;
+        rules.metrics[key] = {
+          enabled: true,
+          warn: Math.round(v * 1.08),
+          alarm: Math.round(v * 1.15),
+          unit: "°C",
+          label: k,
+        };
+      }
+    });
+    return rules;
+  }
+
+  function readMetricValue(metricKey, m) {
+    if (!m) return null;
+    if (metricKey === "temperature") return m.temperature != null ? Number(m.temperature) : null;
+    if (metricKey === "current") return m.current != null ? Number(m.current) : null;
+    if (metricKey === "power") return m.power != null ? Number(m.power) : null;
+    if (metricKey.indexOf("zone_") === 0) {
+      const zk = metricKey.slice(5);
+      const z = m.multiZoneTemperatures || {};
+      return z[zk] != null ? Number(z[zk]) : null;
+    }
+    return null;
+  }
+
+  function rawLevelForValue(val, rule) {
+    if (val == null || !rule || !rule.enabled) return "ok";
+    const alarm = Number(rule.alarm);
+    const warn = Number(rule.warn);
+    if (!Number.isFinite(alarm) || !Number.isFinite(warn)) return "ok";
+    if (val >= alarm) return "alarm";
+    if (val >= warn) return "warn";
+    return "ok";
+  }
+
+  /** Apply hysteresis when recovering from higher severity */
+  function levelWithHysteresis(val, rule, prevLevel, hyst) {
+    const raw = rawLevelForValue(val, rule);
+    if (!prevLevel || prevLevel === "ok") return raw;
+    if (raw === "alarm") return "alarm";
+    const alarm = Number(rule.alarm);
+    const warn = Number(rule.warn);
+    const h = Number(hyst) || 0;
+    if (prevLevel === "alarm") {
+      if (val >= alarm - h) return "alarm";
+      if (val >= warn - h) return "warn";
+      return "ok";
+    }
+    if (prevLevel === "warn") {
+      if (raw === "warn" || raw === "alarm") return raw === "alarm" ? "alarm" : "warn";
+      if (val >= warn - h) return "warn";
+      return "ok";
+    }
+    return raw;
+  }
+
+  function evaluateThresholds() {
+    if (!detail || !machineId) return;
+    let rules = ensureZoneRules(getAlertRules(machineId), detail.multiZoneTemperatures);
+    if (!thrEvalState[machineId]) thrEvalState[machineId] = {};
+    const st = thrEvalState[machineId];
+    const now = Date.now();
+    const derived = [];
+    const toastParts = [];
+
+    if (rules.enabled) {
+      Object.keys(rules.metrics).forEach((key) => {
+        const rule = rules.metrics[key];
+        if (!rule || !rule.enabled) {
+          delete st[key];
+          return;
+        }
+        const val = readMetricValue(key, detail);
+        if (val == null) return;
+        const prev = st[key] || { level: "ok", candidate: "ok", since: now, fired: "" };
+        const candidate = levelWithHysteresis(val, rule, prev.level, rules.hysteresis);
+        let level = prev.level;
+        let since = prev.since;
+        let fired = prev.fired || "";
+
+        if (candidate !== prev.candidate) {
+          since = now;
+        }
+        if (candidate === "ok") {
+          level = "ok";
+          fired = "";
+        } else if (now - since >= (rules.holdMs || 0)) {
+          level = candidate;
+          const fp = key + ":" + level;
+          if (fired !== fp) {
+            fired = fp;
+            toastParts.push((rule.label || key) + " " + level.toUpperCase() + " (" + val + (rule.unit || "") + ")");
+          }
+        } else {
+          level = prev.level === candidate ? candidate : prev.level;
+        }
+
+        st[key] = { level, candidate, since, fired, value: val };
+
+        if (level === "warn" || level === "alarm") {
+          const label = rule.label || key;
+          derived.push({
+            severity: level === "alarm" ? "error" : "warning",
+            message: "[threshold] " + label + " = " + Number(val).toFixed(1) + (rule.unit || "") +
+              " ≥ " + (level === "alarm" ? rule.alarm : rule.warn) + (rule.unit || ""),
+            timestamp: new Date(since).toISOString(),
+            source: "localStorage",
+            metric: key,
+          });
+        }
+      });
+    }
+
+    thrDerivedAlarms = derived;
+    if (toastParts.length) {
+      const fp = toastParts.join("|");
+      if (fp !== thrLastToastFp) {
+        thrLastToastFp = fp;
+        showToast("Alert: " + toastParts.join(" · "));
+      }
+    }
+  }
+
+  function thresholdLineDatasets(metricKey, n) {
+    if (!machineId || n < 1) return [];
+    const rules = getAlertRules(machineId);
+    if (!rules.enabled) return [];
+    const rule = rules.metrics[metricKey];
+    if (!rule || !rule.enabled) return [];
+    const warn = Number(rule.warn);
+    const alarm = Number(rule.alarm);
+    const out = [];
+    if (Number.isFinite(warn)) {
+      out.push({
+        label: "warn",
+        data: Array(n).fill(warn),
+        borderColor: "rgba(255,152,48,0.85)",
+        borderDash: [5, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 10,
+      });
+    }
+    if (Number.isFinite(alarm)) {
+      out.push({
+        label: "alarm",
+        data: Array(n).fill(alarm),
+        borderColor: "rgba(242,73,92,0.9)",
+        borderDash: [3, 3],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 10,
+      });
+    }
+    return out;
+  }
+
+  function renderThresholdPanel() {
+    const host = document.getElementById("thrHost");
+    if (!host || !detail) return;
+    let rules = ensureZoneRules(getAlertRules(machineId), detail.multiZoneTemperatures);
+    const st = (thrEvalState[machineId] || {});
+    const rows = Object.keys(rules.metrics).map((key) => {
+      const r = rules.metrics[key];
+      const ev = st[key] || { level: "ok" };
+      const label = r.label || key;
+      return (
+        "<tr data-metric=\"" + key + "\">" +
+        '<td><input type="checkbox" data-f="enabled"' + (r.enabled ? " checked" : "") + " /></td>" +
+        '<td class="mono">' + label + "</td>" +
+        '<td><input type="number" data-f="warn" step="0.1" value="' + r.warn + '" /></td>' +
+        '<td><input type="number" data-f="alarm" step="0.1" value="' + r.alarm + '" /></td>' +
+        "<td>" + (r.unit || "") + "</td>" +
+        '<td><span class="thr-level ' + (ev.level || "ok") + '">' + (ev.level || "ok") + "</span></td>" +
+        '<td class="mono">' + (ev.value != null ? Number(ev.value).toFixed(1) : "—") + "</td>" +
+        "</tr>"
+      );
+    }).join("");
+
+    host.innerHTML =
+      '<div class="thr-toolbar">' +
+      '<label><input type="checkbox" id="thrEnabled"' + (rules.enabled ? " checked" : "") + " /> Enable evaluator</label>" +
+      '<label>Hold (ms) <input type="number" id="thrHold" min="0" step="500" value="' + rules.holdMs + '" /></label>' +
+      '<label>Hysteresis <input type="number" id="thrHyst" min="0" step="0.5" value="' + rules.hysteresis + '" /></label>' +
+      '<button type="button" class="g-btn primary" id="btnThrSave">Save</button>' +
+      '<button type="button" class="g-btn" id="btnThrReset">Reset defaults</button>' +
+      "</div>" +
+      '<table class="thr-table"><thead><tr>' +
+      "<th>On</th><th>Metric</th><th>Warn ≥</th><th>Alarm ≥</th><th></th><th>Level</th><th>Now</th>" +
+      "</tr></thead><tbody id=\"thrBody\">" + rows + "</tbody></table>" +
+      '<p class="hint" style="padding:4px 0 0">Demo only · rules per machine_id trong localStorage. Production: backend evaluate → alarms table.</p>';
+
+    document.getElementById("btnThrSave").onclick = () => {
+      const next = {
+        enabled: document.getElementById("thrEnabled").checked,
+        holdMs: Number(document.getElementById("thrHold").value) || 0,
+        hysteresis: Number(document.getElementById("thrHyst").value) || 0,
+        metrics: {},
+      };
+      Array.from(document.querySelectorAll("#thrBody tr")).forEach((tr) => {
+        const key = tr.getAttribute("data-metric");
+        const prev = rules.metrics[key] || {};
+        next.metrics[key] = {
+          enabled: tr.querySelector('[data-f="enabled"]').checked,
+          warn: Number(tr.querySelector('[data-f="warn"]').value),
+          alarm: Number(tr.querySelector('[data-f="alarm"]').value),
+          unit: prev.unit || "",
+          label: prev.label,
+        };
+      });
+      setAlertRules(machineId, next);
+      thrEvalState[machineId] = {};
+      thrLastToastFp = "";
+      thrPanelMachine = null;
+      showToast("Saved thresholds for " + machineId);
+      thrPanelMachine = machineId;
+      evaluateThresholds();
+      renderThresholdPanel();
+      thrPanelMachine = machineId;
+      renderAlarms();
+      renderCharts();
+      renderZones();
+      renderStats();
+    };
+    document.getElementById("btnThrReset").onclick = () => {
+      const all = loadAllAlertRules();
+      delete all[machineId];
+      saveAllAlertRules(all);
+      thrEvalState[machineId] = {};
+      thrLastToastFp = "";
+      thrPanelMachine = null;
+      showToast("Reset thresholds → defaults");
+      evaluateThresholds();
+      renderThresholdPanel();
+      renderAlarms();
+      renderCharts();
+      renderZones();
+      renderStats();
+    };
+  }
 
   const ZONE_PALETTE = ["#f2495c", "#ff9830", "#fade2a", "#73bf69", "#5794f2", "#b877d9", "#8ab8ff", "#e0b400"];
 
@@ -793,10 +1138,14 @@
 
   function panelHTML(id, w, h, inner) {
     const meta = PANEL_META[id];
+    const badge = meta.badge
+      ? '<span class="panel-badge ' + meta.badge + '">' + meta.badge + "</span>"
+      : "";
+    const proposed = meta.badge === "proposed" ? " proposed" : "";
     return (
-      '<section class="panel" data-w="' + w + '" data-h="' + h + '">' +
-      '<div class="panel-head"><div class="panel-title">' + meta.title +
-      '</div><div class="panel-api">' + meta.api + "</div></div>" +
+      '<section class="panel' + proposed + '" data-w="' + w + '" data-h="' + h + '">' +
+      '<div class="panel-head"><div class="panel-title-wrap"><div class="panel-title">' + meta.title +
+      '</div><div class="panel-api">' + meta.api + "</div></div>" + badge + "</div>" +
       '<div class="panel-body" id="body-' + id + '">' + inner + "</div></section>"
     );
   }
@@ -823,8 +1172,10 @@
           '<div class="zone-grid" id="zoneGrid"></div>' +
           '<div class="chart-wrap"><canvas id="chart_zones_c"></canvas></div>' +
           "</div>";
+      } else if (p.id === "thresholds") {
+        inner = '<div class="thr-panel" id="thrHost"><p class="hint">Loading…</p></div>';
       } else if (p.id === "alarms") {
-        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Sev</th><th>Message</th><th>Age</th></tr></thead><tbody id="alarmBody"></tbody></table></div>';
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Sev</th><th>Message</th><th>Age</th><th>Src</th></tr></thead><tbody id="alarmBody"></tbody></table></div>';
       } else if (p.id === "energy_buckets") {
         inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Bucket</th><th class="num">kWh</th><th class="num">kW</th><th>Product</th><th class="num">m</th><th class="num">kWh/100m</th></tr></thead><tbody id="energyBody"></tbody></table></div>';
       } else if (p.id === "orders") {
@@ -898,13 +1249,20 @@
     const m = detail;
     if (!m) return;
     const sp = speedInfo(m);
+    const st = (thrEvalState[machineId] || {});
+    function thrCls(metric, fallback) {
+      const lv = st[metric] && st[metric].level;
+      if (lv === "alarm") return "red";
+      if (lv === "warn") return "orange";
+      return fallback;
+    }
     const specs = [
       { id: "stat_speed", v: String(sp.v), unit: sp.unit, name: "lineSpeed", cls: "blue" },
       { id: "stat_target", v: String(sp.t), unit: sp.unit, name: "targetSpeed", cls: "purple" },
       { id: "stat_eff", v: sp.pct.toFixed(0), unit: "%", name: "vs target", cls: sp.pct >= 95 ? "green" : sp.pct >= 85 ? "orange" : "red" },
       { id: "stat_oee", v: Number(m.oee || 0).toFixed(1), unit: "%", name: "live OEE", cls: (m.oee || 0) >= 80 ? "green" : (m.oee || 0) >= 70 ? "orange" : "red" },
-      { id: "stat_power", v: Number(m.power || 0).toFixed(1), unit: "kW", name: "active power", cls: "orange" },
-      { id: "stat_temp", v: m.temperature != null ? String(Math.round(m.temperature)) : "—", unit: "°C", name: "temperature", cls: "red" },
+      { id: "stat_power", v: Number(m.power || 0).toFixed(1), unit: "kW", name: "active power", cls: thrCls("power", "orange") },
+      { id: "stat_temp", v: m.temperature != null ? String(Math.round(m.temperature)) : "—", unit: "°C", name: "temperature", cls: thrCls("temperature", "red") },
     ];
     specs.forEach((s) => {
       const vel = document.getElementById(s.id + "_v");
@@ -1023,30 +1381,31 @@
 
     if (useAuto) {
       const labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      const n = labels.length;
       lineChart("chart_temp", document.getElementById("chart_temp_c"), labels, [
         { label: "Temp", data: rtSeries.map((p) => p.temp != null ? p.temp : null), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
-      ], "°C");
+      ].concat(thresholdLineDatasets("temperature", n)), "°C");
       lineChart("chart_current", document.getElementById("chart_current_c"), labels, [
         { label: "A", data: rtSeries.map((p) => p.current != null ? p.current : null), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
-      ], "A");
+      ].concat(thresholdLineDatasets("current", n)), "A");
       lineChart("chart_power", document.getElementById("chart_power_c"), labels, [
         { label: "kW", data: rtSeries.map((p) => p.power != null ? p.power : null), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
-      ], "kW");
+      ].concat(thresholdLineDatasets("power", n)), "kW");
     } else {
       const tt = (detail.temperatureTrend || []).slice(-60);
       lineChart("chart_temp", document.getElementById("chart_temp_c"), tt.map((p) => fmtTime(p.time)), [
         { label: "Temp", data: tt.map((p) => Number(p.temp) || 0), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: false },
-      ], "°C");
+      ].concat(thresholdLineDatasets("temperature", tt.length)), "°C");
 
       const ct = (detail.currentTrend || []).slice(-60);
       lineChart("chart_current", document.getElementById("chart_current_c"), ct.map((p) => fmtTime(p.time)), [
         { label: "A", data: ct.map((p) => Number(p.current) || 0), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
-      ], "A");
+      ].concat(thresholdLineDatasets("current", ct.length)), "A");
 
       const pt = (detail.powerTrend || []).slice(-60);
       lineChart("chart_power", document.getElementById("chart_power_c"), pt.map((p) => fmtTime(p.time)), [
         { label: "kW", data: pt.map((p) => Number(p.power) || 0), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
-      ], "kW");
+      ].concat(thresholdLineDatasets("power", pt.length)), "kW");
     }
 
     const et = (detail.energyMeterTrend || []).slice(-60);
@@ -1114,11 +1473,15 @@
           label: k,
           data: [Number(z[k]) || 0],
           borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
-          backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
-          borderWidth: 2,
-          pointRadius: 4,
+          borderWidth: 1.5,
+          pointRadius: 3,
+          tension: 0,
         }));
       }
+    }
+    // First zone warn/alarm as reference bands (demo)
+    if (keys[0] && labels.length) {
+      datasets = datasets.concat(thresholdLineDatasets("zone_" + keys[0], labels.length));
     }
     lineChart("chart_zones", canvas, labels, datasets, "°C");
   }
@@ -1132,22 +1495,44 @@
       if (charts.chart_zones) { try { charts.chart_zones.destroy(); } catch (_) {} delete charts.chart_zones; }
       return;
     }
-    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k, i) =>
-      '<div class="zone-card"><div class="zn" style="color:' + ZONE_PALETTE[i % ZONE_PALETTE.length] + '">' + k +
-      '</div><div class="zv">' + Number(z[k]).toFixed(0) + "°</div></div>"
-    ).join("") || '<p class="hint">Empty zones</p>';
+    const st = thrEvalState[machineId] || {};
+    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k, i) => {
+      const lv = (st["zone_" + k] && st["zone_" + k].level) || "ok";
+      const cls = lv === "alarm" ? " thr-alarm" : lv === "warn" ? " thr-warn" : "";
+      return '<div class="zone-card' + cls + '"><div class="zn" style="color:' + ZONE_PALETTE[i % ZONE_PALETTE.length] + '">' + k +
+        '</div><div class="zv">' + Number(z[k]).toFixed(0) + "°</div></div>";
+    }).join("") || '<p class="hint">Empty zones</p>';
     renderZoneChart();
   }
 
   function renderAlarms() {
     const body = document.getElementById("alarmBody");
     if (!body || !detail) return;
-    const rows = detail.alarms || [];
+    const apiRows = (detail.alarms || []).map((a) => Object.assign({ source: "api" }, a));
+    const rows = apiRows.concat(thrDerivedAlarms || []);
     body.innerHTML = rows.map((a) => {
       const age = a.timestamp ? Math.max(0, Math.round((Date.now() - new Date(a.timestamp).getTime()) / 60000)) + "m" : "—";
       return '<tr><td><span class="sev ' + (a.severity || "info") + '">' + (a.severity || "info") +
-        "</span></td><td>" + (a.message || "—") + "</td><td>" + age + "</td></tr>";
-    }).join("") || '<tr><td colspan="3" class="hint">No active alarms</td></tr>';
+        "</span></td><td>" + (a.message || "—") + "</td><td>" + age +
+        '</td><td class="mono" style="font-size:10px">' + (a.source || "api") + "</td></tr>";
+    }).join("") || '<tr><td colspan="4" class="hint">No active alarms</td></tr>';
+  }
+
+  function updateThresholdLevelsUI() {
+    const body = document.getElementById("thrBody");
+    if (!body) return;
+    const st = thrEvalState[machineId] || {};
+    Array.from(body.querySelectorAll("tr")).forEach((tr) => {
+      const key = tr.getAttribute("data-metric");
+      const ev = st[key] || {};
+      const span = tr.querySelector(".thr-level");
+      if (span) {
+        span.className = "thr-level " + (ev.level || "ok");
+        span.textContent = ev.level || "ok";
+      }
+      const cells = tr.querySelectorAll("td");
+      if (cells[6]) cells[6].textContent = ev.value != null ? Number(ev.value).toFixed(1) : "—";
+    });
   }
 
   function renderEnergyBuckets() {
@@ -1180,6 +1565,7 @@
   }
 
   function refreshAll() {
+    evaluateThresholds();
     renderHeader();
     renderStats();
     renderApq();
@@ -1188,6 +1574,12 @@
     renderGantt();
     renderCharts();
     renderZones();
+    if (!document.getElementById("thrBody") || thrPanelMachine !== machineId) {
+      renderThresholdPanel();
+      thrPanelMachine = machineId;
+    } else {
+      updateThresholdLevelsUI();
+    }
     renderAlarms();
     renderEnergyBuckets();
     renderOrders();
@@ -1353,6 +1745,8 @@
 
   document.getElementById("machineSelect").addEventListener("change", (e) => {
     machineId = e.target.value;
+    thrLastToastFp = "";
+    thrPanelMachine = null;
     resetRtSeries();
     setQsMachine(machineId);
     refreshData();
