@@ -39,9 +39,65 @@
       --g-grid: rgba(36, 41, 46, 0.12); --g-toast: #ffffff;
       --g-topnav: #ffffff; --g-topnav-border: #dce1e6; --g-api-note: #6e6e76;
     }
+    html[data-theme="midnight"] {
+      --g-bg: #0b0f19; --g-panel: #121826; --g-panel-border: #1e2a3d;
+      --g-text: #d8dee9; --g-text-secondary: #8b9bb4; --g-muted-hex: #8b9bb4;
+      --g-blue: #5b9cf5; --g-green: #6bcf8e; --g-yellow: #e8c547;
+      --g-orange: #f0a05a; --g-red: #e85d6f; --g-purple: #9b7fd4;
+      --g-input: #0e1420; --g-hover: #1a2436; --g-track: #1a2436; --g-cell: #1a2436;
+      --g-grid: rgba(91, 156, 245, 0.12); --g-toast: #1a2436;
+      --g-topnav: #0b0f19; --g-topnav-border: #1e2a3d; --g-api-note: #6e7f99;
+    }
+    html[data-theme="ai"] {
+      --g-bg: #050a14; --g-panel: #0a1628; --g-panel-border: rgba(0, 212, 255, 0.22);
+      --g-text: #e8f4ff; --g-text-secondary: #7a9bb8; --g-muted-hex: #7a9bb8;
+      --g-blue: #00d4ff; --g-green: #00ffa3; --g-yellow: #ffe566;
+      --g-orange: #ff9f43; --g-red: #ff4d6d; --g-purple: #a78bfa;
+      --g-input: #071018; --g-hover: #0f2138; --g-track: #0f2138; --g-cell: #0c1a2e;
+      --g-grid: rgba(0, 212, 255, 0.14); --g-toast: #0c1a2e;
+      --g-topnav: rgba(5, 10, 20, 0.92); --g-topnav-border: rgba(0, 212, 255, 0.18); --g-api-note: #5a7a94;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: var(--g-bg); color: var(--g-text); font-family: var(--font); font-size: 14px; }
     body { overflow: auto; }
+    html[data-theme="ai"] body {
+      background:
+        radial-gradient(ellipse 90% 55% at 12% -8%, rgba(0, 212, 255, 0.2), transparent 55%),
+        radial-gradient(ellipse 70% 45% at 92% 8%, rgba(88, 101, 242, 0.28), transparent 50%),
+        radial-gradient(ellipse 55% 35% at 48% 105%, rgba(0, 255, 200, 0.1), transparent 55%),
+        linear-gradient(180deg, #050a14 0%, #071428 50%, #050a14 100%);
+      background-attachment: fixed;
+    }
+    html[data-theme="ai"] .g-topnav {
+      backdrop-filter: blur(10px);
+      box-shadow: 0 1px 0 rgba(0, 212, 255, 0.12), 0 8px 28px rgba(0, 40, 80, 0.35);
+    }
+    html[data-theme="ai"] .g-logo {
+      background: linear-gradient(135deg, #00d4ff, #5865f2 48%, #a855f7);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.55);
+      color: #041018;
+    }
+    html[data-theme="ai"] .panel {
+      background: linear-gradient(165deg, rgba(14, 36, 64, 0.92), rgba(8, 18, 36, 0.96));
+      box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.1), 0 10px 36px rgba(0, 24, 56, 0.45);
+    }
+    html[data-theme="ai"] .panel.proposed {
+      border-color: rgba(167, 139, 250, 0.55);
+      box-shadow: 0 0 20px rgba(167, 139, 250, 0.12);
+    }
+    html[data-theme="ai"] .nav-tabs a.active {
+      background: rgba(0, 212, 255, 0.14);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.22);
+    }
+    html[data-theme="ai"] .g-btn.primary {
+      background: linear-gradient(135deg, #0099cc, #00d4ff);
+      border-color: #00d4ff; color: #041018;
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.35);
+    }
+    html[data-theme="ai"] .live i { box-shadow: 0 0 8px currentColor; }
+    html[data-theme="midnight"] .g-logo {
+      background: linear-gradient(135deg, #5b9cf5, #9b7fd4 55%, #6bcf8e);
+    }
 
     .g-topnav {
       height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
@@ -318,8 +374,10 @@
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
     <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
     <button type="button" class="g-btn" id="btnLive">Live API</button>
-    <button type="button" class="g-btn theme-active" id="btnThemeDark">Dark</button>
-    <button type="button" class="g-btn" id="btnThemeLight">Light</button>
+    <button type="button" class="g-btn theme-active" data-theme-btn="dark" id="btnThemeDark" title="Grafana Dark">Dark</button>
+    <button type="button" class="g-btn" data-theme-btn="light" id="btnThemeLight" title="Grafana Light">Light</button>
+    <button type="button" class="g-btn" data-theme-btn="midnight" id="btnThemeMidnight" title="Grafana Midnight">Midnight</button>
+    <button type="button" class="g-btn" data-theme-btn="ai" id="btnThemeAi" title="AI Neon">AI</button>
     <button type="button" class="g-btn primary" id="btnRefresh">Refresh</button>
   </nav>
 
@@ -752,16 +810,26 @@
     return v || fallback;
   }
 
+  const THEME_LABELS = {
+    dark: "Grafana Dark",
+    light: "Grafana Light",
+    midnight: "Grafana Midnight",
+    ai: "AI Neon",
+  };
+  function normalizeTheme(theme) {
+    return THEME_LABELS[theme] ? theme : "dark";
+  }
   function applyTheme(theme, opts) {
-    const t = theme === "light" ? "light" : "dark";
+    const t = normalizeTheme(theme);
     document.documentElement.setAttribute("data-theme", t);
     localStorage.setItem(THEME_KEY, t);
-    document.getElementById("btnThemeDark").classList.toggle("theme-active", t === "dark");
-    document.getElementById("btnThemeLight").classList.toggle("theme-active", t === "light");
+    document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+      btn.classList.toggle("theme-active", btn.getAttribute("data-theme-btn") === t);
+    });
     Chart.defaults.color = cssVar("--g-muted-hex", "#8e8e9a");
     Chart.defaults.borderColor = cssVar("--g-panel-border", "#2c3235");
     Object.keys(charts).forEach((k) => { try { charts[k].update("none"); } catch (_) {} });
-    if (opts && opts.toast) showToast("Theme: Grafana " + (t === "light" ? "Light" : "Dark"));
+    if (opts && opts.toast) showToast("Theme: " + THEME_LABELS[t]);
   }
   applyTheme(localStorage.getItem(THEME_KEY) || "dark");
   Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
@@ -1762,8 +1830,9 @@
     resetRtSeries();
     refreshData().then(() => restartPoll());
   });
-  document.getElementById("btnThemeDark").addEventListener("click", () => applyTheme("dark", { toast: true }));
-  document.getElementById("btnThemeLight").addEventListener("click", () => applyTheme("light", { toast: true }));
+  document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn"), { toast: true }));
+  });
   document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
 
   renderBoardShell();
