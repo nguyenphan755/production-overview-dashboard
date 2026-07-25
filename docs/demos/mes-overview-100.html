@@ -15,6 +15,8 @@
     Live default: http://100.114.213.115:3001
   -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="mes-demo-layout.js"></script>
+  <link rel="stylesheet" href="mes-demo-layout.css" />
   <style>
     :root,
     html[data-theme="dark"] {
@@ -169,28 +171,64 @@
     .board {
       display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
       gap: 8px; padding: 8px 14px 24px; align-content: start;
+      position: relative;
     }
     .panel {
       background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
       display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+      position: relative; transition: box-shadow 0.12s ease;
     }
-    .panel[data-w="4"] { grid-column: span 4; }
-    .panel[data-w="6"] { grid-column: span 6; }
-    .panel[data-w="8"] { grid-column: span 8; }
-    .panel[data-w="12"] { grid-column: span 12; }
-    .panel[data-w="16"] { grid-column: span 16; }
-    .panel[data-w="24"] { grid-column: span 24; }
-    .panel[data-h="4"] { grid-row: span 4; }
-    .panel[data-h="5"] { grid-row: span 5; }
-    .panel[data-h="7"] { grid-row: span 7; }
-    .panel[data-h="8"] { grid-row: span 8; }
-    .panel[data-h="10"] { grid-row: span 10; }
-    .panel[data-h="12"] { grid-row: span 12; }
-    .panel[data-h="14"] { grid-row: span 14; }
+    .panel.dragging-source { opacity: 0.28; pointer-events: none; }
+    .panel.resizing { outline: 1px solid var(--g-blue); outline-offset: -1px; z-index: 5; user-select: none; }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+    .panel-ghost {
+      background: rgba(87, 148, 242, 0.14); border: 1px dashed var(--g-blue); border-radius: 2px;
+      pointer-events: none; z-index: 3; box-sizing: border-box;
+    }
+    .panel-drag-mirror {
+      position: fixed; z-index: 10000; pointer-events: none; opacity: 0.94;
+      border: 1px solid var(--g-blue); border-radius: 2px; background: var(--g-panel);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45); overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .panel-drag-mirror .mirror-title {
+      font-size: 12px; font-weight: 500; color: var(--g-text-secondary);
+      padding: 8px 10px; border-bottom: 1px solid var(--g-panel-border);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .panel-drag-mirror .mirror-body {
+      flex: 1; background:
+        linear-gradient(135deg, rgba(87,148,242,0.08) 25%, transparent 25%),
+        linear-gradient(225deg, rgba(87,148,242,0.08) 25%, transparent 25%);
+      background-size: 16px 16px;
+    }
+    .panel-size {
+      font-size: 9px; font-family: var(--mono); color: var(--g-text-secondary);
+      opacity: 0; padding: 1px 4px; margin-top: 2px; flex-shrink: 0;
+    }
+    .panel:hover .panel-size, .panel.resizing .panel-size, .board.layout-edit .panel-size { opacity: 1; }
+    .panel-resize {
+      position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+      cursor: nwse-resize; z-index: 6; touch-action: none;
+      opacity: 0; transition: opacity 0.12s ease;
+    }
+    .panel:hover .panel-resize, .panel.resizing .panel-resize, .board.layout-edit .panel-resize { opacity: 1; }
+    .panel-resize::before {
+      content: ""; position: absolute; right: 3px; bottom: 3px; width: 9px; height: 9px;
+      border-right: 2px solid var(--g-blue); border-bottom: 2px solid var(--g-blue); opacity: 0.85;
+    }
+    body.layout-resizing { cursor: nwse-resize !important; user-select: none !important; }
+    body.layout-resizing .panel { pointer-events: none; }
+    body.layout-resizing .panel.resizing { pointer-events: auto; }
+    body.layout-dragging { cursor: grabbing !important; user-select: none !important; }
+    body.layout-dragging .panel { pointer-events: none; }
+    body.layout-dragging .panel-ghost { pointer-events: none; }
 
     .panel-head {
       display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 28px;
+      cursor: grab; user-select: none;
     }
+    .panel-head:active { cursor: grabbing; }
     .panel-title-wrap { flex: 1; min-width: 0; }
     .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .panel-api {
@@ -412,6 +450,8 @@
       <button type="button" data-range="24h">Last 24h</button>
     </div>
     <span class="tag" id="windowTag" style="margin-left:4px">tick=1s</span>
+    <button type="button" class="g-btn" id="btnEditLayout" title="Bật/tắt kéo & resize panel">Edit layout</button>
+    <button type="button" class="g-btn" id="btnReset">Reset panels</button>
     <button type="button" class="g-btn primary" id="btnRefresh">Refresh</button>
   </nav>
 
@@ -477,7 +517,7 @@
   const OPERATORS = ["Nguyễn Văn An", "Trần Thị Bình", "Lê Minh Cường", "Phạm Thu Dung", "Hoàng Đức Em", "Vũ Thị Hoa"];
   const STATUS_WEIGHTS = [["running", 72], ["setup", 8], ["idle", 7], ["stopped", 6], ["warning", 4], ["error", 3]];
 
-  const LAYOUT = [
+  const DEFAULT_LAYOUT_ITEMS = [
     { id: "stat_running", w: 4, h: 4 },
     { id: "stat_stopped", w: 4, h: 4 },
     { id: "stat_setup", w: 4, h: 4 },
@@ -491,6 +531,7 @@
     { id: "product_mix", w: 8, h: 12 },
     { id: "alerts", w: 24, h: 8 },
   ];
+  const DEFAULT_LAYOUT = MesDemoLayout.packLayoutItems(DEFAULT_LAYOUT_ITEMS);
 
   const PANEL_META = {
     stat_running: { title: "Lines Running", api: "machines status=running" },
@@ -812,21 +853,30 @@
   }
 
   const board = document.getElementById("board");
+  const layoutApi = MesDemoLayout.create({
+    board: board,
+    layoutKey: "mes-ov-layout-v1",
+    editKey: "mes-ov-edit-layout",
+    defaultLayout: DEFAULT_LAYOUT,
+    panelMeta: PANEL_META,
+    showToast: showToast,
+    onResizeCharts: function () { /* overview has few charts */ },
+  });
 
-  function panelHTML(id, w, h, inner) {
-    const meta = PANEL_META[id];
+  function panelHTML(item, inner) {
     return (
-      '<section class="panel" data-id="' + id + '" data-w="' + w + '" data-h="' + h + '">' +
-      '<div class="panel-head"><div class="panel-title-wrap"><div class="panel-title">' + meta.title +
-      '</div><div class="panel-api">' + meta.api + "</div></div>" +
-      '<span class="panel-badge">ok</span></div>' +
-      '<div class="panel-body" id="body-' + id + '">' + inner + "</div></section>"
+      layoutApi.panelShellOpen(item) +
+      layoutApi.panelHeadHtml(item, '<span class="panel-badge">ok</span>') +
+      '<div class="panel-body" id="body-' + item.id + '">' + inner + "</div>" +
+      layoutApi.panelResizeHtml() +
+      "</section>"
     );
   }
 
   function renderBoard() {
     Object.keys(charts).forEach((k) => { try { charts[k].destroy(); } catch (_) {} delete charts[k]; });
-    board.innerHTML = LAYOUT.map((p) => {
+    layoutApi.cleanupArtifacts();
+    board.innerHTML = layoutApi.layout.map((p) => {
       let inner = "";
       if (p.id.startsWith("stat_")) {
         inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div></div>';
@@ -863,8 +913,10 @@
       } else if (p.id === "alerts") {
         inner = '<div style="height:100%;overflow:auto"><table class="alert-table"><thead><tr><th>Sev</th><th>Line</th><th>Message</th><th>Age</th></tr></thead><tbody id="alertBody"></tbody></table></div>';
       }
-      return panelHTML(p.id, p.w, p.h, inner);
+      return panelHTML(p, inner);
     }).join("");
+    layoutApi.syncDomFromLayout();
+    layoutApi.bindPanelInteractions();
     bindFilters();
     refreshAll();
   }
@@ -1228,6 +1280,14 @@
     restartPoll();
     showToast(rangeCfg().title);
   });
+  document.getElementById("btnEditLayout").addEventListener("click", () => {
+    layoutApi.setEditLayout(!board.classList.contains("layout-edit"), { toast: true });
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    layoutApi.resetLayout(DEFAULT_LAYOUT);
+    renderBoard();
+    showToast("Layout reset");
+  });
   document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
   document.getElementById("drawerClose").addEventListener("click", closeDrawer);
   document.getElementById("backdrop").addEventListener("click", closeDrawer);
@@ -1237,6 +1297,7 @@
     b.classList.toggle("active", b.dataset.range === timeRange);
   });
   setMode(dataMode);
+  layoutApi.setEditLayout(localStorage.getItem("mes-ov-edit-layout") === "1");
   renderBoard();
   refreshData().then(() => restartPoll());
   setInterval(updateClock, 1000);

@@ -16,6 +16,8 @@
     Gaps (proposed): per-line ML model store, changeover matrix endpoint, downtime reason PLC codes.
   -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="mes-demo-layout.js"></script>
+  <link rel="stylesheet" href="mes-demo-layout.css" />
   <style>
     :root, html[data-theme="dark"] {
       --g-bg: #111217; --g-panel: #181b1f; --g-panel-border: #2c3235;
@@ -184,31 +186,22 @@
     .board {
       display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
       gap: 8px; padding: 8px 14px 24px; align-content: start;
+      position: relative;
     }
     .panel {
       background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
       display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
     }
     .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
-    .panel[data-w="4"] { grid-column: span 4; }
-    .panel[data-w="6"] { grid-column: span 6; }
-    .panel[data-w="8"] { grid-column: span 8; }
-    .panel[data-w="12"] { grid-column: span 12; }
-    .panel[data-w="16"] { grid-column: span 16; }
-    .panel[data-w="24"] { grid-column: span 24; }
-    .panel[data-h="4"] { grid-row: span 4; }
-    .panel[data-h="5"] { grid-row: span 5; }
-    .panel[data-h="6"] { grid-row: span 6; }
-    .panel[data-h="7"] { grid-row: span 7; }
-    .panel[data-h="8"] { grid-row: span 8; }
-    .panel[data-h="9"] { grid-row: span 9; }
-    .panel[data-h="10"] { grid-row: span 10; }
-    .panel-head { padding: 6px 8px 0; min-height: 28px; }
+    .panel-head {
+      display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 28px;
+    }
+    .panel-title-wrap { flex: 1; min-width: 0; }
     .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); }
     .panel-api { font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .panel-badge {
       display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-      padding: 1px 5px; border-radius: 2px; margin-left: 6px; vertical-align: middle;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
     }
     .panel-badge.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
     .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
@@ -314,6 +307,8 @@
     <button type="button" class="g-btn" data-theme-btn="light" id="btnThemeLight" title="Grafana Light">Light</button>
     <button type="button" class="g-btn" data-theme-btn="midnight" id="btnThemeMidnight" title="Grafana Midnight">Midnight</button>
     <button type="button" class="g-btn" data-theme-btn="ai" id="btnThemeAi" title="AI Neon">AI</button>
+    <button type="button" class="g-btn" id="btnEditLayout" title="Bật/tắt kéo & resize panel">Edit layout</button>
+    <button type="button" class="g-btn" id="btnReset">Reset panels</button>
     <button type="button" class="g-btn" id="btnTrain" title="Fit heuristic Line Model từ cửa sổ hiện tại">Train model</button>
     <button type="button" class="g-btn primary" id="btnRefresh">Phân tích</button>
   </nav>
@@ -374,7 +369,7 @@
     custom: { spanMs: null, pollMs: 30000, bucketSec: 60, title: "Custom absolute" },
   };
 
-  const LAYOUT = [
+  const DEFAULT_LAYOUT_ITEMS = [
     { id: "stat_peak", w: 4, h: 4 },
     { id: "stat_median", w: 4, h: 4 },
     { id: "stat_zero", w: 4, h: 4 },
@@ -387,9 +382,10 @@
     { id: "gantt_status", w: 12, h: 5 },
     { id: "changeover", w: 12, h: 9 },
     { id: "waterfall", w: 12, h: 9 },
-    { id: "ai_model", w: 12, h: 8, proposed: true },
+    { id: "ai_model", w: 12, h: 8 },
     { id: "stops_table", w: 12, h: 8 },
   ];
+  const DEFAULT_LAYOUT = MesDemoLayout.packLayoutItems(DEFAULT_LAYOUT_ITEMS);
 
   const PANEL_META = {
     stat_peak: { title: "Peak speed", api: "speed-lab.summary.peakSpeed", badge: "ok" },
@@ -941,23 +937,43 @@
     });
   }
 
-  function panelHTML(id, w, h, inner, proposed) {
-    const meta = PANEL_META[id];
+  const board = document.getElementById("board");
+  const layoutApi = MesDemoLayout.create({
+    board: board,
+    layoutKey: "mes-sl-layout-v1",
+    editKey: "mes-sl-edit-layout",
+    defaultLayout: DEFAULT_LAYOUT,
+    panelMeta: PANEL_META,
+    showToast: showToast,
+    onResizeCharts: function (el) {
+      Object.keys(charts).forEach((k) => {
+        const ch = charts[k];
+        if (!ch || !ch.canvas) return;
+        if (el && !el.contains(ch.canvas)) return;
+        try { ch.resize(); } catch (_) {}
+      });
+    },
+  });
+
+  function panelHTML(item, inner) {
+    const meta = PANEL_META[item.id] || {};
     const badge = meta.badge
       ? '<span class="panel-badge ' + meta.badge + '">' + meta.badge + "</span>"
       : "";
+    const proposed = meta.badge === "proposed" ? " proposed" : "";
     return (
-      '<section class="panel' + (proposed || meta.badge === "proposed" ? " proposed" : "") +
-      '" data-w="' + w + '" data-h="' + h + '">' +
-      '<div class="panel-head"><div class="panel-title">' + meta.title + badge +
-      '</div><div class="panel-api">' + meta.api + "</div></div>" +
-      '<div class="panel-body" id="body-' + id + '">' + inner + "</div></section>"
+      layoutApi.panelShellOpen(item, proposed) +
+      layoutApi.panelHeadHtml(item, badge) +
+      '<div class="panel-body" id="body-' + item.id + '">' + inner + "</div>" +
+      layoutApi.panelResizeHtml() +
+      "</section>"
     );
   }
 
   function renderBoardShell() {
     destroyCharts();
-    document.getElementById("board").innerHTML = LAYOUT.map((p) => {
+    layoutApi.cleanupArtifacts();
+    board.innerHTML = layoutApi.layout.map((p) => {
       let inner = "";
       if (p.id.startsWith("stat_")) {
         inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div></div>';
@@ -976,8 +992,10 @@
       } else if (p.id === "stops_table") {
         inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Start</th><th>End</th><th class="num">Dur</th><th>Source</th></tr></thead><tbody id="stopBody"></tbody></table></div>';
       }
-      return panelHTML(p.id, p.w, p.h, inner, p.proposed);
+      return panelHTML(p, inner);
     }).join("");
+    layoutApi.syncDomFromLayout();
+    layoutApi.bindPanelInteractions();
   }
 
   function lineChart(key, canvas, labels, datasets, yLabel) {
@@ -1516,9 +1534,19 @@
   document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
     btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn"), { toast: true }));
   });
+  document.getElementById("btnEditLayout").addEventListener("click", () => {
+    layoutApi.setEditLayout(!board.classList.contains("layout-edit"), { toast: true });
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    layoutApi.resetLayout(DEFAULT_LAYOUT);
+    renderBoardShell();
+    refreshAll();
+    showToast("Layout reset");
+  });
   document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
   document.getElementById("btnTrain").addEventListener("click", () => trainModel());
 
+  layoutApi.setEditLayout(localStorage.getItem("mes-sl-edit-layout") === "1");
   renderBoardShell();
   setMode(dataMode);
   refreshData().then(() => restartPoll());
