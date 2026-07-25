@@ -92,6 +92,17 @@
     .g-breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
     .g-breadcrumb strong { color: var(--g-text); font-weight: 500; }
     .g-breadcrumb .sep { opacity: 0.5; }
+    .g-breadcrumb a { color: var(--g-blue); text-decoration: none; }
+    .g-breadcrumb a:hover { text-decoration: underline; }
+    .nav-tabs { display: flex; gap: 4px; margin-left: 8px; }
+    .nav-tabs a {
+      font-size: 12px; padding: 4px 10px; border-radius: 2px; text-decoration: none;
+      color: var(--g-text-secondary); border: 1px solid transparent;
+    }
+    .nav-tabs a:hover { background: var(--g-hover); color: var(--g-text); }
+    .nav-tabs a.active {
+      background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue);
+    }
     .g-spacer { flex: 1; }
     .g-time {
       display: flex; align-items: center; border: 1px solid var(--g-panel-border);
@@ -453,7 +464,11 @@
     <div class="g-logo">G</div>
     <div class="g-breadcrumb">
       <span>Dashboards</span><span class="sep">/</span><span>MES</span><span class="sep">/</span>
-      <strong>Control Tower · contract review</strong>
+      <strong>Energy · Control Tower</strong>
+    </div>
+    <div class="nav-tabs">
+      <a href="mes-overview-100.html">Overview</a>
+      <a class="active" href="mes-control-tower-100.html">Energy</a>
     </div>
     <div class="g-spacer"></div>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
@@ -484,6 +499,7 @@
         <code style="font-family:var(--mono);font-size:11px">/api/analytics</code>.
         Bấm <strong>Live API</strong> để lấy data thật từ plant API.
         <strong>Kéo title</strong> để đặt panel trên lưới (kiểu Grafana) · <strong>kéo góc</strong> để resize.
+        Trang Overview (line · speed · product): <a href="mes-overview-100.html" style="color:var(--g-blue)">Overview</a>.
       </p>
     </div>
     <div class="g-tags">
