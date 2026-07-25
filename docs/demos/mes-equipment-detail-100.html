@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MES Equipment Detail</title>
+  <!--
+    Grafana-style Equipment Detail (HTML contract demo).
+    URL: mes-equipment-detail-100.html?machine_id=D-01
+    APIs:
+      GET /api/machines
+      GET /api/machines/:id
+      GET /api/machines/:id/status-history?hours=8 | start&end
+      GET /api/machines/:id/speed-history?start&end
+    Mirrors React EquipmentDetail + grafana/dashboards/mes-equipment-detail.json
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root, html[data-theme="dark"] {
+      --g-bg: #111217; --g-panel: #181b1f; --g-panel-border: #2c3235;
+      --g-text: #ccccdc; --g-text-secondary: #8e8e9a; --g-muted-hex: #8e8e9a;
+      --g-blue: #5794f2; --g-green: #73bf69; --g-yellow: #fade2a;
+      --g-orange: #ff9830; --g-red: #f2495c; --g-purple: #b877d9;
+      --g-input: #141619; --g-hover: #22252b; --g-track: #22252b; --g-cell: #22252b;
+      --g-grid: rgba(44, 50, 53, 0.8); --g-toast: #22252b;
+      --g-topnav: #111217; --g-topnav-border: #22252b; --g-api-note: #6b6b78;
+      --font: Inter, "Helvetica Neue", Arial, sans-serif;
+      --mono: "Roboto Mono", Consolas, monospace;
+    }
+    html[data-theme="light"] {
+      --g-bg: #f4f5f5; --g-panel: #ffffff; --g-panel-border: #dce1e6;
+      --g-text: #111217; --g-text-secondary: #52545c; --g-muted-hex: #6e6e76;
+      --g-blue: #3871dc; --g-green: #1a7f37; --g-yellow: #ad7800;
+      --g-orange: #d05a00; --g-red: #c81e1e; --g-purple: #8a3ffc;
+      --g-input: #ffffff; --g-hover: #e9edf2; --g-track: #e6e9ed; --g-cell: #f4f5f5;
+      --g-grid: rgba(36, 41, 46, 0.12); --g-toast: #ffffff;
+      --g-topnav: #ffffff; --g-topnav-border: #dce1e6; --g-api-note: #6e6e76;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--g-bg); color: var(--g-text); font-family: var(--font); font-size: 14px; }
+    body { overflow: auto; }
+
+    .g-topnav {
+      height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+      background: var(--g-topnav); border-bottom: 1px solid var(--g-topnav-border);
+      position: sticky; top: 0; z-index: 30; flex-wrap: wrap; min-height: 40px;
+    }
+    .g-logo {
+      width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0;
+      background: linear-gradient(135deg, #f2495c, #ff9830 45%, #fade2a);
+      display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #111;
+    }
+    .g-breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
+    .g-breadcrumb strong { color: var(--g-text); font-weight: 500; }
+    .g-breadcrumb .sep { opacity: 0.5; }
+    .nav-tabs { display: flex; gap: 4px; }
+    .nav-tabs a {
+      font-size: 12px; padding: 4px 10px; border-radius: 2px; text-decoration: none;
+      color: var(--g-text-secondary); border: 1px solid transparent;
+    }
+    .nav-tabs a:hover { background: var(--g-hover); color: var(--g-text); }
+    .nav-tabs a.active {
+      background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue);
+    }
+    .g-spacer { flex: 1; }
+    .g-btn {
+      border: 1px solid var(--g-panel-border); background: var(--g-input); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+    }
+    .g-btn:hover { background: var(--g-hover); }
+    .g-btn.primary { background: #3d71d9; border-color: #3d71d9; color: #fff; }
+    .g-btn.active-mode { background: rgba(115, 191, 105, 0.2); border-color: var(--g-green); color: var(--g-green); }
+    .g-btn.theme-active { background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue); }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--g-green); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+    .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-green); animation: blink 1.5s infinite; }
+    .live.mock { color: var(--g-orange); }
+    .live.mock i { background: var(--g-orange); }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    select.machine-select, .range-select {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; max-width: 160px;
+    }
+    .tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 2px;
+      background: rgba(87, 148, 242, 0.15); color: var(--g-blue);
+      border: 1px solid rgba(87, 148, 242, 0.25);
+    }
+
+    .g-dashbar { padding: 14px 14px 8px; }
+    .g-dashbar h1 { font-size: 20px; font-weight: 500; }
+    .g-dashbar .sub { margin-top: 6px; font-size: 12px; color: var(--g-text-secondary); line-height: 1.45; max-width: 960px; }
+    .g-dashbar .sub a { color: var(--g-blue); }
+    .header-card {
+      margin: 0 14px 10px; padding: 12px 14px;
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center;
+    }
+    .header-card .hid { font-family: var(--mono); font-size: 22px; font-weight: 600; }
+    .header-card .hname { font-size: 13px; color: var(--g-text-secondary); }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 3px 8px; border-radius: 2px;
+    }
+    .badge.running { color: var(--g-green); background: rgba(115, 191, 105, 0.15); }
+    .badge.warning, .badge.setup { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .badge.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .badge.stopped { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+    .badge.idle { color: var(--g-text-secondary); background: var(--g-track); }
+    .hmeta { font-size: 12px; color: var(--g-text-secondary); }
+    .hmeta b { color: var(--g-text); font-weight: 500; }
+
+    .api-base-row {
+      display: flex; align-items: center; gap: 6px; margin: 0 14px 8px;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .api-base-row input {
+      flex: 1; max-width: 360px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 5px 8px; border-radius: 2px; font: inherit; font-size: 12px;
+    }
+
+    .board {
+      display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
+      gap: 8px; padding: 8px 14px 28px; align-content: start;
+    }
+    .panel {
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+    }
+    .panel[data-w="3"] { grid-column: span 3; }
+    .panel[data-w="4"] { grid-column: span 4; }
+    .panel[data-w="6"] { grid-column: span 6; }
+    .panel[data-w="8"] { grid-column: span 8; }
+    .panel[data-w="12"] { grid-column: span 12; }
+    .panel[data-w="16"] { grid-column: span 16; }
+    .panel[data-w="24"] { grid-column: span 24; }
+    .panel[data-h="3"] { grid-row: span 3; }
+    .panel[data-h="4"] { grid-row: span 4; }
+    .panel[data-h="5"] { grid-row: span 5; }
+    .panel[data-h="6"] { grid-row: span 6; }
+    .panel[data-h="7"] { grid-row: span 7; }
+    .panel[data-h="8"] { grid-row: span 8; }
+    .panel[data-h="10"] { grid-row: span 10; }
+
+    .panel-head { padding: 6px 8px 0; min-height: 26px; }
+    .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); }
+    .panel-api { font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px; }
+    .panel-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
+
+    .stat { height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 2px 4px; }
+    .stat .value { font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+    .stat .value.green { color: var(--g-green); }
+    .stat .value.blue { color: var(--g-blue); }
+    .stat .value.orange { color: var(--g-orange); }
+    .stat .value.red { color: var(--g-red); }
+    .stat .value.purple { color: var(--g-purple); }
+    .stat .unit { font-size: 12px; color: var(--g-text-secondary); margin-left: 3px; font-weight: 400; }
+    .stat .name { margin-top: 3px; font-size: 11px; color: var(--g-text-secondary); }
+
+    .chart-wrap { position: absolute; inset: 2px 6px 6px; }
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .progress-block { padding: 8px 4px; }
+    .progress-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; }
+    .progress-track { height: 14px; background: var(--g-track); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #3274d9, #73bf69); }
+    .progress-foot { margin-top: 8px; font-size: 11px; color: var(--g-text-secondary); }
+
+    .gantt {
+      display: flex; height: 42px; width: 100%; border-radius: 2px; overflow: hidden;
+      border: 1px solid var(--g-panel-border); margin-top: 8px;
+    }
+    .gantt-seg { height: 100%; min-width: 1px; position: relative; }
+    .gantt-seg.running { background: var(--g-green); }
+    .gantt-seg.setup, .gantt-seg.warning { background: var(--g-orange); }
+    .gantt-seg.error, .gantt-seg.alarm { background: var(--g-red); }
+    .gantt-seg.stopped { background: var(--g-blue); }
+    .gantt-seg.idle { background: #6e6e76; }
+    .gantt-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--g-text-secondary); }
+    .gantt-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 1px; margin-right: 4px; vertical-align: middle; }
+
+    .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; height: 100%; }
+    .kpi-mini {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      padding: 8px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .kpi-mini .k { font-size: 10px; color: var(--g-text-secondary); }
+    .kpi-mini .v { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; height: 100%; overflow: auto; }
+    .zone-card {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      padding: 8px; text-align: center;
+    }
+    .zone-card .zn { font-size: 10px; color: var(--g-text-secondary); }
+    .zone-card .zv { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th {
+      text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 6px;
+      border-bottom: 1px solid var(--g-panel-border); position: sticky; top: 0; background: var(--g-panel);
+    }
+    .data-table td { padding: 6px; border-bottom: 1px solid var(--g-panel-border); vertical-align: top; }
+    .data-table .mono { font-family: var(--mono); }
+    .data-table .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .table-scroll { height: 100%; overflow: auto; }
+
+    .sev { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 1px 5px; border-radius: 2px; }
+    .sev.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .sev.warning { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .sev.info { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(12px);
+      background: var(--g-toast); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      padding: 8px 14px; border-radius: 2px; font-size: 12px; opacity: 0; transition: 0.2s; z-index: 60;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .hint { font-size: 11px; color: var(--g-text-secondary); padding: 8px 0; }
+
+    @media (max-width: 1100px) {
+      .panel[data-w="3"], .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"] { grid-column: span 12; }
+      .panel[data-w="12"], .panel[data-w="16"] { grid-column: span 24; }
+      .kpi-strip { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="g-topnav">
+    <div class="g-logo">G</div>
+    <div class="g-breadcrumb">
+      <span>Dashboards</span><span class="sep">/</span><span>MES</span><span class="sep">/</span>
+      <strong>Equipment Detail</strong>
+    </div>
+    <div class="nav-tabs">
+      <a href="mes-overview-100.html">Overview</a>
+      <a href="mes-control-tower-100.html">Energy</a>
+      <a class="active" href="mes-equipment-detail-100.html">Detail</a>
+    </div>
+    <div class="g-spacer"></div>
+    <select id="machineSelect" class="machine-select" title="Chọn dây chuyền"></select>
+    <select id="rangeSelect" class="range-select" title="Cửa sổ lịch sử">
+      <option value="8">Last 8h (ca)</option>
+      <option value="24">Last 24h</option>
+      <option value="72">Last 3d</option>
+    </select>
+    <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
+    <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
+    <button type="button" class="g-btn" id="btnLive">Live API</button>
+    <button type="button" class="g-btn theme-active" id="btnThemeDark">Dark</button>
+    <button type="button" class="g-btn" id="btnThemeLight">Light</button>
+    <button type="button" class="g-btn primary" id="btnRefresh">Refresh</button>
+  </nav>
+
+  <div class="g-dashbar">
+    <h1>MES Equipment Detail</h1>
+    <p class="sub">
+      Chi tiết 1 dây chuyền — map từ React <code style="font-family:var(--mono);font-size:11px">EquipmentDetail</code>
+      + Grafana <code style="font-family:var(--mono);font-size:11px">mes-equipment-detail</code>.
+      API: <code style="font-family:var(--mono);font-size:11px">/machines/:id</code>,
+      <code style="font-family:var(--mono);font-size:11px">/status-history</code>,
+      <code style="font-family:var(--mono);font-size:11px">/speed-history</code>.
+      Deep-link: <code style="font-family:var(--mono);font-size:11px">?machine_id=SH-05</code>.
+    </p>
+  </div>
+
+  <div class="header-card" id="headerCard">
+    <div>
+      <div class="hid" id="hdrId">—</div>
+      <div class="hname" id="hdrName">Chọn machine…</div>
+    </div>
+    <span class="badge idle" id="hdrStatus">—</span>
+    <div class="hmeta">Product<br><b id="hdrProduct">—</b></div>
+    <div class="hmeta">PO / Customer<br><b id="hdrPo">—</b></div>
+    <div class="hmeta">Operator<br><b id="hdrOp">—</b></div>
+    <div class="hmeta">Area<br><b id="hdrArea">—</b></div>
+    <span class="tag" id="rtTag">rt=—</span>
+  </div>
+
+  <div class="api-base-row">
+    <span>API base</span>
+    <input id="apiBase" type="text" value="http://100.114.213.115:3001" spellcheck="false" />
+    <span id="dataStatus">source: mock</span>
+  </div>
+
+  <div class="board" id="board"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  "use strict";
+
+  const MODE_KEY = "mes-ed-data-mode";
+  const API_KEY = "mes-ed-api-base";
+  const THEME_KEY = "mes-ct-theme";
+  const DEFAULT_API = "http://100.114.213.115:3001";
+  const Chart = window.Chart;
+  const charts = {};
+
+  const AREAS = {
+    drawing: { name: "KÉO", nameEn: "Drawing" },
+    stranding: { name: "XOẮN", nameEn: "Stranding" },
+    armoring: { name: "GIÁP", nameEn: "Armoring" },
+    sheathing: { name: "BỌC", nameEn: "Sheathing" },
+  };
+
+  const LAYOUT = [
+    { id: "stat_speed", w: 4, h: 4 },
+    { id: "stat_target", w: 4, h: 4 },
+    { id: "stat_eff", w: 4, h: 4 },
+    { id: "stat_oee", w: 4, h: 4 },
+    { id: "stat_power", w: 4, h: 4 },
+    { id: "stat_temp", w: 4, h: 4 },
+    { id: "apq", w: 8, h: 5 },
+    { id: "length", w: 8, h: 5 },
+    { id: "speed_kpi", w: 8, h: 5 },
+    { id: "gantt", w: 24, h: 5 },
+    { id: "chart_speed", w: 16, h: 8 },
+    { id: "chart_temp", w: 8, h: 8 },
+    { id: "chart_current", w: 8, h: 7 },
+    { id: "chart_power", w: 8, h: 7 },
+    { id: "chart_energy", w: 8, h: 7 },
+    { id: "zones", w: 12, h: 6 },
+    { id: "alarms", w: 12, h: 6 },
+    { id: "energy_buckets", w: 12, h: 8 },
+    { id: "orders", w: 12, h: 8 },
+  ];
+
+  const PANEL_META = {
+    stat_speed: { title: "Line Speed", api: "machines/:id.lineSpeed" },
+    stat_target: { title: "Target Speed", api: "targetSpeed" },
+    stat_eff: { title: "Speed Efficiency", api: "lineSpeed / targetSpeed" },
+    stat_oee: { title: "Live OEE", api: "oee" },
+    stat_power: { title: "Active Power", api: "power kW" },
+    stat_temp: { title: "Temperature", api: "temperature °C" },
+    apq: { title: "OEE Factors A · P · Q", api: "availability · performance · quality" },
+    length: { title: "Production Length", api: "producedLengthOk / targetLength" },
+    speed_kpi: { title: "Speed history summary", api: "/speed-history.summary" },
+    gantt: { title: "Operational States (shift window)", api: "/status-history" },
+    chart_speed: { title: "Speed Trend · actual vs target", api: "speedTrend | /speed-history" },
+    chart_temp: { title: "Temperature Trend", api: "temperatureTrend" },
+    chart_current: { title: "Motor Current", api: "currentTrend" },
+    chart_power: { title: "Power Trend", api: "powerTrend" },
+    chart_energy: { title: "Energy Meter (kWh)", api: "energyMeterTrend · energyMeterKwh" },
+    zones: { title: "Multi-Zone Temperature", api: "multiZoneTemperatures" },
+    alarms: { title: "Alarms", api: "machines/:id.alarms" },
+    energy_buckets: { title: "kWh by bucket (meter)", api: "energyConsumption[]" },
+    orders: { title: "Production Order History", api: "orderHistory[] · productionOrder" },
+  };
+
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  function applyTheme(theme, opts) {
+    const t = theme === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem(THEME_KEY, t);
+    document.getElementById("btnThemeDark").classList.toggle("theme-active", t === "dark");
+    document.getElementById("btnThemeLight").classList.toggle("theme-active", t === "light");
+    Chart.defaults.color = cssVar("--g-muted-hex", "#8e8e9a");
+    Chart.defaults.borderColor = cssVar("--g-panel-border", "#2c3235");
+    Object.keys(charts).forEach((k) => { try { charts[k].update("none"); } catch (_) {} });
+    if (opts && opts.toast) showToast("Theme: Grafana " + (t === "light" ? "Light" : "Dark"));
+  }
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+  Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
+  Chart.defaults.font.size = 11;
+
+  function qs(name) {
+    return new URLSearchParams(location.search).get(name);
+  }
+  function setQsMachine(id) {
+    const u = new URL(location.href);
+    u.searchParams.set("machine_id", id);
+    history.replaceState(null, "", u.toString());
+  }
+
+  function mulberry32(a) {
+    return function () {
+      let t = (a += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function speedInfo(m) {
+    let v = Number(m.lineSpeed) || 0;
+    let t = Number(m.targetSpeed) || 0;
+    let unit = "m/min";
+    if (m.area === "drawing") {
+      unit = "m/s";
+      if (v > 50) { v /= 60; t /= 60; }
+    }
+    const pct = t > 0 ? (v / t) * 100 : 0;
+    return { v: +v.toFixed(v >= 100 ? 0 : 2), t: +t.toFixed(t >= 100 ? 0 : 2), unit, pct };
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function getApiBase() {
+    return (document.getElementById("apiBase").value || DEFAULT_API).replace(/\/$/, "");
+  }
+
+  async function fetchJson(path) {
+    const res = await fetch(getApiBase() + path, {
+      headers: { Accept: "application/json" },
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(res.status + " " + path);
+    const json = await res.json();
+    if (json && json.success === false) throw new Error(json.message || "API error");
+    return json;
+  }
+
+  function unwrap(json) {
+    if (json == null) return json;
+    if (json.data !== undefined) return json.data;
+    return json;
+  }
+  function unwrapList(json) {
+    const d = unwrap(json);
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.items)) return d.items;
+    if (d && Array.isArray(d.machines)) return d.machines;
+    return [];
+  }
+
+  function seriesPoints(n, base, jitter, rng) {
+    const arr = [];
+    let v = base;
+    const now = Date.now();
+    const step = 60000;
+    for (let i = 0; i < n; i++) {
+      v = Math.max(0, v + (rng() - 0.48) * jitter);
+      arr.push({ time: new Date(now - (n - 1 - i) * step).toISOString(), v: +v.toFixed(2) });
+    }
+    return arr;
+  }
+
+  function buildMockDetail(id) {
+    const rng = mulberry32(String(id).split("").reduce((s, c) => s + c.charCodeAt(0), 1));
+    const area =
+      id.indexOf("D-") === 0 || id.indexOf("LHT") === 0 ? "drawing"
+        : id.indexOf("S-") === 0 ? "stranding"
+          : id.indexOf("A-") === 0 ? "armoring" : "sheathing";
+    const statusPool = ["running", "running", "running", "setup", "stopped", "warning"];
+    const status = statusPool[Math.floor(rng() * statusPool.length)];
+    const targetSpeed = area === "drawing" ? 1000 : area === "stranding" ? 720 : area === "armoring" ? 480 : 500;
+    const lineSpeed = status === "running" ? Math.round(targetSpeed * (0.88 + rng() * 0.12)) : status === "setup" ? Math.round(targetSpeed * 0.3) : 0;
+    const availability = +(82 + rng() * 15).toFixed(1);
+    const performance = targetSpeed ? +((lineSpeed / targetSpeed) * 100).toFixed(1) : 0;
+    const quality = +(96 + rng() * 3.5).toFixed(1);
+    const oee = +((availability * performance * quality) / 10000).toFixed(1);
+    const targetLength = 5000;
+    const producedLengthOk = Math.floor(targetLength * (0.4 + rng() * 0.45));
+    const productName = ["CV 3×95+50", "CVV 4×25", "CXV 3×150", "CV 1×185"][Math.floor(rng() * 4)];
+    const po = "PO-2026-" + (200 + Math.floor(rng() * 500));
+    const power = status === "running" ? +(50 + rng() * 40).toFixed(1) : +(5 + rng() * 10).toFixed(1);
+    const temp = Math.round(60 + rng() * 25);
+    const now = Date.now();
+
+    const speedTrend = seriesPoints(60, lineSpeed || 10, Math.max(5, targetSpeed * 0.03), rng).map((p) => ({
+      time: p.time, speed: p.v, target: targetSpeed,
+    }));
+    const temperatureTrend = seriesPoints(40, temp, 2, rng).map((p) => ({ time: p.time, temp: p.v }));
+    const currentTrend = seriesPoints(40, power * 0.7, 3, rng).map((p) => ({ time: p.time, current: p.v }));
+    const powerTrend = seriesPoints(40, power, 4, rng).map((p) => ({
+      time: p.time, power: p.v, avgPower: power, minRange: power * 0.8, maxRange: power * 1.2,
+    }));
+    let meter = 180000 + rng() * 20000;
+    const energyMeterTrend = seriesPoints(48, meter, 8, rng).map((p) => {
+      meter = p.v;
+      return { time: p.time, timestamp: p.time, meterKwh: +p.v.toFixed(2) };
+    });
+
+    const statuses = ["running", "running", "setup", "running", "stopped", "running", "idle", "running"];
+    let t0 = now - 8 * 3600e3;
+    const statusHistory = statuses.map((st, i) => {
+      const dur = (0.4 + rng() * 1.2) * 3600e3;
+      const start = t0;
+      t0 += dur;
+      return {
+        id: "SH-" + i,
+        machineId: id,
+        status: st,
+        previousStatus: i ? statuses[i - 1] : null,
+        startTime: new Date(start).toISOString(),
+        endTime: i === statuses.length - 1 ? null : new Date(t0).toISOString(),
+        durationSeconds: Math.round(dur / 1000),
+        isProductionTime: st === "running",
+      };
+    });
+
+    const speedHistoryPoints = speedTrend.map((p, i) => ({
+      timestamp: p.time,
+      actualSpeed: p.speed,
+      targetSpeed: p.target,
+      performance: targetSpeed ? (p.speed / targetSpeed) * 100 : 0,
+      phase: status === "running" ? (i % 17 === 0 ? "variable_running" : "stable_running") : "stopped",
+    }));
+
+    const multiZone = area === "sheathing" || area === "armoring" ? {
+      zone1: 148 + rng() * 10, zone2: 160 + rng() * 8, zone3: 155 + rng() * 8, zone4: 150 + rng() * 8,
+      zone5: 145 + rng() * 6, zone6: 140 + rng() * 6,
+    } : null;
+
+    const energyConsumption = Array.from({ length: 8 }, (_, i) => {
+      const end = now - i * 3600e3;
+      const start = end - 3600e3;
+      return {
+        bucketStart: new Date(start).toISOString(),
+        bucketEnd: new Date(end).toISOString(),
+        energy: +(8 + rng() * 20).toFixed(2),
+        powerKw: +(power * (0.7 + rng() * 0.4)).toFixed(1),
+        productName,
+        machineStatus: i === 0 ? status : "running",
+        producedLengthM: Math.round(80 + rng() * 200),
+        kwhPer100m: +(1.2 + rng() * 0.8).toFixed(2),
+        sampleCount: 60,
+      };
+    }).reverse();
+
+    const orderHistory = [
+      {
+        id: po, name: po, productName, customer: "KH Nội bộ", machineId: id,
+        startTime: new Date(now - 5 * 3600e3).toISOString(), endTime: null,
+        producedLength: producedLengthOk + 20, producedLengthOk, targetLength, status: "running",
+        bobbinCuts: [
+          { id: "BC-1", recordedAt: new Date(now - 2 * 3600e3).toISOString(), lengthM: 1200 },
+          { id: "BC-2", recordedAt: new Date(now - 0.5 * 3600e3).toISOString(), lengthM: 980 },
+        ],
+      },
+      {
+        id: "PO-2026-088", name: "PO-2026-088", productName: "CVV 4×25", customer: "ABC Cable",
+        machineId: id, startTime: new Date(now - 20 * 3600e3).toISOString(),
+        endTime: new Date(now - 6 * 3600e3).toISOString(),
+        producedLength: 4800, producedLengthOk: 4750, targetLength: 5000, status: "completed",
+        bobbinCuts: [],
+      },
+    ];
+
+    return {
+      id,
+      name: (AREAS[area] && AREAS[area].nameEn) + " Line " + id,
+      area, status, lineSpeed, targetSpeed,
+      producedLength: producedLengthOk + 15,
+      producedLengthOk, producedLengthNg: 15, targetLength,
+      productionOrderId: po, productionOrderName: po, productionOrderProductName: productName,
+      productName, operatorName: "Nguyễn Văn An",
+      oee, availability, performance, quality,
+      current: +(power * 0.72).toFixed(1), power,
+      energyMeterKwh: +meter.toFixed(2), temperature: temp,
+      multiZoneTemperatures: multiZone,
+      alarms: status === "warning" || status === "error" ? [{
+        id: "ALM-1", machineId: id, severity: status === "error" ? "error" : "warning",
+        message: status === "error" ? "High temperature" : "Speed below target",
+        timestamp: new Date(now - 600000).toISOString(), acknowledged: false,
+      }] : [],
+      lastUpdated: new Date().toISOString(),
+      productionOrder: orderHistory[0],
+      speedTrend, temperatureTrend, currentTrend, powerTrend, energyMeterTrend,
+      energyConsumption, orderHistory,
+      _statusHistory: statusHistory,
+      _speedHistory: {
+        points: speedHistoryPoints,
+        summary: {
+          stableRunningMedian: +(lineSpeed * 0.98).toFixed(1),
+          stableRunningP90: +(lineSpeed * 1.02).toFixed(1),
+          setupAvgSpeed: +(targetSpeed * 0.25).toFixed(1),
+          stoppedDurationSec: 1800,
+          proposedTargetSpeed: targetSpeed,
+          currentTargetSpeed: targetSpeed,
+          deltaVsTargetPct: +(((lineSpeed / targetSpeed) - 1) * 100).toFixed(1),
+        },
+      },
+    };
+  }
+
+  function buildMockFleet() {
+    const ids = [];
+    ["D", "S", "A"].forEach((p) => {
+      for (let i = 1; i <= 8; i++) ids.push(p + "-" + String(i).padStart(2, "0"));
+    });
+    for (let i = 1; i <= 8; i++) ids.push("SH-" + String(i).padStart(2, "0"));
+    return ids.map((id) => {
+      const d = buildMockDetail(id);
+      return { id: d.id, name: d.name, area: d.area, status: d.status };
+    });
+  }
+
+  let dataMode = localStorage.getItem(MODE_KEY) || "mock";
+  let machineId = qs("machine_id") || "D-01";
+  let rangeHours = Number(localStorage.getItem("mes-ed-range-hours") || 8);
+  let fleet = [];
+  let detail = null;
+  let statusHistory = [];
+  let speedHistory = null;
+  let pollTimer = null;
+  let lastRtAt = 0;
+
+  function destroyCharts() {
+    Object.keys(charts).forEach((k) => {
+      try { charts[k].destroy(); } catch (_) {}
+      delete charts[k];
+    });
+  }
+
+  function panelHTML(id, w, h, inner) {
+    const meta = PANEL_META[id];
+    return (
+      '<section class="panel" data-w="' + w + '" data-h="' + h + '">' +
+      '<div class="panel-head"><div class="panel-title">' + meta.title +
+      '</div><div class="panel-api">' + meta.api + "</div></div>" +
+      '<div class="panel-body" id="body-' + id + '">' + inner + "</div></section>"
+    );
+  }
+
+  function renderBoardShell() {
+    destroyCharts();
+    document.getElementById("board").innerHTML = LAYOUT.map((p) => {
+      let inner = "";
+      if (p.id.startsWith("stat_")) {
+        inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div></div>';
+      } else if (p.id === "apq") {
+        inner = '<div class="kpi-strip" id="apqStrip"></div>';
+      } else if (p.id === "length") {
+        inner = '<div class="progress-block" id="lengthBlock"></div>';
+      } else if (p.id === "speed_kpi") {
+        inner = '<div class="kpi-strip" id="speedKpiStrip"></div>';
+      } else if (p.id === "gantt") {
+        inner = '<div id="ganttHost"><div class="hint">Loading status history…</div></div>';
+      } else if (p.id.indexOf("chart_") === 0) {
+        inner = '<div class="chart-wrap"><canvas id="' + p.id + '_c"></canvas></div>';
+      } else if (p.id === "zones") {
+        inner = '<div class="zone-grid" id="zoneGrid"></div>';
+      } else if (p.id === "alarms") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Sev</th><th>Message</th><th>Age</th></tr></thead><tbody id="alarmBody"></tbody></table></div>';
+      } else if (p.id === "energy_buckets") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Bucket</th><th class="num">kWh</th><th class="num">kW</th><th>Product</th><th class="num">m</th><th class="num">kWh/100m</th></tr></thead><tbody id="energyBody"></tbody></table></div>';
+      } else if (p.id === "orders") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>PO</th><th>Product</th><th>Status</th><th class="num">OK m</th><th class="num">Target</th><th>Bobbins</th></tr></thead><tbody id="orderBody"></tbody></table></div>';
+      }
+      return panelHTML(p.id, p.w, p.h, inner);
+    }).join("");
+  }
+
+  function lineChart(key, canvas, labels, datasets, yLabel) {
+    if (!canvas) return;
+    const muted = cssVar("--g-muted-hex", "#8e8e9a");
+    const grid = cssVar("--g-grid", "rgba(44,50,53,0.6)");
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected) {
+      charts[key].data.labels = labels;
+      charts[key].data.datasets.forEach((ds, i) => {
+        if (datasets[i]) ds.data = datasets[i].data;
+      });
+      charts[key].update("none");
+      return;
+    }
+    if (charts[key]) { try { charts[key].destroy(); } catch (_) {} }
+    charts[key] = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: datasets.length > 1, labels: { boxWidth: 10, color: muted } },
+        },
+        scales: {
+          x: { ticks: { maxTicksLimit: 6, color: muted, maxRotation: 0 }, grid: { color: grid } },
+          y: { title: yLabel ? { display: true, text: yLabel, color: muted } : undefined, ticks: { color: muted }, grid: { color: grid } },
+        },
+      },
+    });
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderHeader() {
+    const m = detail;
+    if (!m) return;
+    document.getElementById("hdrId").textContent = m.id;
+    document.getElementById("hdrName").textContent = m.name || "";
+    const st = document.getElementById("hdrStatus");
+    st.className = "badge " + (m.status || "idle");
+    st.textContent = m.status || "—";
+    document.getElementById("hdrProduct").textContent = m.productName || m.productionOrderProductName || (m.productionOrder && m.productionOrder.productName) || "—";
+    const po = m.productionOrderName || m.productionOrderId || (m.productionOrder && m.productionOrder.name) || "—";
+    const cust = m.productionOrder && m.productionOrder.customer ? " · " + m.productionOrder.customer : "";
+    document.getElementById("hdrPo").textContent = po + cust;
+    document.getElementById("hdrOp").textContent = m.operatorName || "—";
+    const am = AREAS[m.area] || { name: m.area, nameEn: m.area };
+    document.getElementById("hdrArea").textContent = am.name + " · " + am.nameEn;
+    document.getElementById("rtTag").textContent = lastRtAt
+      ? "rt=" + new Date(lastRtAt).toLocaleTimeString("vi-VN")
+      : "rt=—";
+  }
+
+  function renderStats() {
+    const m = detail;
+    if (!m) return;
+    const sp = speedInfo(m);
+    const specs = [
+      { id: "stat_speed", v: String(sp.v), unit: sp.unit, name: "lineSpeed", cls: "blue" },
+      { id: "stat_target", v: String(sp.t), unit: sp.unit, name: "targetSpeed", cls: "purple" },
+      { id: "stat_eff", v: sp.pct.toFixed(0), unit: "%", name: "vs target", cls: sp.pct >= 95 ? "green" : sp.pct >= 85 ? "orange" : "red" },
+      { id: "stat_oee", v: Number(m.oee || 0).toFixed(1), unit: "%", name: "live OEE", cls: (m.oee || 0) >= 80 ? "green" : (m.oee || 0) >= 70 ? "orange" : "red" },
+      { id: "stat_power", v: Number(m.power || 0).toFixed(1), unit: "kW", name: "active power", cls: "orange" },
+      { id: "stat_temp", v: m.temperature != null ? String(Math.round(m.temperature)) : "—", unit: "°C", name: "temperature", cls: "red" },
+    ];
+    specs.forEach((s) => {
+      const vel = document.getElementById(s.id + "_v");
+      const nel = document.getElementById(s.id + "_n");
+      if (!vel) return;
+      vel.className = "value " + s.cls;
+      vel.innerHTML = s.v + (s.unit ? '<span class="unit">' + s.unit + "</span>" : "");
+      if (nel) nel.textContent = s.name;
+    });
+  }
+
+  function renderApq() {
+    const el = document.getElementById("apqStrip");
+    if (!el || !detail) return;
+    const items = [
+      { k: "Availability", v: Number(detail.availability || 0), c: "var(--g-blue)" },
+      { k: "Performance", v: Number(detail.performance || 0), c: "var(--g-orange)" },
+      { k: "Quality", v: Number(detail.quality || 0), c: "var(--g-green)" },
+      { k: "OEE", v: Number(detail.oee || 0), c: "var(--g-purple)" },
+    ];
+    el.innerHTML = items.map((it) =>
+      '<div class="kpi-mini"><div class="k">' + it.k + '</div><div class="v" style="color:' + it.c + '">' +
+      it.v.toFixed(1) + "%</div></div>"
+    ).join("");
+  }
+
+  function renderLength() {
+    const el = document.getElementById("lengthBlock");
+    if (!el || !detail) return;
+    const ok = Number(detail.producedLengthOk) || Number(detail.producedLength) || 0;
+    const tgt = Number(detail.targetLength) || 0;
+    const pct = tgt > 0 ? Math.min(100, (ok / tgt) * 100) : 0;
+    const runtime = detail.runtimeHours != null ? Number(detail.runtimeHours).toFixed(1) + " h" : "—";
+    el.innerHTML =
+      '<div class="progress-meta"><span>OK length <b style="color:var(--g-text)">' + Math.round(ok) + " m</b></span>" +
+      "<span>Target <b style=\"color:var(--g-text)\">" + (tgt ? Math.round(tgt) + " m" : "—") + "</b></span></div>" +
+      '<div class="progress-track"><div class="progress-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="progress-foot">' + pct.toFixed(1) + "% · NG " + (Number(detail.producedLengthNg) || 0) +
+      " m · runtime " + runtime + "</div>";
+  }
+
+  function renderSpeedKpi() {
+    const el = document.getElementById("speedKpiStrip");
+    if (!el) return;
+    const s = (speedHistory && speedHistory.summary) || {};
+    const items = [
+      { k: "Stable median", v: s.stableRunningMedian != null ? s.stableRunningMedian : "—" },
+      { k: "Stable P90", v: s.stableRunningP90 != null ? s.stableRunningP90 : "—" },
+      { k: "Setup avg", v: s.setupAvgSpeed != null ? s.setupAvgSpeed : "—" },
+      { k: "Stopped", v: s.stoppedDurationSec != null ? Math.round(s.stoppedDurationSec / 60) + " m" : "—" },
+    ];
+    el.innerHTML = items.map((it) =>
+      '<div class="kpi-mini"><div class="k">' + it.k + '</div><div class="v">' + it.v + "</div></div>"
+    ).join("");
+  }
+
+  function renderGantt() {
+    const host = document.getElementById("ganttHost");
+    if (!host) return;
+    const rows = statusHistory || [];
+    if (!rows.length) {
+      host.innerHTML = '<p class="hint">No status-history in window</p>';
+      return;
+    }
+    const start = Math.min(...rows.map((r) => new Date(r.startTime).getTime()));
+    const end = Math.max(...rows.map((r) => new Date(r.endTime || Date.now()).getTime()));
+    const span = Math.max(1, end - start);
+    const segs = rows.map((r) => {
+      const a = new Date(r.startTime).getTime();
+      const b = new Date(r.endTime || Date.now()).getTime();
+      const pct = ((b - a) / span) * 100;
+      const st = r.status || "idle";
+      return '<div class="gantt-seg ' + st + '" style="width:' + pct + '%" title="' +
+        st + " · " + fmtTime(r.startTime) + " → " + fmtTime(r.endTime) + '"></div>';
+    }).join("");
+    host.innerHTML =
+      '<div style="font-size:11px;color:var(--g-text-secondary)">' +
+      fmtTime(new Date(start).toISOString()) + " → " + fmtTime(new Date(end).toISOString()) +
+      " · " + rows.length + " segments</div>" +
+      '<div class="gantt">' + segs + "</div>" +
+      '<div class="gantt-legend">' +
+      '<span><i style="background:var(--g-green)"></i>running</span>' +
+      '<span><i style="background:var(--g-orange)"></i>setup/warn</span>' +
+      '<span><i style="background:var(--g-red)"></i>error</span>' +
+      '<span><i style="background:var(--g-blue)"></i>stopped</span>' +
+      '<span><i style="background:#6e6e76"></i>idle</span></div>';
+  }
+
+  function renderCharts() {
+    if (!detail) return;
+    const spUnit = speedInfo(detail).unit;
+
+    // Speed: prefer speed-history points, else speedTrend
+    let speedLabels = [];
+    let speedActual = [];
+    let speedTarget = [];
+    if (speedHistory && Array.isArray(speedHistory.points) && speedHistory.points.length) {
+      const pts = speedHistory.points.slice(-80);
+      speedLabels = pts.map((p) => fmtTime(p.timestamp));
+      speedActual = pts.map((p) => Number(p.actualSpeed) || 0);
+      speedTarget = pts.map((p) => Number(p.targetSpeed) || 0);
+    } else if (detail.speedTrend && detail.speedTrend.length) {
+      const pts = detail.speedTrend.slice(-80);
+      speedLabels = pts.map((p) => fmtTime(p.time));
+      speedActual = pts.map((p) => Number(p.speed) || 0);
+      speedTarget = pts.map((p) => Number(p.target) || 0);
+    }
+    lineChart("chart_speed", document.getElementById("chart_speed_c"), speedLabels, [
+      { label: "Actual", data: speedActual, borderColor: "#5794f2", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+      { label: "Target", data: speedTarget, borderColor: "#ff9830", borderWidth: 1.2, pointRadius: 0, borderDash: [4, 4], tension: 0 },
+    ], spUnit);
+
+    const tt = (detail.temperatureTrend || []).slice(-60);
+    lineChart("chart_temp", document.getElementById("chart_temp_c"), tt.map((p) => fmtTime(p.time)), [
+      { label: "Temp", data: tt.map((p) => Number(p.temp) || 0), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: false },
+    ], "°C");
+
+    const ct = (detail.currentTrend || []).slice(-60);
+    lineChart("chart_current", document.getElementById("chart_current_c"), ct.map((p) => fmtTime(p.time)), [
+      { label: "A", data: ct.map((p) => Number(p.current) || 0), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+    ], "A");
+
+    const pt = (detail.powerTrend || []).slice(-60);
+    lineChart("chart_power", document.getElementById("chart_power_c"), pt.map((p) => fmtTime(p.time)), [
+      { label: "kW", data: pt.map((p) => Number(p.power) || 0), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+    ], "kW");
+
+    const et = (detail.energyMeterTrend || []).slice(-60);
+    const meterNow = detail.energyMeterKwh != null ? Number(detail.energyMeterKwh).toFixed(1) + " kWh" : "";
+    lineChart("chart_energy", document.getElementById("chart_energy_c"), et.map((p) => fmtTime(p.time || p.timestamp)), [
+      { label: "Meter " + meterNow, data: et.map((p) => Number(p.meterKwh) || 0), borderColor: "#73bf69", borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
+    ], "kWh");
+  }
+
+  function renderZones() {
+    const el = document.getElementById("zoneGrid");
+    if (!el) return;
+    const z = detail && detail.multiZoneTemperatures;
+    if (!z || typeof z !== "object") {
+      el.innerHTML = '<p class="hint">Không có multi-zone (thường Bọc / đùn)</p>';
+      return;
+    }
+    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k) =>
+      '<div class="zone-card"><div class="zn">' + k + '</div><div class="zv">' +
+      Number(z[k]).toFixed(0) + "°</div></div>"
+    ).join("") || '<p class="hint">Empty zones</p>';
+  }
+
+  function renderAlarms() {
+    const body = document.getElementById("alarmBody");
+    if (!body || !detail) return;
+    const rows = detail.alarms || [];
+    body.innerHTML = rows.map((a) => {
+      const age = a.timestamp ? Math.max(0, Math.round((Date.now() - new Date(a.timestamp).getTime()) / 60000)) + "m" : "—";
+      return '<tr><td><span class="sev ' + (a.severity || "info") + '">' + (a.severity || "info") +
+        "</span></td><td>" + (a.message || "—") + "</td><td>" + age + "</td></tr>";
+    }).join("") || '<tr><td colspan="3" class="hint">No active alarms</td></tr>';
+  }
+
+  function renderEnergyBuckets() {
+    const body = document.getElementById("energyBody");
+    if (!body || !detail) return;
+    const rows = detail.energyConsumption || [];
+    body.innerHTML = rows.slice().reverse().slice(0, 24).map((b) =>
+      "<tr><td class=\"mono\">" + fmtTime(b.bucketStart) + "–" + fmtTime(b.bucketEnd) + "</td>" +
+      '<td class="num">' + Number(b.energy || 0).toFixed(2) + "</td>" +
+      '<td class="num">' + (b.powerKw != null ? Number(b.powerKw).toFixed(1) : "—") + "</td>" +
+      "<td>" + (b.productName || "—") + "</td>" +
+      '<td class="num">' + (b.producedLengthM != null ? Math.round(b.producedLengthM) : "—") + "</td>" +
+      '<td class="num">' + (b.kwhPer100m != null ? Number(b.kwhPer100m).toFixed(2) : "—") + "</td></tr>"
+    ).join("") || '<tr><td colspan="6" class="hint">No energyConsumption buckets</td></tr>';
+  }
+
+  function renderOrders() {
+    const body = document.getElementById("orderBody");
+    if (!body || !detail) return;
+    const rows = detail.orderHistory || (detail.productionOrder ? [detail.productionOrder] : []);
+    body.innerHTML = rows.map((o) => {
+      const cuts = (o.bobbinCuts || []).length;
+      return '<tr><td class="mono">' + (o.name || o.id || "—") + "</td>" +
+        "<td>" + (o.productName || "—") + "</td>" +
+        "<td>" + (o.status || "—") + "</td>" +
+        '<td class="num">' + Math.round(Number(o.producedLengthOk) || Number(o.producedLength) || 0) + "</td>" +
+        '<td class="num">' + (o.targetLength != null ? Math.round(o.targetLength) : "—") + "</td>" +
+        '<td class="num">' + cuts + "</td></tr>";
+    }).join("") || '<tr><td colspan="6" class="hint">No order history</td></tr>';
+  }
+
+  function refreshAll() {
+    renderHeader();
+    renderStats();
+    renderApq();
+    renderLength();
+    renderSpeedKpi();
+    renderGantt();
+    renderCharts();
+    renderZones();
+    renderAlarms();
+    renderEnergyBuckets();
+    renderOrders();
+  }
+
+  function fillMachineSelect() {
+    const sel = document.getElementById("machineSelect");
+    const ids = fleet.length ? fleet : [{ id: machineId, name: machineId }];
+    sel.innerHTML = ids.map((m) =>
+      '<option value="' + m.id + '"' + (m.id === machineId ? " selected" : "") + ">" +
+      m.id + (m.name ? " · " + m.name : "") + "</option>"
+    ).join("");
+  }
+
+  async function loadFleetLive() {
+    const list = unwrapList(await fetchJson("/api/machines"));
+    fleet = list.map((m) => ({ id: m.id, name: m.name, area: m.area, status: m.status }));
+    if (!fleet.find((m) => m.id === machineId) && fleet[0]) machineId = fleet[0].id;
+    fillMachineSelect();
+  }
+
+  async function loadDetailLive() {
+    const hours = rangeHours;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 3600e3);
+    const startIso = encodeURIComponent(start.toISOString());
+    const endIso = encodeURIComponent(end.toISOString());
+
+    const [detailRaw, statusRaw, speedRaw] = await Promise.all([
+      fetchJson("/api/machines/" + encodeURIComponent(machineId)),
+      fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=" + hours).catch(() => null),
+      fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/speed-history?start=" + startIso + "&end=" + endIso).catch(() => null),
+    ]);
+
+    detail = unwrap(detailRaw);
+    statusHistory = unwrapList(statusRaw);
+    speedHistory = unwrap(speedRaw);
+    lastRtAt = Date.now();
+    document.getElementById("dataStatus").textContent =
+      "source: live · " + machineId + " · " + getApiBase();
+  }
+
+  function loadDetailMock() {
+    detail = buildMockDetail(machineId);
+    statusHistory = detail._statusHistory || [];
+    speedHistory = detail._speedHistory || null;
+    lastRtAt = Date.now();
+    document.getElementById("dataStatus").textContent = "source: mock detail · " + machineId;
+  }
+
+  async function refreshData(opts) {
+    const quiet = opts && opts.quiet;
+    if (dataMode === "live") {
+      try {
+        if (!fleet.length) await loadFleetLive();
+        await loadDetailLive();
+        if (!quiet) showToast("Live detail · " + machineId);
+      } catch (err) {
+        console.error(err);
+        showToast("Live failed → Mock: " + (err.message || err));
+        setMode("mock");
+        loadDetailMock();
+      }
+    } else {
+      fleet = buildMockFleet();
+      fillMachineSelect();
+      loadDetailMock();
+    }
+    setQsMachine(machineId);
+    refreshAll();
+  }
+
+  function setMode(mode) {
+    dataMode = mode === "live" ? "live" : "mock";
+    localStorage.setItem(MODE_KEY, dataMode);
+    const live = document.getElementById("modeLive");
+    document.getElementById("btnMock").classList.toggle("active-mode", dataMode === "mock");
+    document.getElementById("btnLive").classList.toggle("active-mode", dataMode === "live");
+    if (dataMode === "live") {
+      live.classList.remove("mock");
+      document.getElementById("modeLabel").textContent = "Live";
+    } else {
+      live.classList.add("mock");
+      document.getElementById("modeLabel").textContent = "Mock";
+    }
+  }
+
+  function restartPoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      refreshData({ quiet: true });
+    }, dataMode === "live" ? 5000 : 2000);
+  }
+
+  // Init
+  (function initApiBase() {
+    let saved = localStorage.getItem(API_KEY);
+    if (!saved || saved === "http://localhost:3001") saved = DEFAULT_API;
+    document.getElementById("apiBase").value = saved;
+  })();
+  document.getElementById("apiBase").addEventListener("change", () => {
+    localStorage.setItem(API_KEY, getApiBase());
+  });
+
+  document.getElementById("rangeSelect").value = String(rangeHours);
+  document.getElementById("rangeSelect").addEventListener("change", (e) => {
+    rangeHours = Number(e.target.value) || 8;
+    localStorage.setItem("mes-ed-range-hours", String(rangeHours));
+    refreshData();
+  });
+
+  document.getElementById("machineSelect").addEventListener("change", (e) => {
+    machineId = e.target.value;
+    setQsMachine(machineId);
+    refreshData();
+  });
+
+  document.getElementById("btnMock").addEventListener("click", () => {
+    setMode("mock");
+    refreshData().then(() => restartPoll());
+  });
+  document.getElementById("btnLive").addEventListener("click", () => {
+    setMode("live");
+    refreshData().then(() => restartPoll());
+  });
+  document.getElementById("btnThemeDark").addEventListener("click", () => applyTheme("dark", { toast: true }));
+  document.getElementById("btnThemeLight").addEventListener("click", () => applyTheme("light", { toast: true }));
+  document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
+
+  renderBoardShell();
+  setMode(dataMode);
+  refreshData().then(() => restartPoll());
+})();
+  </script>
+</body>
+</html>

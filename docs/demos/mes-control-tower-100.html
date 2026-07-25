@@ -469,6 +469,7 @@
     <div class="nav-tabs">
       <a href="mes-overview-100.html">Overview</a>
       <a class="active" href="mes-control-tower-100.html">Energy</a>
+      <a href="mes-equipment-detail-100.html">Detail</a>
     </div>
     <div class="g-spacer"></div>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
@@ -499,7 +500,8 @@
         <code style="font-family:var(--mono);font-size:11px">/api/analytics</code>.
         Bấm <strong>Live API</strong> để lấy data thật từ plant API.
         <strong>Kéo title</strong> để đặt panel trên lưới (kiểu Grafana) · <strong>kéo góc</strong> để resize.
-        Trang Overview (line · speed · product): <a href="mes-overview-100.html" style="color:var(--g-blue)">Overview</a>.
+        Trang Overview (line · speed · product): <a href="mes-overview-100.html" style="color:var(--g-blue)">Overview</a>
+        · Detail: <a href="mes-equipment-detail-100.html" style="color:var(--g-blue)">Equipment Detail</a>.
       </p>
     </div>
     <div class="g-tags">
@@ -2246,22 +2248,9 @@
   }
 
   function selectLine(id, fromAlert) {
-    selectedId = id;
-    const m = fixtures.machines.find((x) => x.id === id);
-    if (!m) return;
-    if (filter === "problems" || (filter !== "all" && filter !== m.area)) {
-      filter = "all";
-      const filters = document.getElementById("filters");
-      if (filters) filters.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.filter === "all"));
-    }
-    renderMosaic();
-    renderAlerts();
-    if (fromAlert) {
-      const cell = document.querySelector('.cell[data-id="' + id + '"]');
-      if (cell) cell.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-    renderDrawer(m);
-    openDrawer();
+    if (!id) return;
+    // Drill-down → Grafana Equipment Detail HTML
+    location.href = "mes-equipment-detail-100.html?machine_id=" + encodeURIComponent(id);
   }
 
   function refreshAll() {

@@ -342,6 +342,7 @@
     <div class="nav-tabs">
       <a class="active" href="mes-overview-100.html">Overview</a>
       <a href="mes-control-tower-100.html">Energy</a>
+      <a href="mes-equipment-detail-100.html">Detail</a>
     </div>
     <div class="g-spacer"></div>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
@@ -364,9 +365,10 @@
       <h1>MES Production Overview — Lines</h1>
       <p>
         Grafana-style overview: trạng thái chạy/dừng, tốc độ, tên sản phẩm / PO theo dây chuyền.
-        Nguồn <code style="font-family:var(--mono);font-size:11px">/api/machines</code> +
-        <code style="font-family:var(--mono);font-size:11px">/api/kpis/global</code>.
-        Trang Energy (Sankey tải điện): <a href="mes-control-tower-100.html" style="color:var(--g-blue)">Control Tower</a>.
+        <strong>Click line</strong> → Equipment Detail.
+        Nguồn <code style="font-family:var(--mono);font-size:11px">/api/machines</code>.
+        Energy: <a href="mes-control-tower-100.html" style="color:var(--g-blue)">Control Tower</a>
+        · Detail: <a href="mes-equipment-detail-100.html" style="color:var(--g-blue)">Equipment</a>.
       </p>
     </div>
     <div class="g-tags">
@@ -1035,6 +1037,11 @@
     });
   }
 
+  function selectLine(id) {
+    if (!id) return;
+    location.href = "mes-equipment-detail-100.html?machine_id=" + encodeURIComponent(id);
+  }
+
   function openDrawer() {
     document.getElementById("drawer").classList.add("open");
     document.getElementById("backdrop").classList.add("open");
@@ -1049,50 +1056,23 @@
     renderProdTable();
   }
 
-  function selectLine(id, fromAlert) {
-    selectedId = id;
-    const m = fixtures.machines.find((x) => x.id === id);
-    if (!m) return;
-    if (filter === "problems" || filter === "running" || (filter !== "all" && filter !== m.area)) {
-      filter = "all";
-      const filters = document.getElementById("filters");
-      if (filters) filters.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.filter === "all"));
-    }
-    renderMosaic();
-    renderProdTable();
-    if (fromAlert) {
-      const cell = document.querySelector('.line-cell[data-id="' + id + '"]');
-      if (cell) cell.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-    renderDrawer(m);
-    openDrawer();
-  }
-
   function renderDrawer(m) {
+    /* kept for potential future peek — primary UX is full Detail page */
     document.getElementById("drawerId").textContent = m.id;
     document.getElementById("drawerName").textContent = m.name || "";
     const sp = speedInfo(m);
     const prod = m.productName || m.productionOrderProductName || "—";
     const po = m.productionOrderName || m.productionOrderId || "—";
     const am = areaMeta(m.area);
-    const lenOk = Number(m.producedLengthOk) || Number(m.producedLength) || 0;
-    const lenT = Number(m.targetLength) || 0;
     document.getElementById("drawerBody").innerHTML =
+      '<a class="g-btn primary" style="display:inline-block;margin-bottom:12px;text-decoration:none" href="mes-equipment-detail-100.html?machine_id=' +
+      encodeURIComponent(m.id) + '">Mở Equipment Detail →</a>' +
       '<span class="badge ' + m.status + '">' + m.status + "</span>" +
       '<div class="d-grid">' +
-      '<div class="d-card"><div class="k">Area</div><div class="v" style="font-size:15px">' + am.name + " · " + am.nameEn + "</div></div>" +
-      '<div class="d-card"><div class="k">Operator</div><div class="v" style="font-size:15px">' + (m.operatorName || "—") + "</div></div>" +
-      '<div class="d-card span2"><div class="k">Product</div><div class="v" style="font-size:16px">' + prod + "</div>" +
-      '<div class="s">PO: ' + po + "</div></div>" +
-      '<div class="d-card"><div class="k">Line speed</div><div class="v">' + sp.v + ' <span style="font-size:12px;color:var(--g-text-secondary)">' + sp.unit + "</span></div>" +
-      '<div class="s">Target ' + sp.t + " · " + sp.pct.toFixed(0) + "%</div></div>" +
-      '<div class="d-card"><div class="k">OEE</div><div class="v">' + Number(m.oee || 0).toFixed(1) + "%</div>" +
-      '<div class="s">A ' + Number(m.availability || 0).toFixed(0) + " · P " + Number(m.performance || 0).toFixed(0) +
-      " · Q " + Number(m.quality || 0).toFixed(0) + "</div></div>" +
-      '<div class="d-card"><div class="k">Length OK</div><div class="v" style="font-size:16px">' + Math.round(lenOk) + " m</div>" +
-      '<div class="s">Target ' + (lenT ? Math.round(lenT) + " m" : "—") + "</div></div>" +
-      '<div class="d-card"><div class="k">Power</div><div class="v" style="font-size:16px">' + Number(m.power || 0).toFixed(1) + " kW</div></div>" +
-      "</div>";
+      '<div class="d-card"><div class="k">Area</div><div class="v" style="font-size:15px">' + am.name + "</div></div>" +
+      '<div class="d-card"><div class="k">Speed</div><div class="v">' + sp.v + " " + sp.unit + "</div></div>" +
+      '<div class="d-card span2"><div class="k">Product</div><div class="v" style="font-size:15px">' + prod + "</div>" +
+      '<div class="s">PO: ' + po + "</div></div></div>";
   }
 
   function refreshAll() {
@@ -1104,10 +1084,6 @@
     renderProductMix();
     renderAlerts();
     updateClock();
-    if (selectedId) {
-      const m = fixtures.machines.find((x) => x.id === selectedId);
-      if (m) renderDrawer(m);
-    }
   }
 
   function tickMock() {
