@@ -1,0 +1,2517 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MES Control Tower — API contract review</title>
+  <!--
+    Contract review demo (Phase HTML — before React Control Tower tab).
+    API map:
+      GET /api/kpis/global          → running, total, output, orders, alarms, energy (= Σ power/1000 MW live)
+      GET /api/machines             → mosaic + Σ power kW + drawer fields (Machine type)
+      GET /api/alarms               → exceptions table
+      GET /api/analytics?range=…    → oeeSummary, oeeTrend[{time,oee,A,P,Q}], energyTrend[{time,energy}]
+    Gaps (proposed UX only — need backend before React):
+      - energy by area stacked series
+      - shift MWh accumulative KPI (distinct from kpis.energy MW live)
+      - specific energy kWh/100m plant endpoint
+    Live API default: http://100.114.213.115:3001 (Tailscale plant).
+    CORS on backend allows browser fetch (incl. file:// null origin when ACAO=null).
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    /* Grafana Dark (default) */
+    :root,
+    html[data-theme="dark"] {
+      --g-bg: #111217;
+      --g-page: #111217;
+      --g-panel: #181b1f;
+      --g-panel-border: #2c3235;
+      --g-text: #ccccdc;
+      --g-text-secondary: #8e8e9a;
+      --g-muted-hex: #8e8e9a;
+      --g-blue: #5794f2;
+      --g-green: #73bf69;
+      --g-yellow: #fade2a;
+      --g-orange: #ff9830;
+      --g-red: #f2495c;
+      --g-purple: #b877d9;
+      --g-input: #141619;
+      --g-hover: #22252b;
+      --g-track: #22252b;
+      --g-cell: #22252b;
+      --g-grid: rgba(44, 50, 53, 0.8);
+      --g-toast: #22252b;
+      --g-topnav: #111217;
+      --g-topnav-border: #22252b;
+      --g-api-note: #6b6b78;
+      --font: Inter, "Helvetica Neue", Arial, sans-serif;
+      --mono: "Roboto Mono", Consolas, monospace;
+    }
+
+    /* Grafana Light */
+    html[data-theme="light"] {
+      --g-bg: #f4f5f5;
+      --g-page: #f4f5f5;
+      --g-panel: #ffffff;
+      --g-panel-border: #dce1e6;
+      --g-text: #111217;
+      --g-text-secondary: #52545c;
+      --g-muted-hex: #6e6e76;
+      --g-blue: #3871dc;
+      --g-green: #1a7f37;
+      --g-yellow: #ad7800;
+      --g-orange: #d05a00;
+      --g-red: #c81e1e;
+      --g-purple: #8a3ffc;
+      --g-input: #ffffff;
+      --g-hover: #e9edf2;
+      --g-track: #e6e9ed;
+      --g-cell: #f4f5f5;
+      --g-grid: rgba(36, 41, 46, 0.12);
+      --g-toast: #ffffff;
+      --g-topnav: #ffffff;
+      --g-topnav-border: #dce1e6;
+      --g-api-note: #6e6e76;
+    }
+
+    /* Grafana Midnight */
+    html[data-theme="midnight"] {
+      --g-bg: #0b0f19;
+      --g-page: #0b0f19;
+      --g-panel: #121826;
+      --g-panel-border: #1e2a3d;
+      --g-text: #d8dee9;
+      --g-text-secondary: #8b9bb4;
+      --g-muted-hex: #8b9bb4;
+      --g-blue: #5b9cf5;
+      --g-green: #6bcf8e;
+      --g-yellow: #e8c547;
+      --g-orange: #f0a05a;
+      --g-red: #e85d6f;
+      --g-purple: #9b7fd4;
+      --g-input: #0e1420;
+      --g-hover: #1a2436;
+      --g-track: #1a2436;
+      --g-cell: #1a2436;
+      --g-grid: rgba(91, 156, 245, 0.12);
+      --g-toast: #1a2436;
+      --g-topnav: #0b0f19;
+      --g-topnav-border: #1e2a3d;
+      --g-api-note: #6e7f99;
+    }
+
+    /* AI Neon — cyan / electric blue, futuristic */
+    html[data-theme="ai"] {
+      --g-bg: #050a14;
+      --g-page: #050a14;
+      --g-panel: #0a1628;
+      --g-panel-border: rgba(0, 212, 255, 0.22);
+      --g-text: #e8f4ff;
+      --g-text-secondary: #7a9bb8;
+      --g-muted-hex: #7a9bb8;
+      --g-blue: #00d4ff;
+      --g-green: #00ffa3;
+      --g-yellow: #ffe566;
+      --g-orange: #ff9f43;
+      --g-red: #ff4d6d;
+      --g-purple: #a78bfa;
+      --g-input: #071018;
+      --g-hover: #0f2138;
+      --g-track: #0f2138;
+      --g-cell: #0c1a2e;
+      --g-grid: rgba(0, 212, 255, 0.14);
+      --g-toast: #0c1a2e;
+      --g-topnav: rgba(5, 10, 20, 0.92);
+      --g-topnav-border: rgba(0, 212, 255, 0.18);
+      --g-api-note: #5a7a94;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--g-bg); color: var(--g-text); font-family: var(--font); font-size: 14px; }
+    body { overflow: auto; }
+
+    html[data-theme="ai"] body {
+      background:
+        radial-gradient(ellipse 90% 55% at 12% -8%, rgba(0, 212, 255, 0.2), transparent 55%),
+        radial-gradient(ellipse 70% 45% at 92% 8%, rgba(88, 101, 242, 0.28), transparent 50%),
+        radial-gradient(ellipse 55% 35% at 48% 105%, rgba(0, 255, 200, 0.1), transparent 55%),
+        linear-gradient(180deg, #050a14 0%, #071428 50%, #050a14 100%);
+      background-attachment: fixed;
+    }
+    html[data-theme="ai"] .g-topnav {
+      backdrop-filter: blur(10px);
+      box-shadow: 0 1px 0 rgba(0, 212, 255, 0.12), 0 8px 28px rgba(0, 40, 80, 0.35);
+    }
+    html[data-theme="ai"] .g-logo {
+      background: linear-gradient(135deg, #00d4ff, #5865f2 48%, #a855f7);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.55);
+      color: #041018;
+    }
+    html[data-theme="ai"] .panel {
+      background: linear-gradient(165deg, rgba(14, 36, 64, 0.92), rgba(8, 18, 36, 0.96));
+      box-shadow:
+        0 0 0 1px rgba(0, 212, 255, 0.1),
+        0 10px 36px rgba(0, 24, 56, 0.45),
+        inset 0 1px 0 rgba(0, 212, 255, 0.08);
+    }
+    html[data-theme="ai"] .panel.proposed {
+      border-color: rgba(167, 139, 250, 0.55);
+      box-shadow: 0 0 20px rgba(167, 139, 250, 0.12);
+    }
+    html[data-theme="ai"] .nav-tabs a.active {
+      background: rgba(0, 212, 255, 0.14);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.22);
+    }
+    html[data-theme="ai"] .g-btn.primary {
+      background: linear-gradient(135deg, #0099cc, #00d4ff);
+      border-color: #00d4ff;
+      color: #041018;
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.35);
+    }
+    html[data-theme="ai"] .live i {
+      box-shadow: 0 0 8px currentColor;
+    }
+    html[data-theme="ai"] .stat .value.blue,
+    html[data-theme="ai"] .tag {
+      text-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+    }
+    html[data-theme="midnight"] .g-logo {
+      background: linear-gradient(135deg, #5b9cf5, #9b7fd4 55%, #6bcf8e);
+    }
+
+    .g-topnav {
+      height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+      background: var(--g-topnav); border-bottom: 1px solid var(--g-topnav-border); position: sticky; top: 0; z-index: 30;
+    }
+    .g-logo {
+      width: 24px; height: 24px; border-radius: 4px;
+      background: linear-gradient(135deg, #f2495c, #ff9830 45%, #fade2a);
+      display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #111;
+    }
+    .g-breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
+    .g-breadcrumb strong { color: var(--g-text); font-weight: 500; }
+    .g-breadcrumb .sep { opacity: 0.5; }
+    .g-breadcrumb a { color: var(--g-blue); text-decoration: none; }
+    .g-breadcrumb a:hover { text-decoration: underline; }
+    .nav-tabs { display: flex; gap: 4px; margin-left: 8px; }
+    .nav-tabs a {
+      font-size: 12px; padding: 4px 10px; border-radius: 2px; text-decoration: none;
+      color: var(--g-text-secondary); border: 1px solid transparent;
+    }
+    .nav-tabs a:hover { background: var(--g-hover); color: var(--g-text); }
+    .nav-tabs a.active {
+      background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue);
+    }
+    .g-spacer { flex: 1; }
+    .g-time {
+      display: flex; align-items: center; border: 1px solid var(--g-panel-border);
+      border-radius: 2px; overflow: hidden; background: var(--g-input);
+    }
+    .g-time button {
+      border: 0; background: transparent; color: var(--g-text); font: inherit; font-size: 12px;
+      padding: 5px 10px; cursor: pointer;
+    }
+    .g-time button:hover { background: var(--g-hover); }
+    .g-time button.active { background: rgba(87, 148, 242, 0.2); color: var(--g-blue); }
+    .g-time .divider { width: 1px; align-self: stretch; background: var(--g-panel-border); }
+    .g-btn {
+      border: 1px solid var(--g-panel-border); background: var(--g-input); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+    }
+    .g-btn:hover { background: var(--g-hover); }
+    .g-btn.primary { background: #3d71d9; border-color: #3d71d9; color: #fff; }
+    .g-btn.active-mode { background: rgba(115, 191, 105, 0.2); border-color: var(--g-green); color: var(--g-green); }
+    .g-btn.theme-active { background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue); }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--g-green); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+    .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-green); animation: blink 1.5s infinite; }
+    .live.mock { color: var(--g-orange); }
+    .live.mock i { background: var(--g-orange); }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    .g-dashbar {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+      padding: 14px 14px 8px; flex-wrap: wrap;
+    }
+    .g-dashbar h1 { font-size: 20px; font-weight: 500; }
+    .g-dashbar p { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); max-width: 780px; line-height: 1.4; }
+    .g-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 2px;
+      background: rgba(87, 148, 242, 0.15); color: var(--g-blue);
+      border: 1px solid rgba(87, 148, 242, 0.25);
+    }
+    .tag.warn {
+      background: rgba(255, 152, 48, 0.15); color: var(--g-orange);
+      border-color: rgba(255, 152, 48, 0.3);
+    }
+    .tag.gap {
+      background: rgba(184, 119, 217, 0.15); color: var(--g-purple);
+      border-color: rgba(184, 119, 217, 0.3);
+    }
+
+    .gap-banner {
+      margin: 0 14px 8px;
+      padding: 8px 12px;
+      border: 1px solid rgba(184, 119, 217, 0.35);
+      background: rgba(184, 119, 217, 0.08);
+      border-radius: 2px;
+      font-size: 12px;
+      color: var(--g-text-secondary);
+      line-height: 1.45;
+    }
+    .gap-banner strong { color: var(--g-purple); }
+    .gap-banner code { font-family: var(--mono); font-size: 11px; color: var(--g-text); }
+
+    .api-base-row {
+      display: flex; align-items: center; gap: 6px; margin: 0 14px 8px;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .api-base-row input {
+      flex: 1; max-width: 360px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 5px 8px; border-radius: 2px; font: inherit; font-size: 12px;
+    }
+
+    .board {
+      display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
+      gap: 8px; padding: 8px 14px 24px; align-content: start;
+      position: relative;
+    }
+    .panel {
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+      position: relative;
+      transition: box-shadow 0.12s ease;
+    }
+    .panel.dragging-source {
+      opacity: 0.28;
+      pointer-events: none;
+    }
+    .panel.resizing { outline: 1px solid var(--g-blue); outline-offset: -1px; z-index: 5; user-select: none; }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+    .panel-ghost {
+      background: rgba(87, 148, 242, 0.14);
+      border: 1px dashed var(--g-blue);
+      border-radius: 2px;
+      pointer-events: none;
+      z-index: 3;
+      box-sizing: border-box;
+    }
+    .panel-drag-mirror {
+      position: fixed;
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0.94;
+      border: 1px solid var(--g-blue);
+      border-radius: 2px;
+      background: var(--g-panel);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .panel-drag-mirror .mirror-title {
+      font-size: 12px; font-weight: 500; color: var(--g-text-secondary);
+      padding: 8px 10px; border-bottom: 1px solid var(--g-panel-border);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .panel-drag-mirror .mirror-body {
+      flex: 1; background:
+        linear-gradient(135deg, rgba(87,148,242,0.08) 25%, transparent 25%),
+        linear-gradient(225deg, rgba(87,148,242,0.08) 25%, transparent 25%);
+      background-size: 16px 16px;
+    }
+    .panel[data-w="3"] { grid-column: span 3; }
+    .panel[data-w="4"] { grid-column: span 4; }
+    .panel[data-w="5"] { grid-column: span 5; }
+    .panel[data-w="6"] { grid-column: span 6; }
+    .panel[data-w="7"] { grid-column: span 7; }
+    .panel[data-w="8"] { grid-column: span 8; }
+    .panel[data-w="9"] { grid-column: span 9; }
+    .panel[data-w="10"] { grid-column: span 10; }
+    .panel[data-w="12"] { grid-column: span 12; }
+    .panel[data-w="14"] { grid-column: span 14; }
+    .panel[data-w="16"] { grid-column: span 16; }
+    .panel[data-w="18"] { grid-column: span 18; }
+    .panel[data-w="20"] { grid-column: span 20; }
+    .panel[data-w="24"] { grid-column: span 24; }
+    .panel[data-h="3"] { grid-row: span 3; }
+    .panel[data-h="4"] { grid-row: span 4; }
+    .panel[data-h="5"] { grid-row: span 5; }
+    .panel[data-h="6"] { grid-row: span 6; }
+    .panel[data-h="7"] { grid-row: span 7; }
+    .panel[data-h="8"] { grid-row: span 8; }
+    .panel[data-h="9"] { grid-row: span 9; }
+    .panel[data-h="10"] { grid-row: span 10; }
+    .panel[data-h="11"] { grid-row: span 11; }
+    .panel[data-h="12"] { grid-row: span 12; }
+    .panel[data-h="14"] { grid-row: span 14; }
+    .panel[data-h="16"] { grid-row: span 16; }
+
+    .panel-size {
+      font-size: 9px; font-family: var(--mono); color: var(--g-text-secondary);
+      opacity: 0; padding: 1px 4px; margin-top: 2px; flex-shrink: 0;
+    }
+    .panel:hover .panel-size,
+    .panel.resizing .panel-size,
+    .board.layout-edit .panel-size { opacity: 1; }
+    .panel-resize {
+      position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+      cursor: nwse-resize; z-index: 6; touch-action: none;
+      opacity: 0; transition: opacity 0.12s ease;
+    }
+    .panel:hover .panel-resize,
+    .panel.resizing .panel-resize,
+    .board.layout-edit .panel-resize { opacity: 1; }
+    .panel-resize::before {
+      content: ""; position: absolute; right: 3px; bottom: 3px;
+      width: 9px; height: 9px;
+      border-right: 2px solid var(--g-blue);
+      border-bottom: 2px solid var(--g-blue);
+      opacity: 0.85;
+    }
+    body.layout-resizing { cursor: nwse-resize !important; user-select: none !important; }
+    body.layout-resizing .panel { pointer-events: none; }
+    body.layout-resizing .panel.resizing { pointer-events: auto; }
+    body.layout-dragging { cursor: grabbing !important; user-select: none !important; }
+    body.layout-dragging .panel { pointer-events: none; }
+    body.layout-dragging .panel-ghost { pointer-events: none; }
+
+    .panel-head {
+      display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 28px;
+      cursor: grab; user-select: none;
+    }
+    .panel-head:active { cursor: grabbing; }
+    .panel-title-wrap { flex: 1; min-width: 0; }
+    .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel-api {
+      font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .panel-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+    .panel-badge.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
+    .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
+    .panel-badge.demo { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .panel-menu { color: var(--g-text-secondary); font-size: 14px; opacity: 0; padding: 0 4px; border: 0; background: transparent; cursor: pointer; }
+    .panel:hover .panel-menu { opacity: 1; }
+    .panel-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
+
+    .stat { height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 4px 4px 0; }
+    .stat .value { font-size: 28px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .stat .value.green { color: var(--g-green); }
+    .stat .value.blue { color: var(--g-blue); }
+    .stat .value.orange { color: var(--g-orange); }
+    .stat .value.red { color: var(--g-red); }
+    .stat .value.purple { color: var(--g-purple); }
+    .stat .unit { font-size: 13px; color: var(--g-text-secondary); margin-left: 4px; font-weight: 400; }
+    .stat .name { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
+    .stat canvas { width: 100% !important; height: 36px !important; margin-top: 6px; }
+    .chart-wrap { position: absolute; inset: 4px 8px 8px; }
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .bar-gauge { display: flex; flex-direction: column; gap: 7px; height: 100%; overflow: auto; padding-top: 4px; }
+    .bg-row { display: grid; grid-template-columns: 72px 1fr 52px; gap: 8px; align-items: center; font-size: 12px; }
+    .bg-row .lbl { font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bg-track { height: 18px; background: var(--g-track); border-radius: 1px; overflow: hidden; }
+    .bg-fill {
+      height: 100%; background: linear-gradient(90deg, #3274d9, #5794f2);
+      display: flex; align-items: center; padding-left: 6px; font-size: 11px; color: #fff;
+      white-space: nowrap; min-width: 2px; transition: width 0.4s ease;
+    }
+    .bg-fill.warn { background: linear-gradient(90deg, #e0b400, #ff9830); }
+    .bg-fill.crit { background: linear-gradient(90deg, #d10e35, #f2495c); }
+    .bg-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--g-text-secondary); }
+
+    .filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+    .chip {
+      font: inherit; font-size: 11px; padding: 3px 8px; border-radius: 2px;
+      border: 1px solid var(--g-panel-border); background: var(--g-input); color: var(--g-text-secondary); cursor: pointer;
+    }
+    .chip:hover { background: var(--g-hover); color: var(--g-text); }
+    .chip.active { background: rgba(87, 148, 242, 0.2); border-color: var(--g-blue); color: var(--g-blue); }
+    .chip.danger.active { background: rgba(242, 73, 92, 0.2); border-color: var(--g-red); color: var(--g-red); }
+    .mosaic-scroll { max-height: calc(100% - 34px); overflow: auto; }
+    .area-band { margin-bottom: 10px; }
+    .area-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; font-size: 11px; color: var(--g-text-secondary); }
+    .area-head b { color: var(--g-text); font-weight: 500; letter-spacing: 0.06em; }
+    .area-head .stat { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 3px; }
+    .cell {
+      border: 1px solid transparent; border-radius: 1px; aspect-ratio: 1.15; padding: 4px; cursor: pointer;
+      text-align: left; font: inherit; color: var(--g-text); display: flex; flex-direction: column;
+      justify-content: space-between; opacity: 0.55; background: var(--g-cell);
+    }
+    .cell:hover, .cell.exception { opacity: 1; }
+    .cell.selected { outline: 1px solid #fff; opacity: 1; z-index: 1; }
+    .cell.running { background: rgba(115, 191, 105, 0.22); border-color: rgba(115, 191, 105, 0.45); }
+    .cell.setup, .cell.warning { background: rgba(255, 152, 48, 0.22); border-color: rgba(255, 152, 48, 0.5); }
+    .cell.error { background: rgba(242, 73, 92, 0.28); border-color: rgba(242, 73, 92, 0.55); }
+    .cell.stopped { background: rgba(87, 148, 242, 0.2); border-color: rgba(87, 148, 242, 0.45); }
+    .cell.idle { background: rgba(110, 110, 120, 0.25); border-color: rgba(110, 110, 120, 0.4); }
+    .cell .id { font-size: 10px; font-family: var(--mono); }
+    .cell .oee { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .cell .oee.good { color: var(--g-green); }
+    .cell .oee.mid { color: var(--g-orange); }
+    .cell .oee.low { color: var(--g-red); }
+
+    .alert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .alert-table th { text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--g-panel-border); }
+    .alert-table td { padding: 6px; border-bottom: 1px solid var(--g-panel-border); vertical-align: top; }
+    .alert-table tr { cursor: pointer; }
+    .alert-table tr:hover td { background: var(--g-hover); }
+    .alert-table tr.active td { background: rgba(87, 148, 242, 0.12); }
+    .sev { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 1px 5px; border-radius: 2px; }
+    .sev.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .sev.warning { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .sev.info { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+
+    .apq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; height: 100%; align-items: center; }
+    .apq-item { text-align: center; }
+    .apq-ring {
+      width: 72px; height: 72px; margin: 0 auto 6px; border-radius: 50%; display: grid; place-items: center;
+      background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--g-track) 0); position: relative;
+    }
+    .apq-ring::after { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: var(--g-panel); }
+    .apq-ring span { position: relative; z-index: 1; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .apq-item .lbl { font-size: 11px; color: var(--g-text-secondary); }
+
+    .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 40; }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0; width: min(420px, 100vw); height: 100%; background: var(--g-panel);
+      border-left: 1px solid var(--g-panel-border); z-index: 50; transform: translateX(100%);
+      transition: transform 0.25s ease; display: flex; flex-direction: column;
+    }
+    .drawer.open { transform: none; }
+    .drawer-head { padding: 14px 16px; border-bottom: 1px solid var(--g-panel-border); display: flex; justify-content: space-between; gap: 8px; }
+    .drawer-head h2 { font-size: 18px; font-weight: 500; font-family: var(--mono); }
+    .drawer-head p { font-size: 12px; color: var(--g-text-secondary); margin-top: 4px; }
+    .drawer-body { flex: 1; overflow: auto; padding: 14px 16px; }
+    .d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .d-card { background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px; padding: 10px; }
+    .d-card.span2 { grid-column: span 2; }
+    .d-card .k { font-size: 11px; color: var(--g-text-secondary); }
+    .d-card .v { font-size: 18px; font-weight: 500; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .d-card .s { font-size: 11px; color: var(--g-text-secondary); margin-top: 2px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 2px; margin-bottom: 12px; }
+    .badge.running { color: var(--g-green); background: rgba(115, 191, 105, 0.15); }
+    .badge.warning, .badge.setup { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .badge.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .badge.stopped { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+    .badge.idle { color: var(--g-text-secondary); background: var(--g-track); }
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(12px);
+      background: var(--g-toast); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      padding: 8px 14px; border-radius: 2px; font-size: 12px; opacity: 0; transition: 0.2s; z-index: 60;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .hint { font-size: 11px; color: var(--g-text-secondary); padding: 8px 0 0; }
+
+    /* Energy Sankey (Grafana-like Energy Flow) */
+    .sankey-host { position: absolute; inset: 2px 4px 4px; min-height: 0; }
+    .energy-kpi-stack {
+      display: flex; flex-direction: column; gap: 6px; height: 100%;
+      padding: 2px 0 0;
+    }
+    .energy-kpi-card {
+      flex: 1; min-height: 0;
+      border: 1px solid var(--g-panel-border);
+      border-radius: 2px;
+      background: var(--g-input);
+      padding: 6px 10px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .energy-kpi-card .ek-title {
+      font-size: 10px; color: var(--g-text-secondary); font-weight: 500; line-height: 1.25;
+    }
+    .energy-kpi-card .ek-meta {
+      display: flex; justify-content: space-between; gap: 6px;
+      font-size: 10px; color: var(--g-text-secondary); margin-top: 2px;
+    }
+    .energy-kpi-card .ek-value {
+      font-size: 22px; font-weight: 600; letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums; margin-top: 2px; line-height: 1.1;
+    }
+    .energy-kpi-card .ek-value .ek-unit { font-size: 12px; font-weight: 500; }
+    .energy-kpi-card .ek-value.red { color: var(--g-red); }
+    .energy-kpi-card .ek-value.orange { color: var(--g-orange); }
+    .energy-kpi-card .ek-value.purple { color: var(--g-purple); }
+    .energy-kpi-card .ek-delta {
+      margin-top: 2px; font-size: 11px; font-weight: 600;
+    }
+    .energy-kpi-card .ek-delta.up { color: var(--g-red); }
+    .energy-kpi-card .ek-delta.flat { color: var(--g-text-secondary); }
+    .energy-kpi-card .ek-foot {
+      margin-top: 2px; font-size: 10px; color: var(--g-text-secondary);
+    }
+
+    @media (max-width: 1100px) {
+      .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"] { grid-column: span 12; }
+      .panel[data-w="12"], .panel[data-w="16"] { grid-column: span 24; }
+    }
+    @media (max-width: 700px) {
+      .board { grid-template-columns: 1fr; }
+      .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"],
+      .panel[data-w="12"], .panel[data-w="16"], .panel[data-w="24"] { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="g-topnav">
+    <div class="g-logo">G</div>
+    <div class="g-breadcrumb">
+      <span>Dashboards</span><span class="sep">/</span><span>MES</span><span class="sep">/</span>
+      <strong>Energy · Control Tower</strong>
+    </div>
+    <div class="nav-tabs">
+      <a href="mes-overview-100.html">Overview</a>
+      <a class="active" href="mes-control-tower-100.html">Energy</a>
+      <a href="mes-speed-lab-100.html">Speed Lab</a>
+      <a href="mes-equipment-detail-100.html">Detail</a>
+    </div>
+    <div class="g-spacer"></div>
+    <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
+    <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
+    <button type="button" class="g-btn" id="btnLive">Live API</button>
+    <button type="button" class="g-btn theme-active" data-theme-btn="dark" id="btnThemeDark" title="Grafana Dark">Dark</button>
+    <button type="button" class="g-btn" data-theme-btn="light" id="btnThemeLight" title="Grafana Light">Light</button>
+    <button type="button" class="g-btn" data-theme-btn="midnight" id="btnThemeMidnight" title="Grafana Midnight">Midnight</button>
+    <button type="button" class="g-btn" data-theme-btn="ai" id="btnThemeAi" title="AI Neon — cyan futuristic">AI</button>
+    <div class="g-time" id="timeRange" role="group" aria-label="Time range">
+      <button type="button" data-range="auto" class="active">Auto 1s</button><span class="divider"></span>
+      <button type="button" data-range="15m">Last 15m</button><span class="divider"></span>
+      <button type="button" data-range="1h">Last 1h</button><span class="divider"></span>
+      <button type="button" data-range="24h">Last 24h</button><span class="divider"></span>
+      <button type="button" data-range="7d">7d</button>
+    </div>
+    <span class="tag" id="windowTag" style="margin-left:4px">window=auto · pts=50 · tick=1s</span>
+    <button type="button" class="g-btn" id="btnEditLayout" title="Bật/tắt resize handles">Edit layout</button>
+    <button type="button" class="g-btn" id="btnReset">Reset panels</button>
+    <button type="button" class="g-btn primary" id="btnRefresh">Refresh</button>
+  </nav>
+
+  <div class="g-dashbar">
+    <div>
+      <h1>MES Control Tower — 100 Lines</h1>
+      <p>
+        Grafana-style review HTML. Fixtures mirror <code style="font-family:var(--mono);font-size:11px">/api/kpis/global</code>,
+        <code style="font-family:var(--mono);font-size:11px">/api/machines</code>,
+        <code style="font-family:var(--mono);font-size:11px">/api/alarms</code>,
+        <code style="font-family:var(--mono);font-size:11px">/api/analytics</code>.
+        Bấm <strong>Live API</strong> để lấy data thật từ plant API.
+        <strong>Kéo title</strong> để đặt panel trên lưới (kiểu Grafana) · <strong>kéo góc</strong> để resize.
+        Trang Overview (line · speed · product): <a href="mes-overview-100.html" style="color:var(--g-blue)">Overview</a>
+        · Detail: <a href="mes-equipment-detail-100.html" style="color:var(--g-blue)">Equipment Detail</a>.
+      </p>
+    </div>
+    <div class="g-tags">
+      <span class="tag">plant=100.114.213.115</span>
+      <span class="tag" id="linesTag">lines=100</span>
+      <span class="tag" id="shiftTag">shift=—</span>
+      <span class="tag" id="clockTag">now=—</span>
+      <span class="tag" id="rtTag">rt=—</span>
+      <span class="tag warn" id="energyNote">kpis.energy = MW live (Σ power/1000)</span>
+      <span class="tag gap">proposed = needs backend</span>
+    </div>
+  </div>
+
+  <div class="gap-banner" id="gapBanner">
+    <strong>Gaps trước React:</strong>
+    (1) <code>energyTrend by area</code> stacked — chưa có aggregate;
+    (2) <strong>MWh ca</strong> KPI riêng — đừng nhầm với <code>kpis.energy</code> (MW live);
+    (3) <code>kWh/100m</code> plant — proposed UX.
+    <strong>Energy Flow</strong> Sankey đã map từ <code>machines[].power</code> (Điện lưới → khu vực → dây chuyền).
+    Panel badge <em>proposed</em> / <em>demo</em> = review UI / ước lượng tariff.
+  </div>
+
+  <div class="api-base-row">
+    <span>API base</span>
+    <input id="apiBase" type="text" value="http://100.114.213.115:3001" spellcheck="false" title="GET /api/machines · /api/kpis/global · /api/alarms · /api/analytics" />
+    <span id="dataStatus">source: mock fixtures</span>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <h2 id="drawerId">—</h2>
+        <p id="drawerName">—</p>
+      </div>
+      <button type="button" class="g-btn" id="drawerClose">Close</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  "use strict";
+
+  const LAYOUT_KEY = "mes-ct-contract-layout-v6";
+  const MODE_KEY = "mes-ct-data-mode";
+  const API_KEY = "mes-ct-api-base";
+  const THEME_KEY = "mes-ct-theme";
+  const EDIT_LAYOUT_KEY = "mes-ct-edit-layout";
+  const GRID_COLS = 24;
+  /** Real plant backend (Tailscale) — same contract as localhost:3001 */
+  const DEFAULT_API = "http://100.114.213.115:3001";
+  const Chart = window.Chart;
+  const Plotly = window.Plotly;
+  const charts = {};
+  /** Demo industrial tariff (VND/kWh) for cost KPI — not from API */
+  const DEMO_TARIFF_VND_PER_KWH = 1400;
+  const SANKEY_TOP_PER_AREA = 4;
+  /** Lock which lines appear in Sankey so topology doesn't thrash every poll */
+  const SANKEY_TOPO_TTL_MS = 20000;
+  let sankeyLockedTops = null;
+  let sankeyLockAt = 0;
+  let sankeyTopoFp = "";
+  let sankeyValueFp = "";
+  let sankeyThemeFp = "";
+  let sankeyLastRestyleAt = 0;
+  const SANKEY_VALUE_MIN_MS = 2500;
+
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  function applyChartTheme() {
+    const muted = cssVar("--g-muted-hex", "#8e8e9a");
+    const grid = cssVar("--g-grid", "rgba(44, 50, 53, 0.8)");
+    const border = cssVar("--g-panel-border", "#2c3235");
+    Chart.defaults.color = muted;
+    Chart.defaults.borderColor = border;
+    Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
+    Chart.defaults.font.size = 11;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
+    Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    Chart.defaults.plugins.legend.labels.color = muted;
+    if (Chart.defaults.scale && Chart.defaults.scale.grid) {
+      Chart.defaults.scale.grid.color = grid;
+    }
+    if (typeof charts === "undefined") return;
+    Object.keys(charts).forEach((k) => {
+      const ch = charts[k];
+      if (!ch || !ch.options) return;
+      const sx = ch.options.scales && ch.options.scales.x;
+      const sy = ch.options.scales && ch.options.scales.y;
+      if (sx && sx.ticks) sx.ticks.color = muted;
+      if (sy && sy.ticks) sy.ticks.color = muted;
+      if (sx && sx.grid) sx.grid.color = grid;
+      if (sy && sy.grid) sy.grid.color = grid;
+      if (sy && sy.title) sy.title.color = muted;
+      if (ch.options.plugins && ch.options.plugins.legend && ch.options.plugins.legend.labels) {
+        ch.options.plugins.legend.labels.color = muted;
+      }
+      try { ch.update("none"); } catch (_) {}
+    });
+  }
+
+  const THEME_LABELS = {
+    dark: "Grafana Dark",
+    light: "Grafana Light",
+    midnight: "Grafana Midnight",
+    ai: "AI Neon",
+  };
+
+  function normalizeTheme(theme) {
+    return THEME_LABELS[theme] ? theme : "dark";
+  }
+
+  function applyTheme(theme, opts) {
+    const t = normalizeTheme(theme);
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem(THEME_KEY, t);
+    document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+      btn.classList.toggle("theme-active", btn.getAttribute("data-theme-btn") === t);
+    });
+    applyChartTheme();
+    try { if (document.getElementById("sankeyHost")) renderEnergyFlow(true); } catch (_) {}
+    if (opts && opts.toast) {
+      try { showToast("Theme: " + THEME_LABELS[t]); } catch (_) {}
+    }
+  }
+
+  // Theme before panels (charts may not exist yet)
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+  Chart.defaults.color = cssVar("--g-muted-hex", "#8e8e9a");
+  Chart.defaults.borderColor = cssVar("--g-panel-border", "#2c3235");
+  Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
+  Chart.defaults.font.size = 11;
+  Chart.defaults.plugins.legend.labels.boxWidth = 10;
+  Chart.defaults.plugins.legend.labels.boxHeight = 10;
+  Chart.defaults.scale.grid.color = cssVar("--g-grid", "rgba(44, 50, 53, 0.8)");
+
+  const AREAS = [
+    { id: "drawing", name: "KÉO", nameEn: "Drawing", prefix: "D", targetSpeed: 1000, count: 28 },
+    { id: "stranding", name: "XOẮN", nameEn: "Stranding", prefix: "S", targetSpeed: 720, count: 26 },
+    { id: "armoring", name: "GIÁP", nameEn: "Armoring", prefix: "A", targetSpeed: 480, count: 22 },
+    { id: "sheathing", name: "BỌC", nameEn: "Sheathing", prefix: "SH", targetSpeed: 500, count: 24 },
+  ];
+  const PRODUCTS = ["CV 3×95+50", "CVV 4×25", "CXV 3×150", "CV 1×185", "AVV 4×16", "CXV 4×70"];
+  const OPERATORS = ["Nguyễn Văn An", "Trần Thị Bình", "Lê Minh Cường", "Phạm Thu Dung", "Hoàng Đức Em", "Vũ Thị Hoa"];
+  const STATUS_WEIGHTS = [["running", 72], ["setup", 8], ["idle", 7], ["stopped", 6], ["warning", 4], ["error", 3]];
+
+  const DEFAULT_LAYOUT_ITEMS = [
+    { id: "stat_power", w: 4, h: 4 },
+    { id: "stat_kpi_energy", w: 4, h: 4 },
+    { id: "stat_specific", w: 4, h: 4 },
+    { id: "stat_oee", w: 4, h: 4 },
+    { id: "stat_running", w: 4, h: 4 },
+    { id: "stat_alarms", w: 4, h: 4 },
+    { id: "energy_flow", w: 8, h: 6 },
+    { id: "energy_flow_kpis", w: 4, h: 6 },
+    { id: "ts_power", w: 12, h: 7 },
+    { id: "ts_energy_area", w: 12, h: 7 },
+    { id: "ts_oee", w: 12, h: 7 },
+    { id: "gauge_apq", w: 6, h: 7 },
+    { id: "bar_top", w: 6, h: 7 },
+    { id: "mosaic", w: 16, h: 12 },
+    { id: "alerts", w: 8, h: 12 },
+  ];
+
+  /** Pack left→right, top→bottom into absolute grid coords (Grafana-like) */
+  function packLayoutItems(items) {
+    let x = 0;
+    let y = 0;
+    let rowH = 0;
+    return items.map((it) => {
+      const w = Math.min(GRID_COLS, Number(it.w) || 4);
+      const h = Number(it.h) || 4;
+      if (x + w > GRID_COLS) {
+        x = 0;
+        y += rowH;
+        rowH = 0;
+      }
+      const placed = { id: it.id, x, y, w, h };
+      x += w;
+      rowH = Math.max(rowH, h);
+      return placed;
+    });
+  }
+
+  const DEFAULT_LAYOUT = packLayoutItems(DEFAULT_LAYOUT_ITEMS);
+
+  /** Panel → API contract map */
+  const PANEL_META = {
+    stat_power: {
+      title: "Active Power Σ",
+      api: "Σ machines[].power  →  kW",
+      badge: "ok",
+    },
+    stat_kpi_energy: {
+      title: "KPI Energy (live)",
+      api: "GET /api/kpis/global → energy (= Σ power/1000)",
+      badge: "ok",
+    },
+    stat_specific: {
+      title: "Specific Energy",
+      api: "proposed · kWh/100m (no endpoint yet)",
+      badge: "proposed",
+    },
+    stat_oee: {
+      title: "Plant OEE",
+      api: "analytics.oeeSummary.oee  |  fallback avg machines.oee",
+      badge: "ok",
+    },
+    stat_running: {
+      title: "Lines Running",
+      api: "kpis.running / kpis.total",
+      badge: "ok",
+    },
+    stat_alarms: {
+      title: "Active Alarms",
+      api: "kpis.alarms  |  GET /api/alarms",
+      badge: "ok",
+    },
+    energy_flow: {
+      title: "Energy Flow · phân bố tải theo dây chuyền",
+      api: "Sankey ← machines[].power by area → line (Plotly)",
+      badge: "ok",
+    },
+    energy_flow_kpis: {
+      title: "Energy KPIs",
+      api: "Σ power → intensity / MWh ước lượng / chi phí (demo tariff)",
+      badge: "demo",
+    },
+    ts_power: {
+      title: "Power Demand (kW) · realtime",
+      api: "sliding window 15m/1h/24h/7d ← Σ machines.power poll",
+      badge: "ok",
+    },
+    ts_energy_area: {
+      title: "Energy by Area (kWh)",
+      api: "proposed aggregate · plant energyTrend exists only",
+      badge: "proposed",
+    },
+    ts_oee: {
+      title: "Fleet OEE Trend (%) · window",
+      api: "analytics.oeeTrend + live plant OEE append",
+      badge: "ok",
+    },
+    gauge_apq: {
+      title: "OEE Factors A · P · Q",
+      api: "analytics.oeeSummary.{availability,performance,quality}",
+      badge: "ok",
+    },
+    bar_top: {
+      title: "Top Power Consumers (kW)",
+      api: "machines[].power sorted",
+      badge: "ok",
+    },
+    mosaic: {
+      title: "Line Status Map",
+      api: "GET /api/machines  (status, oee, area, alarms)",
+      badge: "ok",
+    },
+    alerts: {
+      title: "Exceptions / Alerts",
+      api: "GET /api/alarms  (+ low-OEE derived)",
+      badge: "ok",
+    },
+  };
+
+  function mulberry32(a) {
+    return function () {
+      let t = (a += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pickWeighted(rng, weights) {
+    const total = weights.reduce((s, [, w]) => s + w, 0);
+    let r = rng() * total;
+    for (const [v, w] of weights) { r -= w; if (r <= 0) return v; }
+    return weights[0][0];
+  }
+  function pad(n, w) { return String(n).padStart(w, "0"); }
+  function isException(m) {
+    return ["error", "stopped", "warning", "idle", "setup"].includes(m.status)
+      || (m.alarms && m.alarms.length) || (m.oee != null && m.oee < 70);
+  }
+  function oeeClass(oee) {
+    if (oee >= 80) return "good";
+    if (oee >= 70) return "mid";
+    return "low";
+  }
+  function getShift(d) {
+    const h = d.getHours();
+    if (h >= 6 && h < 14) return "Ca1";
+    if (h >= 14 && h < 22) return "Ca2";
+    return "Ca3";
+  }
+
+  /** Hours elapsed in current 8h shift (for MWh / cost estimate) */
+  function shiftHoursElapsed(d) {
+    const h = d.getHours() + d.getMinutes() / 60;
+    let start;
+    if (h >= 6 && h < 14) start = 6;
+    else if (h >= 14 && h < 22) start = 14;
+    else start = 22;
+    let elapsed = h - start;
+    if (elapsed < 0) elapsed += 24;
+    return Math.min(8, Math.max(0.05, elapsed));
+  }
+  function seriesPoints(n, base, jitter, rng) {
+    const arr = []; let v = base;
+    for (let i = 0; i < n; i++) { v = Math.max(0, v + (rng() - 0.48) * jitter); arr.push(+v.toFixed(2)); }
+    return arr;
+  }
+
+  /** Grafana-like time windows with realtime poll */
+  const RANGE_CFG = {
+    "auto": { points: 50, spanMs: 50 * 1000, pollMs: 1000, analytics: "shift", title: "Auto · 50 pts @ 1s" },
+    "15m": { points: 30, spanMs: 15 * 60 * 1000, pollMs: 5000, analytics: "shift", title: "Last 15 minutes" },
+    "1h": { points: 40, spanMs: 60 * 60 * 1000, pollMs: 8000, analytics: "shift", title: "Last 1 hour" },
+    "24h": { points: 48, spanMs: 24 * 60 * 60 * 1000, pollMs: 15000, analytics: "today", title: "Last 24 hours" },
+    "7d": { points: 56, spanMs: 7 * 24 * 60 * 60 * 1000, pollMs: 30000, analytics: "week", title: "Last 7 days" },
+  };
+
+  let timeRange = localStorage.getItem("mes-ct-time-range") || "auto";
+  const rngLive = mulberry32(99);
+  let rtPower = [];
+  let rtOee = [];
+  let pollTimer = null;
+  let lastRtAt = 0;
+
+  function rangeCfg() {
+    return RANGE_CFG[timeRange] || RANGE_CFG.auto;
+  }
+
+  function formatAxisLabel(ts) {
+    const d = new Date(ts);
+    if (timeRange === "7d") {
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+    if (timeRange === "24h") {
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+    if (timeRange === "auto" || timeRange === "15m") {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function timeLabels(n) {
+    const cfg = rangeCfg();
+    const now = Date.now();
+    const step = cfg.spanMs / Math.max(1, n - 1);
+    return Array.from({ length: n }, (_, i) => formatAxisLabel(now - (n - 1 - i) * step));
+  }
+
+  /** Realtime series helpers */
+  function pruneSeries(arr, spanMs) {
+    const cut = Date.now() - spanMs;
+    while (arr.length && arr[0].ts < cut) arr.shift();
+    const maxPts = rangeCfg().points;
+    while (arr.length > maxPts) arr.shift();
+  }
+
+  function seedRealtimeSeries(powerKw, oeeVal) {
+    const cfg = rangeCfg();
+    const now = Date.now();
+    const step = cfg.spanMs / Math.max(1, cfg.points - 1);
+    let p = powerKw || 100;
+    let o = oeeVal || 70;
+    rtPower = [];
+    rtOee = [];
+    for (let i = 0; i < cfg.points; i++) {
+      const ts = now - (cfg.points - 1 - i) * step;
+      p = Math.max(0, p + (rngLive() - 0.48) * Math.max(8, p * 0.04));
+      o = Math.min(98, Math.max(20, o + (rngLive() - 0.5) * 1.2));
+      rtPower.push({ ts, v: +p.toFixed(2) });
+      rtOee.push({ ts, v: +o.toFixed(2) });
+    }
+    lastRtAt = now;
+  }
+
+  function appendRealtime(powerKw, oeeVal) {
+    const now = Date.now();
+    const cfg = rangeCfg();
+    rtPower.push({ ts: now, v: +Number(powerKw || 0).toFixed(2) });
+    if (oeeVal != null && !Number.isNaN(Number(oeeVal))) {
+      rtOee.push({ ts: now, v: +Number(oeeVal).toFixed(2) });
+    }
+    pruneSeries(rtPower, cfg.spanMs);
+    pruneSeries(rtOee, cfg.spanMs);
+    lastRtAt = now;
+    updateWindowTags();
+  }
+
+  function updateWindowTags() {
+    const cfg = rangeCfg();
+    const el = document.getElementById("windowTag");
+    if (el) {
+      el.textContent = "window=" + timeRange + " · pts=" + cfg.points + " · tick=" + (cfg.pollMs / 1000) + "s";
+    }
+    const rt = document.getElementById("rtTag");
+    if (rt) {
+      rt.textContent = lastRtAt
+        ? "rt=" + new Date(lastRtAt).toLocaleTimeString("vi-VN") + " · pts=" + rtPower.length + "/" + cfg.points
+        : "rt=—";
+    }
+  }
+
+  function seriesValues(arr) { return arr.map((p) => p.v); }
+  function seriesLabels(arr) { return arr.map((p) => formatAxisLabel(p.ts)); }
+
+  function plantOeeNow() {
+    const s = fixtures.analytics && fixtures.analytics.oeeSummary;
+    if (s && s.oee != null) return Number(s.oee);
+    if (!fixtures.machines.length) return 0;
+    return fixtures.machines.reduce((a, m) => a + (Number(m.oee) || 0), 0) / fixtures.machines.length;
+  }
+
+  /** Build API-shaped fixtures: { kpis, machines, alarms, analytics } */
+  function buildFixtures(seed) {
+    const rng = mulberry32(seed);
+    const machines = [];
+    let alarmSeq = 1;
+    const flatAlarms = [];
+
+    for (const area of AREAS) {
+      for (let i = 1; i <= area.count; i++) {
+        const id = area.prefix + "-" + pad(i, 2);
+        const status = pickWeighted(rng, STATUS_WEIGHTS);
+        const targetSpeed = area.targetSpeed;
+        let sf = status === "running" ? 0.88 + rng() * 0.12
+          : status === "setup" ? 0.2 + rng() * 0.35
+          : ["idle", "stopped", "error"].includes(status) ? 0 : 0.7;
+        const lineSpeed = Math.round(targetSpeed * sf);
+        const availability = +(78 + rng() * 20).toFixed(1);
+        const performance = status === "running"
+          ? +((lineSpeed / targetSpeed) * 100).toFixed(1)
+          : +(40 + rng() * 40).toFixed(1);
+        const quality = +(96 + rng() * 3.8).toFixed(1);
+        let oee = +((availability * performance * quality) / 10000).toFixed(1);
+        if (status === "error") oee = +(35 + rng() * 25).toFixed(1);
+        if (status === "stopped") oee = +(20 + rng() * 30).toFixed(1);
+
+        const alarms = [];
+        if (status === "error" || status === "warning" || status === "stopped") {
+          const severity = status === "error" ? "error" : status === "warning" ? "warning" : "info";
+          const msg = status === "error" ? "High temperature" : status === "warning" ? "Speed below target" : "Stopped — material/QC";
+          const a = {
+            id: "ALM-" + alarmSeq++,
+            machineId: id,
+            severity,
+            message: msg,
+            timestamp: new Date(Date.now() - rng() * 9e5).toISOString(),
+            acknowledged: false,
+          };
+          alarms.push({ id: a.id, severity: a.severity, message: a.message, timestamp: a.timestamp });
+          flatAlarms.push(a);
+        }
+
+        const targetLength = 4000 + Math.floor(rng() * 3000);
+        const producedLength = Math.floor(targetLength * (0.35 + rng() * 0.55));
+        const ng = Math.floor(producedLength * (0.002 + rng() * 0.015));
+        const power = status === "running" ? +(45 + rng() * 55).toFixed(1)
+          : status === "setup" ? +(15 + rng() * 20).toFixed(1)
+          : +(2 + rng() * 8).toFixed(1);
+
+        machines.push({
+          id,
+          name: area.nameEn + " Line " + pad(i, 2),
+          area: area.id,
+          status,
+          lineSpeed,
+          targetSpeed,
+          producedLength,
+          producedLengthOk: producedLength - ng,
+          producedLengthNg: ng,
+          targetLength,
+          productionOrderId: "PO-2026-" + (100 + Math.floor(rng() * 800)),
+          productionOrderName: "PO-2026-" + (100 + Math.floor(rng() * 800)),
+          productName: PRODUCTS[Math.floor(rng() * PRODUCTS.length)],
+          operatorName: OPERATORS[Math.floor(rng() * OPERATORS.length)],
+          oee,
+          availability,
+          performance,
+          quality,
+          current: +(power * 0.7).toFixed(1),
+          power,
+          energyMeterKwh: +(120000 + rng() * 80000).toFixed(2),
+          temperature: Math.round(62 + rng() * 22),
+          alarms,
+          lastUpdated: new Date().toISOString(),
+        });
+      }
+    }
+
+    const powerSumKw = machines.reduce((s, m) => s + (m.power || 0), 0);
+    const running = machines.filter((m) => m.status === "running").length;
+    const output = machines.reduce((s, m) => s + (m.producedLengthOk || 0), 0) * 0.15;
+
+    const kpis = {
+      running,
+      total: machines.length,
+      output: +output.toFixed(1),
+      orders: machines.filter((m) => m.status === "running").length,
+      alarms: flatAlarms.filter((a) => !a.acknowledged).length,
+      energy: +(powerSumKw / 1000).toFixed(4),
+      outputPeriod: "shift",
+      outputWindowStart: new Date(Date.now() - 4 * 3600e3).toISOString(),
+      outputWindowEnd: new Date().toISOString(),
+    };
+
+    const n = rangeCfg().points;
+    const labels = timeLabels(n);
+    const oeeBase = machines.reduce((s, m) => s + m.oee, 0) / machines.length;
+    const oeeTrend = labels.map((time, i) => {
+      const availability = +(oeeBase + (rng() - 0.5) * 4 + Math.sin(i / 3) * 2).toFixed(1);
+      const performance = +(82 + (rng() - 0.5) * 6).toFixed(1);
+      const quality = +(97 + (rng() - 0.5) * 1.5).toFixed(1);
+      const oee = +((availability * performance * quality) / 10000).toFixed(1);
+      return { time, availability, performance, quality, oee };
+    });
+    const energyTrend = labels.map((time, i) => ({
+      time,
+      energy: +(180 + i * 8 + (rng() - 0.5) * 30).toFixed(1),
+    }));
+
+    const avgA = machines.reduce((s, m) => s + m.availability, 0) / machines.length;
+    const avgP = machines.reduce((s, m) => s + m.performance, 0) / machines.length;
+    const avgQ = machines.reduce((s, m) => s + m.quality, 0) / machines.length;
+    const avgOee = (avgA * avgP * avgQ) / 10000;
+
+    const analytics = {
+      oeeSummary: {
+        oee: +avgOee.toFixed(1),
+        availability: +avgA.toFixed(1),
+        performance: +avgP.toFixed(1),
+        quality: +avgQ.toFixed(1),
+        totalGap: +(100 - avgOee).toFixed(1),
+      },
+      oeeTrend,
+      energyTrend,
+      productionRateTrend: labels.map((time) => ({
+        time,
+        rate: +(700 + (rng() - 0.5) * 80).toFixed(1),
+        target: 800,
+      })),
+      /** Proposed — NOT in real analytics payload today */
+      _proposed: {
+        energyByArea: Object.fromEntries(AREAS.map((a, idx) => [
+          a.id,
+          seriesPoints(n, 120 + idx * 35, 20, rng),
+        ])),
+        specificEnergyKwhPer100m: +(3.8 + rng() * 1.2).toFixed(2),
+      },
+    };
+
+    return {
+      envelope: { success: true, timestamp: new Date().toISOString() },
+      kpis,
+      machines,
+      alarms: flatAlarms.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
+      analytics,
+    };
+  }
+
+  let fixtures = buildFixtures(20260725);
+  let dataMode = localStorage.getItem(MODE_KEY) || "mock";
+  let filter = "all";
+  let selectedId = null;
+  let layout = loadLayout();
+
+  function loadLayout() {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return DEFAULT_LAYOUT.map((x) => ({ ...x }));
+      const p = JSON.parse(raw);
+      if (!Array.isArray(p) || p.length !== DEFAULT_LAYOUT.length) {
+        return DEFAULT_LAYOUT.map((x) => ({ ...x }));
+      }
+      const ids = DEFAULT_LAYOUT.map((d) => d.id).sort().join(",");
+      const got = p.map((d) => d.id).sort().join(",");
+      if (ids !== got) return DEFAULT_LAYOUT.map((x) => ({ ...x }));
+      // Migrate old {id,w,h} → pack x/y
+      if (p.some((it) => it.x == null || it.y == null)) {
+        return packLayoutItems(p.map((it) => ({
+          id: it.id,
+          w: it.w,
+          h: it.h,
+        })));
+      }
+      return p.map((it) => ({
+        id: it.id,
+        x: Number(it.x) || 0,
+        y: Number(it.y) || 0,
+        w: Number(it.w) || 4,
+        h: Number(it.h) || 4,
+      }));
+    } catch {
+      return DEFAULT_LAYOUT.map((x) => ({ ...x }));
+    }
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function getApiBase() {
+    return (document.getElementById("apiBase").value || DEFAULT_API).replace(/\/$/, "");
+  }
+
+  async function fetchJson(path) {
+    const res = await fetch(getApiBase() + path, {
+      headers: { Accept: "application/json" },
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(res.status + " " + path);
+    const json = await res.json();
+    if (json && json.success === false) throw new Error(json.message || "API error");
+    return json;
+  }
+
+  function normalizeMachine(m) {
+    if (!m || typeof m !== "object") return m;
+    return {
+      ...m,
+      oee: Number(m.oee) || 0,
+      availability: Number(m.availability) || 0,
+      performance: Number(m.performance) || 0,
+      quality: Number(m.quality) || 0,
+      power: Number(m.power) || 0,
+      lineSpeed: Number(m.lineSpeed) || 0,
+      targetSpeed: Number(m.targetSpeed) || 0,
+      alarms: Array.isArray(m.alarms) ? m.alarms : [],
+    };
+  }
+
+  async function loadLive() {
+    const cfg = rangeCfg();
+    const analyticsRange = cfg.analytics;
+    const base = getApiBase();
+    const [kpisRes, machinesRes, alarmsRes, analyticsRes] = await Promise.all([
+      fetchJson("/api/kpis/global?period=shift"),
+      fetchJson("/api/machines"),
+      fetchJson("/api/alarms"),
+      fetchJson("/api/analytics?range=" + analyticsRange + "&area=all"),
+    ]);
+    const machines = (Array.isArray(machinesRes.data) ? machinesRes.data : []).map(normalizeMachine);
+    const analytics = analyticsRes.data || {};
+    const n = Math.max((analytics.oeeTrend && analytics.oeeTrend.length) || 0, cfg.points);
+    const powerKw = machines.reduce((s, m) => s + (m.power || 0), 0);
+    fixtures = {
+      envelope: { success: true, timestamp: new Date().toISOString() },
+      kpis: kpisRes.data || {},
+      machines,
+      alarms: Array.isArray(alarmsRes.data) ? alarmsRes.data : [],
+      analytics: {
+        oeeSummary: analytics.oeeSummary || null,
+        oeeTrend: analytics.oeeTrend || [],
+        energyTrend: analytics.energyTrend || [],
+        productionRateTrend: analytics.productionRateTrend || [],
+        _proposed: {
+          energyByArea: Object.fromEntries(AREAS.map((a, idx) => [
+            a.id,
+            seriesPoints(Math.max(n, 8), 100 + idx * 30, 18, rngLive),
+          ])),
+          specificEnergyKwhPer100m: (() => {
+            const out = machines.reduce((s, m) => s + (Number(m.producedLengthOk) || 0), 0);
+            return out > 0 ? +((powerKw * 0.1) / (out / 100)).toFixed(2) : 4.2;
+          })(),
+        },
+      },
+    };
+
+    const oeeNow = (analytics.oeeSummary && analytics.oeeSummary.oee != null)
+      ? Number(analytics.oeeSummary.oee)
+      : (machines.reduce((s, m) => s + (m.oee || 0), 0) / Math.max(1, machines.length));
+
+    if (!rtPower.length || rtPower.length < Math.min(5, cfg.points)) {
+      seedRealtimeSeries(powerKw, oeeNow);
+      if (analytics.oeeTrend && analytics.oeeTrend.length && (timeRange === "24h" || timeRange === "7d")) {
+        const now = Date.now();
+        const step = cfg.spanMs / Math.max(1, analytics.oeeTrend.length - 1);
+        rtOee = analytics.oeeTrend.map((p, i) => ({
+          ts: now - (analytics.oeeTrend.length - 1 - i) * step,
+          v: Number(p.oee) || 0,
+        }));
+        pruneSeries(rtOee, cfg.spanMs);
+      }
+    } else {
+      appendRealtime(powerKw, oeeNow);
+    }
+
+    document.getElementById("dataStatus").textContent =
+      "source: live " + base + " · " + machines.length + " machines · window " + timeRange +
+      " · analytics=" + analyticsRange;
+    document.getElementById("linesTag").textContent = "lines=" + machines.length;
+    updateWindowTags();
+  }
+
+  function loadMock() {
+    fixtures = buildFixtures(20260725 + timeRange.length);
+    const powerKw = (fixtures.kpis.energy || 0) * 1000;
+    const oeeNow = (fixtures.analytics.oeeSummary && fixtures.analytics.oeeSummary.oee) || 70;
+    seedRealtimeSeries(powerKw, oeeNow);
+    const trend = fixtures.analytics.oeeTrend || [];
+    if (trend.length) {
+      const cfg = rangeCfg();
+      const now = Date.now();
+      const step = cfg.spanMs / Math.max(1, trend.length - 1);
+      rtOee = trend.map((p, i) => ({ ts: now - (trend.length - 1 - i) * step, v: Number(p.oee) || 0 }));
+    }
+    document.getElementById("dataStatus").textContent =
+      "source: mock · window " + timeRange + " · " + fixtures.machines.length + " machines";
+    document.getElementById("linesTag").textContent = "lines=" + fixtures.machines.length;
+    updateWindowTags();
+  }
+
+  async function loadLiveLight() {
+    /** Fast tick: machines + kpis only, append realtime points */
+    const [kpisRes, machinesRes] = await Promise.all([
+      fetchJson("/api/kpis/global?period=shift"),
+      fetchJson("/api/machines"),
+    ]);
+    const machines = (Array.isArray(machinesRes.data) ? machinesRes.data : []).map(normalizeMachine);
+    fixtures.kpis = kpisRes.data || fixtures.kpis;
+    fixtures.machines = machines;
+    const powerKw = machines.reduce((s, m) => s + (m.power || 0), 0);
+    const oeeNow = machines.reduce((s, m) => s + (m.oee || 0), 0) / Math.max(1, machines.length);
+    if (fixtures.analytics.oeeSummary) fixtures.analytics.oeeSummary.oee = +oeeNow.toFixed(1);
+    appendRealtime(powerKw, oeeNow);
+    document.getElementById("linesTag").textContent = "lines=" + machines.length;
+  }
+
+  function setMode(mode) {
+    dataMode = mode;
+    localStorage.setItem(MODE_KEY, mode);
+    document.getElementById("btnMock").classList.toggle("active-mode", mode === "mock");
+    document.getElementById("btnLive").classList.toggle("active-mode", mode === "live");
+    const liveEl = document.getElementById("modeLive");
+    const label = document.getElementById("modeLabel");
+    if (mode === "live") {
+      liveEl.classList.remove("mock");
+      label.textContent = "Live";
+    } else {
+      liveEl.classList.add("mock");
+      label.textContent = "Mock";
+    }
+  }
+
+  async function refreshData() {
+    try {
+      if (dataMode === "live") {
+        await loadLive();
+        showToast("Live: " + getApiBase() + " · " + fixtures.machines.length + " lines");
+      } else {
+        loadMock();
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Live failed → mock (" + (err.message || err) + ")");
+      setMode("mock");
+      loadMock();
+    }
+    refreshAll();
+  }
+
+  function destroyCharts() {
+    Object.keys(charts).forEach((k) => {
+      try { charts[k].destroy(); } catch (_) {}
+      delete charts[k];
+    });
+    const sankey = document.getElementById("sankeyHost");
+    if (sankey && Plotly) {
+      try { Plotly.purge(sankey); } catch (_) {}
+    }
+    sankeyTopoFp = "";
+    sankeyValueFp = "";
+    sankeyThemeFp = "";
+  }
+
+  function sparkCfgHex(data, hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return {
+      type: "line",
+      data: {
+        labels: data.map((_, i) => i),
+        datasets: [{
+          data, borderColor: hex, borderWidth: 1.5, pointRadius: 0, tension: 0.35, fill: true,
+          backgroundColor: "rgba(" + r + "," + g + "," + b + ",0.12)",
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+      },
+    };
+  }
+
+  const board = document.getElementById("board");
+
+  function panelMinSize(id) {
+    if (id.startsWith("stat_")) return { w: 3, h: 3 };
+    if (id === "energy_flow") return { w: 6, h: 4 };
+    if (id === "energy_flow_kpis") return { w: 3, h: 4 };
+    if (id === "mosaic") return { w: 8, h: 6 };
+    if (id === "alerts") return { w: 4, h: 5 };
+    if (id.indexOf("ts_") === 0) return { w: 6, h: 4 };
+    return { w: 4, h: 3 };
+  }
+
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function clampPanelXY(x, y, w, h) {
+    const nw = Math.min(GRID_COLS, Math.max(1, w));
+    const nx = Math.max(0, Math.min(GRID_COLS - nw, Math.round(x)));
+    const ny = Math.max(0, Math.round(y));
+    return { x: nx, y: ny, w: nw, h: Math.max(1, Math.round(h)) };
+  }
+
+  /** Push overlapping panels down — Grafana-ish collision resolve */
+  function resolveCollisions(items, movingId) {
+    const next = items.map((p) => ({ ...p }));
+    let guard = 0;
+    let changed = true;
+    while (changed && guard++ < 60) {
+      changed = false;
+      const sorted = [...next].sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id));
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = 0; j < sorted.length; j++) {
+          if (i === j) continue;
+          const a = sorted[i];
+          const b = sorted[j];
+          // Prefer keeping the moving panel; push the other
+          if (!rectsOverlap(a, b)) continue;
+          const pushTarget = movingId && a.id === movingId ? b : (movingId && b.id === movingId ? a : (a.y <= b.y ? b : a));
+          const blocker = pushTarget.id === a.id ? b : a;
+          const newY = blocker.y + blocker.h;
+          if (pushTarget.y !== newY) {
+            pushTarget.y = newY;
+            changed = true;
+          }
+        }
+      }
+    }
+    return next;
+  }
+
+  function applyPlacement(el, x, y, w, h) {
+    const placed = clampPanelXY(x, y, w, h);
+    el.dataset.x = String(placed.x);
+    el.dataset.y = String(placed.y);
+    el.dataset.w = String(placed.w);
+    el.dataset.h = String(placed.h);
+    // CSS grid lines are 1-indexed
+    el.style.gridColumn = (placed.x + 1) + " / span " + placed.w;
+    el.style.gridRow = (placed.y + 1) + " / span " + placed.h;
+    const badge = el.querySelector(".panel-size");
+    if (badge) badge.textContent = placed.w + "×" + placed.h;
+    return placed;
+  }
+
+  function applyPanelSize(el, w, h) {
+    const id = el.dataset.id;
+    const min = panelMinSize(id);
+    const nw = Math.max(min.w, Math.min(GRID_COLS, Math.round(w)));
+    const nh = Math.max(min.h, Math.min(18, Math.round(h)));
+    let x = Number(el.dataset.x) || 0;
+    let y = Number(el.dataset.y) || 0;
+    if (x + nw > GRID_COLS) x = Math.max(0, GRID_COLS - nw);
+    return applyPlacement(el, x, y, nw, nh);
+  }
+
+  function layoutItemFromEl(el) {
+    return {
+      id: el.dataset.id,
+      x: Number(el.dataset.x) || 0,
+      y: Number(el.dataset.y) || 0,
+      w: Number(el.dataset.w) || 4,
+      h: Number(el.dataset.h) || 4,
+    };
+  }
+
+  function persistLayoutFromDom() {
+    layout = [...board.querySelectorAll(".panel")].map(layoutItemFromEl);
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  }
+
+  function syncDomFromLayout() {
+    layout.forEach((item) => {
+      const el = board.querySelector('.panel[data-id="' + item.id + '"]');
+      if (el) applyPlacement(el, item.x, item.y, item.w, item.h);
+    });
+    const maxRow = Math.max(8, ...layout.map((p) => p.y + p.h));
+    board.style.minHeight = (maxRow * 36 + (maxRow - 1) * 8 + 40) + "px";
+  }
+
+  function gridMetrics() {
+    const style = getComputedStyle(board);
+    const padL = parseFloat(style.paddingLeft) || 0;
+    const padR = parseFloat(style.paddingRight) || 0;
+    const padT = parseFloat(style.paddingTop) || 0;
+    const gap = parseFloat(style.columnGap || style.gap) || 8;
+    const rect = board.getBoundingClientRect();
+    const innerW = Math.max(1, board.clientWidth - padL - padR);
+    const colW = (innerW - gap * (GRID_COLS - 1)) / GRID_COLS;
+    const rowH = 36;
+    return { padL, padT, gap, colW, rowH, rect, scrollX: board.scrollLeft || 0, scrollY: window.scrollY || 0 };
+  }
+
+  function clientToGrid(clientX, clientY, w, h, offsetX, offsetY) {
+    const m = gridMetrics();
+    const bx = clientX - m.rect.left - m.padL + board.scrollLeft;
+    const by = clientY - m.rect.top - m.padT + board.scrollTop;
+    const originX = bx - offsetX;
+    const originY = by - offsetY;
+    const col = originX / (m.colW + m.gap);
+    const row = originY / (m.rowH + m.gap);
+    return clampPanelXY(col, row, w, h);
+  }
+
+  function resizePanelCharts(el) {
+    if (!el) return;
+    Object.keys(charts).forEach((k) => {
+      const ch = charts[k];
+      if (!ch || !ch.canvas || !el.contains(ch.canvas)) return;
+      try { ch.resize(); } catch (_) {}
+    });
+    if (el.dataset.id === "energy_flow" && Plotly) {
+      const host = document.getElementById("sankeyHost");
+      if (host) {
+        try { Plotly.Plots.resize(host); } catch (_) {}
+      }
+    }
+  }
+
+  function setEditLayout(on, opts) {
+    const active = !!on;
+    board.classList.toggle("layout-edit", active);
+    const btn = document.getElementById("btnEditLayout");
+    if (btn) btn.classList.toggle("theme-active", active);
+    localStorage.setItem(EDIT_LAYOUT_KEY, active ? "1" : "0");
+    if (opts && opts.toast) {
+      showToast(active
+        ? "Edit layout ON — kéo title đặt vị trí, kéo góc resize"
+        : "Edit layout OFF");
+    }
+  }
+
+  function panelHTML(item, inner) {
+    const id = item.id;
+    const w = item.w;
+    const h = item.h;
+    const x = item.x || 0;
+    const y = item.y || 0;
+    const meta = PANEL_META[id];
+    const proposed = meta.badge === "proposed" || meta.badge === "demo";
+    return (
+      '<section class="panel' + (proposed ? " proposed" : "") + '" data-id="' + id +
+      '" data-x="' + x + '" data-y="' + y + '" data-w="' + w + '" data-h="' + h +
+      '" style="grid-column:' + (x + 1) + " / span " + w + ";grid-row:" + (y + 1) + " / span " + h + '">' +
+      '<div class="panel-head" data-drag-handle="1">' +
+      '<div class="panel-title-wrap"><div class="panel-title">' + meta.title +
+      '</div><div class="panel-api">' + meta.api + "</div></div>" +
+      '<span class="panel-size" title="Grid size">' + w + "×" + h + "</span>" +
+      '<span class="panel-badge ' + meta.badge + '">' + meta.badge + "</span>" +
+      '<button type="button" class="panel-menu" tabindex="-1" aria-hidden="true">⋮</button></div>' +
+      '<div class="panel-body" id="body-' + id + '">' + inner + "</div>" +
+      '<div class="panel-resize" data-resize-handle="1" title="Resize panel"></div>' +
+      "</section>"
+    );
+  }
+
+  function renderBoard() {
+    destroyCharts();
+    // cleanup drag artifacts
+    document.querySelectorAll(".panel-drag-mirror, .panel-ghost").forEach((n) => n.remove());
+    board.innerHTML = layout.map((p) => {
+      let inner = "";
+      if (p.id.startsWith("stat_")) {
+        inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div><canvas id="' + p.id + '_c"></canvas></div>';
+      } else if (p.id === "ts_power" || p.id === "ts_energy_area" || p.id === "ts_oee") {
+        inner = '<div class="chart-wrap"><canvas id="' + p.id + '_c"></canvas></div>';
+      } else if (p.id === "gauge_apq") {
+        inner = '<div class="apq" id="apq"></div>';
+      } else if (p.id === "bar_top") {
+        inner = '<div class="bar-gauge" id="barTop"></div>';
+      } else if (p.id === "energy_flow") {
+        inner = '<div class="sankey-host" id="sankeyHost"></div>';
+      } else if (p.id === "energy_flow_kpis") {
+        inner = '<div class="energy-kpi-stack" id="energyKpiStack"></div>';
+      } else if (p.id === "mosaic") {
+        inner =
+          '<div class="filters" id="filters">' +
+          '<button type="button" class="chip active" data-filter="all">All</button>' +
+          '<button type="button" class="chip danger" data-filter="problems">Problems</button>' +
+          '<button type="button" class="chip" data-filter="drawing">Kéo</button>' +
+          '<button type="button" class="chip" data-filter="stranding">Xoắn</button>' +
+          '<button type="button" class="chip" data-filter="armoring">Giáp</button>' +
+          '<button type="button" class="chip" data-filter="sheathing">Bọc</button></div>' +
+          '<div class="mosaic-scroll" id="mosaic"></div>';
+      } else if (p.id === "alerts") {
+        inner = '<div style="height:100%;overflow:auto"><table class="alert-table"><thead><tr><th>Sev</th><th>Line</th><th>Message</th><th>Age</th></tr></thead><tbody id="alertBody"></tbody></table></div>';
+      }
+      return panelHTML(p, inner);
+    }).join("");
+    syncDomFromLayout();
+    bindPanelInteractions();
+    bindFilters();
+    refreshAll();
+  }
+
+  /** Shared drag/resize sessions — outside bind (window listeners once) */
+  let activeResize = null;
+  let activeDrag = null;
+
+  function bindPanelInteractions() {
+    board.querySelectorAll(".panel").forEach((el) => {
+      const head = el.querySelector("[data-drag-handle]");
+      if (head) {
+        head.addEventListener("pointerdown", (e) => {
+          if (e.button != null && e.button !== 0) return;
+          if (e.target.closest("[data-resize-handle]")) return;
+          if (e.target.closest(".panel-menu")) return;
+          if (activeResize || activeDrag) return;
+          e.preventDefault();
+
+          const rect = el.getBoundingClientRect();
+          const item = layoutItemFromEl(el);
+          const title = (PANEL_META[item.id] && PANEL_META[item.id].title) || item.id;
+
+          const ghost = document.createElement("div");
+          ghost.className = "panel-ghost";
+          ghost.dataset.ghost = "1";
+          board.appendChild(ghost);
+          applyPlacement(ghost, item.x, item.y, item.w, item.h);
+
+          const mirror = document.createElement("div");
+          mirror.className = "panel-drag-mirror";
+          mirror.innerHTML = '<div class="mirror-title">' + title + '</div><div class="mirror-body"></div>';
+          mirror.style.width = rect.width + "px";
+          mirror.style.height = Math.min(rect.height, 120) + "px";
+          mirror.style.left = rect.left + "px";
+          mirror.style.top = rect.top + "px";
+          document.body.appendChild(mirror);
+
+          el.classList.add("dragging-source");
+          document.body.classList.add("layout-dragging");
+
+          activeDrag = {
+            el,
+            id: item.id,
+            w: item.w,
+            h: item.h,
+            originX: item.x,
+            originY: item.y,
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+            ghost,
+            mirror,
+            previewX: item.x,
+            previewY: item.y,
+            moved: false,
+          };
+          try { head.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+      }
+
+      const handle = el.querySelector("[data-resize-handle]");
+      if (!handle) return;
+      handle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (activeDrag) return;
+        const startW = Number(el.dataset.w);
+        const startH = Number(el.dataset.h);
+        const rect = el.getBoundingClientRect();
+        activeResize = {
+          el,
+          startX: e.clientX,
+          startY: e.clientY,
+          startW,
+          startH,
+          cellW: Math.max(8, rect.width / startW),
+          cellH: Math.max(8, rect.height / startH),
+        };
+        el.classList.add("resizing");
+        document.body.classList.add("layout-resizing");
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+    });
+
+    if (!board._layoutPointerBound) {
+      board._layoutPointerBound = true;
+
+      window.addEventListener("pointermove", (e) => {
+        if (activeDrag) {
+          const d = activeDrag;
+          d.moved = true;
+          d.mirror.style.left = (e.clientX - d.offsetX) + "px";
+          d.mirror.style.top = (e.clientY - d.offsetY) + "px";
+
+          const snap = clientToGrid(e.clientX, e.clientY, d.w, d.h, d.offsetX, d.offsetY);
+          d.previewX = snap.x;
+          d.previewY = snap.y;
+          applyPlacement(d.ghost, snap.x, snap.y, d.w, d.h);
+          return;
+        }
+        if (activeResize) {
+          const { el, startX, startY, startW, startH, cellW, cellH } = activeResize;
+          applyPanelSize(el, startW + (e.clientX - startX) / cellW, startH + (e.clientY - startY) / cellH);
+        }
+      });
+
+      function endPointer() {
+        if (activeDrag) {
+          const d = activeDrag;
+          activeDrag = null;
+          d.el.classList.remove("dragging-source");
+          document.body.classList.remove("layout-dragging");
+          if (d.mirror) d.mirror.remove();
+          if (d.ghost) d.ghost.remove();
+
+          if (d.moved) {
+            const next = layout.map((p) => ({ ...p }));
+            const me = next.find((p) => p.id === d.id);
+            if (me) {
+              me.x = d.previewX;
+              me.y = d.previewY;
+            }
+            layout = resolveCollisions(next, d.id);
+            syncDomFromLayout();
+            persistLayoutFromDom();
+            requestAnimationFrame(() => {
+              board.querySelectorAll(".panel").forEach(resizePanelCharts);
+            });
+            showToast("Moved → (" + d.previewX + "," + d.previewY + ")");
+          }
+          return;
+        }
+
+        if (activeResize) {
+          const el = activeResize.el;
+          activeResize = null;
+          el.classList.remove("resizing");
+          document.body.classList.remove("layout-resizing");
+
+          // After resize, resolve overlaps
+          const next = [...board.querySelectorAll(".panel")].map(layoutItemFromEl);
+          layout = resolveCollisions(next, el.dataset.id);
+          syncDomFromLayout();
+          persistLayoutFromDom();
+          requestAnimationFrame(() => {
+            resizePanelCharts(el);
+            requestAnimationFrame(() => resizePanelCharts(el));
+          });
+          showToast("Size " + el.dataset.w + "×" + el.dataset.h + " saved");
+        }
+      }
+
+      window.addEventListener("pointerup", endPointer);
+      window.addEventListener("pointercancel", endPointer);
+    }
+  }
+
+  function bindFilters() {
+    const filters = document.getElementById("filters");
+    if (!filters) return;
+    filters.onclick = (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      filter = chip.dataset.filter;
+      filters.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      renderMosaic();
+    };
+  }
+
+  function matchesFilter(m) {
+    if (filter === "all") return true;
+    if (filter === "problems") return isException(m);
+    return m.area === filter;
+  }
+
+  function plantPowerKw() {
+    return fixtures.machines.reduce((s, m) => s + (Number(m.power) || 0), 0);
+  }
+
+  function renderStats() {
+    const k = fixtures.kpis || {};
+    const summary = (fixtures.analytics && fixtures.analytics.oeeSummary) || {};
+    const oee = summary.oee != null
+      ? summary.oee
+      : fixtures.machines.length
+        ? fixtures.machines.reduce((s, m) => s + (m.oee || 0), 0) / fixtures.machines.length
+        : 0;
+    const specific = (fixtures.analytics._proposed && fixtures.analytics._proposed.specificEnergyKwhPer100m) || 0;
+    const powerKw = plantPowerKw();
+
+    const sparkPower = seriesValues(rtPower).slice(-18);
+    const sparkOee = seriesValues(rtOee).slice(-18);
+    const specs = [
+      { id: "stat_power", v: powerKw.toFixed(0), unit: "kW", name: "Σ machines.power (instant)", color: "#5794f2", cls: "blue", spark: sparkPower.length ? sparkPower : seriesPoints(18, powerKw, 20, rngLive) },
+      { id: "stat_kpi_energy", v: (Number(k.energy) || powerKw / 1000).toFixed(3), unit: "MW", name: "kpis.energy = live Σ power/1000 — NOT MWh", color: "#ff9830", cls: "orange", spark: (sparkPower.length ? sparkPower : seriesPoints(18, powerKw, 20, rngLive)).map((x) => x / 1000) },
+      { id: "stat_specific", v: specific.toFixed(2), unit: "kWh/100m", name: "proposed — no API yet", color: "#b877d9", cls: "purple", spark: seriesPoints(18, specific, 0.2, rngLive) },
+      { id: "stat_oee", v: Number(oee).toFixed(1), unit: "%", name: "analytics.oeeSummary.oee · window " + timeRange, color: oee >= 80 ? "#73bf69" : oee >= 70 ? "#ff9830" : "#f2495c", cls: oee >= 80 ? "green" : oee >= 70 ? "orange" : "red", spark: sparkOee.length ? sparkOee : seriesPoints(18, oee, 2, rngLive) },
+      { id: "stat_running", v: (k.running || 0) + " / " + (k.total || fixtures.machines.length), unit: "", name: "kpis.running / kpis.total", color: "#73bf69", cls: "green", spark: seriesPoints(18, k.running || 70, 2, rngLive) },
+      { id: "stat_alarms", v: String(k.alarms != null ? k.alarms : fixtures.alarms.length), unit: "", name: "kpis.alarms (unacked)", color: (k.alarms || fixtures.alarms.length) ? "#f2495c" : "#73bf69", cls: (k.alarms || fixtures.alarms.length) ? "red" : "green", spark: seriesPoints(18, k.alarms || 8, 1.5, rngLive) },
+    ];
+
+    specs.forEach((s) => {
+      const vel = document.getElementById(s.id + "_v");
+      const nel = document.getElementById(s.id + "_n");
+      const canvas = document.getElementById(s.id + "_c");
+      if (!vel || !canvas) return;
+      vel.className = "value " + s.cls;
+      vel.innerHTML = s.v + (s.unit ? '<span class="unit">' + s.unit + "</span>" : "");
+      nel.textContent = s.name;
+      const spark = s.spark && s.spark.length ? s.spark : seriesPoints(18, 50, 5, rngLive);
+      upsertSparkChart(s.id, canvas, spark, s.color);
+    });
+  }
+
+  /** Soft-update sparkline — no destroy (avoids flicker) */
+  function upsertSparkChart(key, canvas, data, hex) {
+    const labels = data.map((_, i) => i);
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected) {
+      charts[key].data.labels = labels;
+      charts[key].data.datasets[0].data = data;
+      charts[key].update("none");
+      return;
+    }
+    if (charts[key]) { try { charts[key].destroy(); } catch (_) {} }
+    charts[key] = new Chart(canvas.getContext("2d"), sparkCfgHex(data, hex));
+  }
+
+  function tsOpts(unit) {
+    const muted = cssVar("--g-muted-hex", "#8e8e9a");
+    const grid = cssVar("--g-grid", "rgba(44,50,53,0.6)");
+    return {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => " " + Number(ctx.parsed.y).toFixed(1) + " " + unit } },
+      },
+      scales: {
+        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, color: muted }, grid: { color: grid } },
+        y: { ticks: { color: muted }, grid: { color: grid }, title: { display: true, text: unit, color: muted, font: { size: 10 } } },
+      },
+    };
+  }
+
+  function upsertLineChart(key, canvas, cfg) {
+    const {
+      labels, data, label, borderColor, backgroundColor, unit, pointRadius = 0, legend = true,
+    } = cfg;
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected) {
+      const ch = charts[key];
+      ch.data.labels = labels;
+      ch.data.datasets[0].data = data;
+      ch.data.datasets[0].label = label;
+      ch.data.datasets[0].pointRadius = pointRadius;
+      ch.update("none");
+      return;
+    }
+    if (charts[key]) { try { charts[key].destroy(); } catch (_) {} }
+    charts[key] = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data,
+          borderColor,
+          backgroundColor,
+          fill: true,
+          tension: 0.25,
+          pointRadius,
+          borderWidth: 1.5,
+        }],
+      },
+      options: Object.assign(tsOpts(unit), {
+        plugins: {
+          legend: { display: legend, position: "bottom", labels: { color: cssVar("--g-muted-hex", "#8e8e9a") } },
+          tooltip: {
+            callbacks: {
+              title: (items) => (items[0] ? items[0].label : ""),
+              label: (ctx) => " " + Number(ctx.parsed.y).toFixed(1) + " " + unit,
+            },
+          },
+        },
+      }),
+    });
+  }
+
+  function renderTimeSeries() {
+    const pointRadius = (timeRange === "auto" || timeRange === "15m") ? 1.5 : 0;
+
+    const powerCanvas = document.getElementById("ts_power_c");
+    if (powerCanvas) {
+      upsertLineChart("ts_power", powerCanvas, {
+        labels: seriesLabels(rtPower),
+        data: seriesValues(rtPower),
+        label: "kW · " + timeRange,
+        borderColor: "#5794f2",
+        backgroundColor: "rgba(87,148,242,0.12)",
+        unit: "kW",
+        pointRadius,
+      });
+    }
+
+    const energyCanvas = document.getElementById("ts_energy_area_c");
+    if (energyCanvas) {
+      const byArea = (fixtures.analytics._proposed && fixtures.analytics._proposed.energyByArea) || {};
+      const plantTrend = fixtures.analytics.energyTrend || [];
+      const labels = plantTrend.length
+        ? plantTrend.map((p) => p.time)
+        : (rtPower.length ? seriesLabels(rtPower) : timeLabels(rangeCfg().points));
+      const colors = ["#5794f2", "#73bf69", "#ff9830", "#b877d9"];
+      const datasets = AREAS.map((a, i) => {
+        const data = byArea[a.id] || seriesPoints(labels.length, 100, 20, rngLive);
+        const hex = colors[i];
+        return {
+          label: a.name + " (proposed)",
+          data: data.slice(0, labels.length),
+          borderColor: hex,
+          backgroundColor: "rgba(" + parseInt(hex.slice(1, 3), 16) + "," + parseInt(hex.slice(3, 5), 16) + "," + parseInt(hex.slice(5, 7), 16) + ",0.3)",
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1.2,
+        };
+      });
+
+      if (charts.ts_energy_area && charts.ts_energy_area.canvas === energyCanvas && energyCanvas.isConnected) {
+        const ch = charts.ts_energy_area;
+        ch.data.labels = labels;
+        datasets.forEach((ds, i) => {
+          if (ch.data.datasets[i]) {
+            ch.data.datasets[i].data = ds.data;
+            ch.data.datasets[i].label = ds.label;
+          } else {
+            ch.data.datasets[i] = ds;
+          }
+        });
+        ch.update("none");
+      } else {
+        if (charts.ts_energy_area) { try { charts.ts_energy_area.destroy(); } catch (_) {} }
+        charts.ts_energy_area = new Chart(energyCanvas.getContext("2d"), {
+          type: "line",
+          data: { labels, datasets },
+          options: Object.assign(tsOpts("kWh"), {
+            plugins: {
+              legend: { display: true, position: "bottom", labels: { color: cssVar("--g-muted-hex", "#8e8e9a") } },
+              tooltip: { mode: "index", intersect: false },
+            },
+          }),
+        });
+      }
+    }
+
+    const oeeCanvas = document.getElementById("ts_oee_c");
+    if (oeeCanvas) {
+      const useRt = rtOee.length > 0;
+      upsertLineChart("ts_oee", oeeCanvas, {
+        labels: useRt ? seriesLabels(rtOee) : (fixtures.analytics.oeeTrend || []).map((p) => p.time),
+        data: useRt ? seriesValues(rtOee) : (fixtures.analytics.oeeTrend || []).map((p) => p.oee),
+        label: "OEE % · " + timeRange,
+        borderColor: "#73bf69",
+        backgroundColor: "rgba(115,191,105,0.1)",
+        unit: "%",
+        pointRadius,
+      });
+    }
+  }
+
+  function renderAPQ() {
+    const el = document.getElementById("apq");
+    if (!el) return;
+    const s = fixtures.analytics.oeeSummary || {};
+    const items = [
+      { lbl: "Availability", v: Number(s.availability) || 0, c: "#5794f2" },
+      { lbl: "Performance", v: Number(s.performance) || 0, c: "#ff9830" },
+      { lbl: "Quality", v: Number(s.quality) || 0, c: "#73bf69" },
+    ];
+    el.innerHTML = items.map((it) =>
+      '<div class="apq-item"><div class="apq-ring" style="--p:' + it.v + ";--c:" + it.c +
+      '"><span>' + it.v.toFixed(0) + '%</span></div><div class="lbl">' + it.lbl + "</div></div>"
+    ).join("");
+  }
+
+  function renderBarTop() {
+    const el = document.getElementById("barTop");
+    if (!el) return;
+    const top = [...fixtures.machines].sort((a, b) => (b.power || 0) - (a.power || 0)).slice(0, 8);
+    const max = top[0] ? top[0].power : 1;
+    el.innerHTML = top.map((m) => {
+      const pct = Math.round(((m.power || 0) / max) * 100);
+      const cls = m.power > 90 ? "crit" : m.power > 75 ? "warn" : "";
+      return '<div class="bg-row"><div class="lbl">' + m.id + '</div><div class="bg-track"><div class="bg-fill ' +
+        cls + '" style="width:' + pct + '%">' + (pct > 28 ? Number(m.power).toFixed(0) + " kW" : "") +
+        '</div></div><div class="bg-val">' + Number(m.power || 0).toFixed(0) + "</div></div>";
+    }).join("") || '<p class="hint">No machines</p>';
+  }
+
+  /**
+   * Sankey Energy Flow: Điện lưới [/ Điện MT] → Năng lượng điện → Khu vực → Dây chuyền
+   * Values = machines[].power (kW). Live = 100% grid; Mock adds thin solar for visual parity with reference.
+   * Topology (which lines) locked ~20s to avoid flicker when ranking jitters.
+   */
+  function lockedTopIds(byArea) {
+    const now = Date.now();
+    if (!sankeyLockedTops || now - sankeyLockAt > SANKEY_TOPO_TTL_MS) {
+      sankeyLockedTops = {};
+      AREAS.forEach((a) => {
+        sankeyLockedTops[a.id] = [...(byArea[a.id] || [])]
+          .filter((m) => (Number(m.power) || 0) > 0.3)
+          .sort((x, y) => (y.power || 0) - (x.power || 0) || String(x.id).localeCompare(String(y.id)))
+          .slice(0, SANKEY_TOP_PER_AREA)
+          .map((m) => m.id);
+      });
+      sankeyLockAt = now;
+    }
+    return sankeyLockedTops;
+  }
+
+  function buildEnergySankey() {
+    const labels = [];
+    const idx = {};
+    function node(label) {
+      if (idx[label] != null) return idx[label];
+      idx[label] = labels.length;
+      labels.push(label);
+      return idx[label];
+    }
+    const source = [];
+    const target = [];
+    const value = [];
+    const linkColor = [];
+
+    function link(a, b, v, color) {
+      const n = Number(v) || 0;
+      if (n <= 0.05) return;
+      source.push(node(a));
+      target.push(node(b));
+      value.push(+n.toFixed(1));
+      linkColor.push(color);
+    }
+
+    const machines = fixtures.machines || [];
+    const total = machines.reduce((s, m) => s + (Number(m.power) || 0), 0);
+    if (total <= 0) {
+      return {
+        labels: ["Điện lưới", "Năng lượng điện"],
+        source: [0], target: [1], value: [1],
+        linkColor: ["rgba(242,73,92,0.25)"],
+        nodeColor: ["#f2495c", "#5794f2"],
+      };
+    }
+
+    const solarShare = dataMode === "mock" ? 0.08 : 0;
+    const solar = total * solarShare;
+    const grid = total - solar;
+    link("Điện lưới", "Năng lượng điện", grid, "rgba(242,73,92,0.38)");
+    if (solar > 0) link("Điện mặt trời", "Năng lượng điện", solar, "rgba(255,152,48,0.38)");
+
+    const byArea = {};
+    AREAS.forEach((a) => { byArea[a.id] = []; });
+    machines.forEach((m) => {
+      const aid = m.area || "drawing";
+      if (!byArea[aid]) byArea[aid] = [];
+      byArea[aid].push(m);
+    });
+    const tops = lockedTopIds(byArea);
+
+    AREAS.forEach((a) => {
+      const list = byArea[a.id] || [];
+      const byId = {};
+      list.forEach((m) => { byId[m.id] = m; });
+      const areaPower = list.reduce((s, m) => s + (Number(m.power) || 0), 0);
+      link("Năng lượng điện", a.name, areaPower, "rgba(87,148,242,0.35)");
+
+      const topIds = tops[a.id] || [];
+      const topSet = new Set(topIds);
+      let rest = 0;
+      list.forEach((m) => {
+        const p = Number(m.power) || 0;
+        if (!topSet.has(m.id)) rest += p;
+      });
+      topIds.forEach((id) => {
+        const m = byId[id];
+        if (!m) return;
+        const short = (m.name || m.id || "").toString().slice(0, 12);
+        const lab = m.id + (short && short !== m.id ? " · " + short : "");
+        link(a.name, lab, m.power, "rgba(115,191,105,0.32)");
+      });
+      if (rest > 0.3) link(a.name, "Khác · " + a.name, rest, "rgba(148,163,184,0.28)");
+    });
+
+    const nodeColor = labels.map((lab) => {
+      if (lab === "Điện lưới") return "#f2495c";
+      if (lab === "Điện mặt trời") return "#ff9830";
+      if (lab === "Năng lượng điện") return "#5794f2";
+      if (AREAS.some((area) => area.name === lab)) return "#73bf69";
+      if (lab.indexOf("Khác") === 0) return "#94a3b8";
+      return "#6e9fff";
+    });
+
+    return { labels, source, target, value, linkColor, nodeColor };
+  }
+
+  function renderEnergyFlow(force) {
+    const el = document.getElementById("sankeyHost");
+    if (!el || !Plotly) return;
+    const s = buildEnergySankey();
+    const text = cssVar("--g-text", "#d8d9da");
+    const border = cssVar("--g-panel-border", "#2c3235");
+    const topoFp = s.labels.join("\0") + "|" + s.source.join(",") + ">" + s.target.join(",");
+    const valueFp = s.value.join(",");
+    const themeFp = text + "|" + border;
+    const mounted = el.data && el.data[0] && el.data[0].type === "sankey";
+
+    // Soft path: same topology → only restyle link values (no SVG remount / no flicker)
+    if (!force && mounted && sankeyTopoFp === topoFp && sankeyThemeFp === themeFp) {
+      if (sankeyValueFp === valueFp) return;
+      const now = Date.now();
+      if (now - sankeyLastRestyleAt < SANKEY_VALUE_MIN_MS) return;
+      sankeyLastRestyleAt = now;
+      sankeyValueFp = valueFp;
+      Plotly.restyle(el, { "link.value": [s.value] }, [0]);
+      return;
+    }
+
+    sankeyTopoFp = topoFp;
+    sankeyValueFp = valueFp;
+    sankeyThemeFp = themeFp;
+
+    const data = [{
+      type: "sankey",
+      orientation: "h",
+      arrangement: "fixed",
+      valueformat: ".1f",
+      valuesuffix: " kW",
+      node: {
+        pad: 10,
+        thickness: 12,
+        line: { color: border, width: 0.5 },
+        label: s.labels,
+        color: s.nodeColor,
+        hovertemplate: "%{label}<extra></extra>",
+      },
+      link: {
+        source: s.source,
+        target: s.target,
+        value: s.value,
+        color: s.linkColor,
+        hovertemplate: "%{source.label} → %{target.label}<br>%{value:.1f} kW<extra></extra>",
+      },
+    }];
+    const layoutOpt = {
+      margin: { l: 2, r: 2, t: 2, b: 2 },
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: text, size: 10, family: "Inter, Helvetica Neue, Arial, sans-serif" },
+      autosize: true,
+    };
+    const cfg = { responsive: true, displayModeBar: false, staticPlot: false };
+    Plotly.react(el, data, layoutOpt, cfg);
+  }
+
+  function renderEnergyFlowKpis() {
+    const el = document.getElementById("energyKpiStack");
+    if (!el) return;
+    const now = new Date();
+    const powerKw = plantPowerKw();
+    const running = Math.max(
+      1,
+      (fixtures.kpis && fixtures.kpis.running) ||
+        fixtures.machines.filter((m) => m.status === "running").length ||
+        1
+    );
+    const intensity = powerKw / running;
+    const target = 42;
+    const std = 45;
+    const deltaPct = ((intensity - std) / Math.max(1, std)) * 100;
+    const hours = shiftHoursElapsed(now);
+    const mwh = (powerKw * hours) / 1000;
+    const costM = (mwh * 1000 * DEMO_TARIFF_VND_PER_KWH) / 1e6;
+    const deltaCls = deltaPct > 0.3 ? "up" : "flat";
+    const deltaIcon = deltaPct > 0.3 ? "▲" : "●";
+    const month = String(now.getMonth() + 1).padStart(2, "0") + "/" + now.getFullYear();
+
+    const payload = {
+      intensity: intensity.toFixed(1),
+      delta: deltaIcon + " " + Math.abs(deltaPct).toFixed(1) + "%",
+      deltaCls: deltaCls,
+      mwh: mwh.toFixed(2),
+      hours: hours.toFixed(1),
+      cost: costM.toFixed(2),
+      month: month,
+    };
+
+    // Soft update existing DOM — avoid innerHTML wipe every tick
+    if (el.dataset.ready === "1" && el.querySelector("[data-ek=intensity]")) {
+      const set = (sel, text) => {
+        const n = el.querySelector(sel);
+        if (n && n.textContent !== text) n.textContent = text;
+      };
+      set("[data-ek=intensity]", payload.intensity);
+      set("[data-ek=delta]", payload.delta);
+      const d = el.querySelector("[data-ek=delta]");
+      if (d) d.className = "ek-delta " + payload.deltaCls;
+      set("[data-ek=mwh]", payload.mwh);
+      set("[data-ek=hours]", "Σ power × " + payload.hours + "h ca · chưa có MWh API");
+      set("[data-ek=cost]", payload.cost);
+      set("[data-ek=month]", payload.month + " · so với Std");
+      return;
+    }
+
+    el.dataset.ready = "1";
+    el.innerHTML =
+      '<div class="energy-kpi-card">' +
+        '<div class="ek-title">Cường độ tiêu thụ (kW / line chạy)</div>' +
+        '<div class="ek-meta"><span>Target: ' + target.toFixed(1) + '</span><span>Std: ' + std.toFixed(1) + "</span></div>" +
+        '<div class="ek-value red" data-ek="intensity">' + payload.intensity + "</div>" +
+        '<div class="ek-delta ' + payload.deltaCls + '" data-ek="delta">' + payload.delta + "</div>" +
+        '<div class="ek-foot" data-ek="month">' + payload.month + " · so với Std</div>" +
+      "</div>" +
+      '<div class="energy-kpi-card">' +
+        '<div class="ek-title">Tổng NL điện tiêu thụ (ước lượng ca)</div>' +
+        '<div class="ek-value orange"><span data-ek="mwh">' + payload.mwh + '</span> <span class="ek-unit">MWh</span></div>' +
+        '<div class="ek-foot" data-ek="hours">Σ power × ' + payload.hours + "h ca · chưa có MWh API</div>" +
+      "</div>" +
+      '<div class="energy-kpi-card">' +
+        '<div class="ek-title">Chi phí điện dự kiến</div>' +
+        '<div class="ek-value purple"><span data-ek="cost">' + payload.cost + '</span> <span class="ek-unit">Mđ</span></div>' +
+        '<div class="ek-foot">Tariff demo ' + DEMO_TARIFF_VND_PER_KWH.toLocaleString("vi-VN") + " đ/kWh</div>" +
+      "</div>";
+  }
+
+  function renderMosaic() {
+    const mosaic = document.getElementById("mosaic");
+    if (!mosaic) return;
+    const areaIds = filter === "all" || filter === "problems" ? AREAS.map((a) => a.id) : [filter];
+    let html = "";
+    for (const area of AREAS) {
+      if (!areaIds.includes(area.id)) continue;
+      const areaLines = fixtures.machines.filter((m) => m.area === area.id);
+      const visible = areaLines.filter(matchesFilter);
+      if (filter === "problems" && !visible.length) continue;
+      const run = areaLines.filter((m) => m.status === "running").length;
+      const toShow = filter === "problems" ? visible : areaLines;
+      html += '<div class="area-band"><div class="area-head"><b>' + area.name + "</b><span>" + area.nameEn +
+        '</span><span class="stat">' + run + "/" + areaLines.length + '</span></div><div class="grid">';
+      for (const m of toShow) {
+        const oee = Number(m.oee) || 0;
+        html += '<button type="button" class="cell ' + (m.status || "idle") +
+          (isException(m) ? " exception" : "") +
+          (selectedId === m.id ? " selected" : "") + '" data-id="' + m.id + '">' +
+          '<span class="id">' + m.id + '</span><span class="oee ' + oeeClass(oee) + '">' +
+          oee.toFixed(0) + "%</span></button>";
+      }
+      html += "</div></div>";
+    }
+    mosaic.innerHTML = html || '<p class="hint">No machines in filter</p>';
+    mosaic.querySelectorAll(".cell").forEach((c) => c.addEventListener("click", () => selectLine(c.dataset.id)));
+  }
+
+  function timeAgo(iso) {
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    return Math.floor(s / 3600) + "h";
+  }
+
+  function renderAlerts() {
+    const body = document.getElementById("alertBody");
+    if (!body) return;
+    const items = [];
+    (fixtures.alarms || []).forEach((a) => {
+      items.push({
+        id: a.machineId,
+        severity: a.severity,
+        message: a.message,
+        ts: a.timestamp,
+      });
+    });
+    fixtures.machines.forEach((m) => {
+      if (m.status === "running" && m.oee < 70 && !(m.alarms && m.alarms.length)) {
+        items.push({ id: m.id, severity: "warning", message: "Low OEE " + Number(m.oee).toFixed(1) + "%", ts: m.lastUpdated });
+      }
+    });
+    items.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    body.innerHTML = items.slice(0, 14).map((a) =>
+      '<tr class="' + (selectedId === a.id ? "active" : "") + '" data-id="' + a.id + '">' +
+      '<td><span class="sev ' + a.severity + '">' + a.severity + "</span></td>" +
+      '<td style="font-family:var(--mono)">' + a.id + "</td>" +
+      "<td>" + a.message + "</td>" +
+      '<td style="color:var(--g-text-secondary)">' + timeAgo(a.ts) + "</td></tr>"
+    ).join("") || '<tr><td colspan="4" class="hint">No exceptions</td></tr>';
+    body.querySelectorAll("tr[data-id]").forEach((tr) => {
+      tr.addEventListener("click", () => selectLine(tr.dataset.id, true));
+    });
+  }
+
+  function renderDrawer(m) {
+    document.getElementById("drawerId").textContent = m.id;
+    document.getElementById("drawerName").textContent = (m.name || "") + " · " + ((AREAS.find((a) => a.id === m.area) || {}).name || m.area);
+    document.getElementById("drawerBody").innerHTML =
+      '<div class="badge ' + m.status + '">' + m.status + "</div>" +
+      '<div class="d-grid">' +
+      '<div class="d-card"><div class="k">power</div><div class="v" style="color:var(--g-blue)">' + Number(m.power || 0).toFixed(1) +
+      ' kW</div><div class="s">current ' + Number(m.current || 0).toFixed(1) + " A</div></div>" +
+      '<div class="d-card"><div class="k">energyMeterKwh</div><div class="v" style="color:var(--g-green)">' +
+      (m.energyMeterKwh != null ? Number(m.energyMeterKwh).toFixed(1) : "—") + "</div></div>" +
+      '<div class="d-card"><div class="k">lineSpeed</div><div class="v">' + Number(m.lineSpeed || 0) +
+      '</div><div class="s">targetSpeed ' + Number(m.targetSpeed || 0) + "</div></div>" +
+      '<div class="d-card"><div class="k">oee</div><div class="v" style="color:var(--g-green)">' + Number(m.oee || 0).toFixed(1) +
+      '%</div><div class="s">A ' + Number(m.availability || 0).toFixed(0) + " · P " + Number(m.performance || 0).toFixed(0) +
+      " · Q " + Number(m.quality || 0).toFixed(0) + "</div></div>" +
+      '<div class="d-card span2"><div class="k">productName / productionOrderName</div><div class="v" style="font-size:15px">' +
+      (m.productName || "—") + '</div><div class="s">' + (m.productionOrderName || "—") +
+      " · " + (m.operatorName || "") + "</div></div></div>" +
+      '<p class="hint">Fields = Machine type / GET /api/machines</p>';
+  }
+
+  function openDrawer() {
+    document.getElementById("drawer").classList.add("open");
+    document.getElementById("backdrop").classList.add("open");
+  }
+  function closeDrawer() {
+    document.getElementById("drawer").classList.remove("open");
+    document.getElementById("backdrop").classList.remove("open");
+    selectedId = null;
+    renderMosaic();
+    renderAlerts();
+  }
+
+  function selectLine(id, fromAlert) {
+    if (!id) return;
+    // Drill-down → Grafana Equipment Detail HTML
+    location.href = "mes-equipment-detail-100.html?machine_id=" + encodeURIComponent(id);
+  }
+
+  function refreshAll() {
+    renderStats();
+    renderEnergyFlow();
+    renderEnergyFlowKpis();
+    renderTimeSeries();
+    renderAPQ();
+    renderBarTop();
+    renderMosaic();
+    renderAlerts();
+  }
+
+  function tickMockLive() {
+    const n = 4 + Math.floor(rngLive() * 5);
+    for (let i = 0; i < n; i++) {
+      const m = fixtures.machines[Math.floor(rngLive() * fixtures.machines.length)];
+      if (!m || m.status !== "running") continue;
+      m.power = Math.max(10, +(m.power + (rngLive() - 0.5) * 3).toFixed(1));
+      m.lineSpeed = Math.max(0, Math.round(m.lineSpeed + (rngLive() - 0.5) * m.targetSpeed * 0.02));
+      m.performance = +Math.min(100, (m.lineSpeed / m.targetSpeed) * 100).toFixed(1);
+      m.oee = +((m.availability * m.performance * m.quality) / 10000).toFixed(1);
+      m.lastUpdated = new Date().toISOString();
+    }
+    const powerSum = plantPowerKw();
+    fixtures.kpis.energy = +(powerSum / 1000).toFixed(4);
+    fixtures.kpis.running = fixtures.machines.filter((m) => m.status === "running").length;
+    const oeeNow = plantOeeNow();
+    if (fixtures.analytics.oeeSummary) fixtures.analytics.oeeSummary.oee = +oeeNow.toFixed(1);
+    appendRealtime(powerSum, oeeNow);
+    refreshAll();
+    if (selectedId) {
+      const m = fixtures.machines.find((x) => x.id === selectedId);
+      if (m) renderDrawer(m);
+    }
+  }
+
+  async function tickLive() {
+    try {
+      // Light poll most ticks; full analytics every ~4 ticks on short windows
+      const fullEvery = timeRange === "auto" ? 10 : (timeRange === "15m" || timeRange === "1h" ? 4 : 2);
+      tickLive._n = (tickLive._n || 0) + 1;
+      if (tickLive._n % fullEvery === 0) {
+        await loadLive();
+      } else {
+        await loadLiveLight();
+      }
+      refreshAll();
+      if (selectedId) {
+        const m = fixtures.machines.find((x) => x.id === selectedId);
+        if (m) renderDrawer(m);
+      }
+    } catch (err) {
+      console.error("live tick", err);
+      showToast("Live tick error: " + (err.message || err));
+    }
+  }
+
+  function restartRealtimePoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    const cfg = rangeCfg();
+    updateWindowTags();
+    pollTimer = setInterval(() => {
+      if (dataMode === "live") tickLive();
+      else tickMockLive();
+    }, cfg.pollMs);
+  }
+
+  function applyTimeRange(next) {
+    timeRange = next;
+    localStorage.setItem("mes-ct-time-range", timeRange);
+    document.querySelectorAll("#timeRange button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.range === timeRange);
+    });
+    rtPower = [];
+    rtOee = [];
+    restartRealtimePoll();
+    refreshData().then(() => {
+      showToast(rangeCfg().title + " · realtime every " + (rangeCfg().pollMs / 1000) + "s");
+    });
+  }
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById("clockTag").textContent = "now=" + now.toLocaleTimeString("vi-VN");
+    document.getElementById("shiftTag").textContent = "shift=" + getShift(now);
+  }
+
+  (function initApiBase() {
+    let saved = localStorage.getItem(API_KEY);
+    if (!saved || saved === "http://localhost:3001") saved = DEFAULT_API;
+    document.getElementById("apiBase").value = saved;
+  })();
+  document.getElementById("apiBase").addEventListener("change", () => {
+    localStorage.setItem(API_KEY, getApiBase());
+  });
+
+  document.getElementById("btnMock").addEventListener("click", () => {
+    setMode("mock");
+    rtPower = [];
+    rtOee = [];
+    refreshData();
+    restartRealtimePoll();
+  });
+  document.getElementById("btnLive").addEventListener("click", () => {
+    setMode("live");
+    rtPower = [];
+    rtOee = [];
+    refreshData();
+    restartRealtimePoll();
+  });
+  document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn"), { toast: true }));
+  });
+
+  document.getElementById("timeRange").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-range]");
+    if (!btn) return;
+    applyTimeRange(btn.dataset.range);
+  });
+
+  document.getElementById("btnEditLayout").addEventListener("click", () => {
+    setEditLayout(!board.classList.contains("layout-edit"), { toast: true });
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    localStorage.removeItem(LAYOUT_KEY);
+    layout = DEFAULT_LAYOUT.map((x) => ({ ...x }));
+    renderBoard();
+    showToast("Layout reset");
+  });
+  document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
+  document.getElementById("drawerClose").addEventListener("click", closeDrawer);
+  document.getElementById("backdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+  // Sync time-range buttons with saved value
+  document.querySelectorAll("#timeRange button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.range === timeRange);
+  });
+  updateWindowTags();
+  updateClock();
+  setMode(dataMode);
+  setEditLayout(localStorage.getItem(EDIT_LAYOUT_KEY) === "1");
+  renderBoard();
+  refreshData().then(() => restartRealtimePoll());
+  setInterval(updateClock, 1000);
+})();
+  </script>
+</body>
+</html>

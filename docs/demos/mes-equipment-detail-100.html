@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MES Equipment Detail</title>
+  <!--
+    Grafana-style Equipment Detail (HTML contract demo).
+    URL: mes-equipment-detail-100.html?machine_id=D-01
+    Time: Auto 50@1s | 15m | 1h | 8h | 24h | Custom from→to (absolute, Grafana-like)
+    APIs:
+      GET /api/machines
+      GET /api/machines/:id
+      GET /api/machines/:id/status-history?hours=… | start&end
+      GET /api/machines/:id/speed-history?start&end
+    Multi-zone: cards + line chart (multiZoneTemperatureTrend | Auto RT from multiZoneTemperatures)
+    Alert thresholds: localStorage demo (mes-ed-alert-rules-v1) — warn/alarm + hold + hysteresis
+      before backend rule engine writes alarms table.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="mes-demo-layout.js"></script>
+  <link rel="stylesheet" href="mes-demo-layout.css" />
+  <style>
+    :root, html[data-theme="dark"] {
+      --g-bg: #111217; --g-panel: #181b1f; --g-panel-border: #2c3235;
+      --g-text: #ccccdc; --g-text-secondary: #8e8e9a; --g-muted-hex: #8e8e9a;
+      --g-blue: #5794f2; --g-green: #73bf69; --g-yellow: #fade2a;
+      --g-orange: #ff9830; --g-red: #f2495c; --g-purple: #b877d9;
+      --g-input: #141619; --g-hover: #22252b; --g-track: #22252b; --g-cell: #22252b;
+      --g-grid: rgba(44, 50, 53, 0.8); --g-toast: #22252b;
+      --g-topnav: #111217; --g-topnav-border: #22252b; --g-api-note: #6b6b78;
+      --font: Inter, "Helvetica Neue", Arial, sans-serif;
+      --mono: "Roboto Mono", Consolas, monospace;
+    }
+    html[data-theme="light"] {
+      --g-bg: #f4f5f5; --g-panel: #ffffff; --g-panel-border: #dce1e6;
+      --g-text: #111217; --g-text-secondary: #52545c; --g-muted-hex: #6e6e76;
+      --g-blue: #3871dc; --g-green: #1a7f37; --g-yellow: #ad7800;
+      --g-orange: #d05a00; --g-red: #c81e1e; --g-purple: #8a3ffc;
+      --g-input: #ffffff; --g-hover: #e9edf2; --g-track: #e6e9ed; --g-cell: #f4f5f5;
+      --g-grid: rgba(36, 41, 46, 0.12); --g-toast: #ffffff;
+      --g-topnav: #ffffff; --g-topnav-border: #dce1e6; --g-api-note: #6e6e76;
+    }
+    html[data-theme="midnight"] {
+      --g-bg: #0b0f19; --g-panel: #121826; --g-panel-border: #1e2a3d;
+      --g-text: #d8dee9; --g-text-secondary: #8b9bb4; --g-muted-hex: #8b9bb4;
+      --g-blue: #5b9cf5; --g-green: #6bcf8e; --g-yellow: #e8c547;
+      --g-orange: #f0a05a; --g-red: #e85d6f; --g-purple: #9b7fd4;
+      --g-input: #0e1420; --g-hover: #1a2436; --g-track: #1a2436; --g-cell: #1a2436;
+      --g-grid: rgba(91, 156, 245, 0.12); --g-toast: #1a2436;
+      --g-topnav: #0b0f19; --g-topnav-border: #1e2a3d; --g-api-note: #6e7f99;
+    }
+    html[data-theme="ai"] {
+      --g-bg: #050a14; --g-panel: #0a1628; --g-panel-border: rgba(0, 212, 255, 0.22);
+      --g-text: #e8f4ff; --g-text-secondary: #7a9bb8; --g-muted-hex: #7a9bb8;
+      --g-blue: #00d4ff; --g-green: #00ffa3; --g-yellow: #ffe566;
+      --g-orange: #ff9f43; --g-red: #ff4d6d; --g-purple: #a78bfa;
+      --g-input: #071018; --g-hover: #0f2138; --g-track: #0f2138; --g-cell: #0c1a2e;
+      --g-grid: rgba(0, 212, 255, 0.14); --g-toast: #0c1a2e;
+      --g-topnav: rgba(5, 10, 20, 0.92); --g-topnav-border: rgba(0, 212, 255, 0.18); --g-api-note: #5a7a94;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--g-bg); color: var(--g-text); font-family: var(--font); font-size: 14px; }
+    body { overflow: auto; }
+    html[data-theme="ai"] body {
+      background:
+        radial-gradient(ellipse 90% 55% at 12% -8%, rgba(0, 212, 255, 0.2), transparent 55%),
+        radial-gradient(ellipse 70% 45% at 92% 8%, rgba(88, 101, 242, 0.28), transparent 50%),
+        radial-gradient(ellipse 55% 35% at 48% 105%, rgba(0, 255, 200, 0.1), transparent 55%),
+        linear-gradient(180deg, #050a14 0%, #071428 50%, #050a14 100%);
+      background-attachment: fixed;
+    }
+    html[data-theme="ai"] .g-topnav {
+      backdrop-filter: blur(10px);
+      box-shadow: 0 1px 0 rgba(0, 212, 255, 0.12), 0 8px 28px rgba(0, 40, 80, 0.35);
+    }
+    html[data-theme="ai"] .g-logo {
+      background: linear-gradient(135deg, #00d4ff, #5865f2 48%, #a855f7);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.55);
+      color: #041018;
+    }
+    html[data-theme="ai"] .panel {
+      background: linear-gradient(165deg, rgba(14, 36, 64, 0.92), rgba(8, 18, 36, 0.96));
+      box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.1), 0 10px 36px rgba(0, 24, 56, 0.45);
+    }
+    html[data-theme="ai"] .panel.proposed {
+      border-color: rgba(167, 139, 250, 0.55);
+      box-shadow: 0 0 20px rgba(167, 139, 250, 0.12);
+    }
+    html[data-theme="ai"] .nav-tabs a.active {
+      background: rgba(0, 212, 255, 0.14);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.22);
+    }
+    html[data-theme="ai"] .g-btn.primary {
+      background: linear-gradient(135deg, #0099cc, #00d4ff);
+      border-color: #00d4ff; color: #041018;
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.35);
+    }
+    html[data-theme="ai"] .live i { box-shadow: 0 0 8px currentColor; }
+    html[data-theme="midnight"] .g-logo {
+      background: linear-gradient(135deg, #5b9cf5, #9b7fd4 55%, #6bcf8e);
+    }
+
+    .g-topnav {
+      height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+      background: var(--g-topnav); border-bottom: 1px solid var(--g-topnav-border);
+      position: sticky; top: 0; z-index: 30; flex-wrap: wrap; min-height: 40px;
+    }
+    .g-logo {
+      width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0;
+      background: linear-gradient(135deg, #f2495c, #ff9830 45%, #fade2a);
+      display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #111;
+    }
+    .g-breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
+    .g-breadcrumb strong { color: var(--g-text); font-weight: 500; }
+    .g-breadcrumb .sep { opacity: 0.5; }
+    .nav-tabs { display: flex; gap: 4px; }
+    .nav-tabs a {
+      font-size: 12px; padding: 4px 10px; border-radius: 2px; text-decoration: none;
+      color: var(--g-text-secondary); border: 1px solid transparent;
+    }
+    .nav-tabs a:hover { background: var(--g-hover); color: var(--g-text); }
+    .nav-tabs a.active {
+      background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue);
+    }
+    .g-spacer { flex: 1; }
+    .g-btn {
+      border: 1px solid var(--g-panel-border); background: var(--g-input); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+    }
+    .g-btn:hover { background: var(--g-hover); }
+    .g-btn.primary { background: #3d71d9; border-color: #3d71d9; color: #fff; }
+    .g-btn.active-mode { background: rgba(115, 191, 105, 0.2); border-color: var(--g-green); color: var(--g-green); }
+    .g-btn.theme-active { background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue); }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--g-green); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+    .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-green); animation: blink 1.5s infinite; }
+    .live.mock { color: var(--g-orange); }
+    .live.mock i { background: var(--g-orange); }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .g-time {
+      display: flex; align-items: center; border: 1px solid var(--g-panel-border);
+      border-radius: 2px; overflow: hidden; background: var(--g-input);
+    }
+    .g-time button {
+      border: 0; background: transparent; color: var(--g-text); font: inherit; font-size: 12px;
+      padding: 5px 8px; cursor: pointer; white-space: nowrap;
+    }
+    .g-time button:hover { background: var(--g-hover); }
+    .g-time button.active { background: rgba(87, 148, 242, 0.2); color: var(--g-blue); }
+    .g-time .divider { width: 1px; align-self: stretch; background: var(--g-panel-border); }
+    .custom-range-row {
+      display: none; align-items: center; gap: 8px; margin: 0 14px 8px; flex-wrap: wrap;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .custom-range-row.open { display: flex; }
+    .custom-range-row input[type="datetime-local"] {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px;
+      color-scheme: dark;
+    }
+    html[data-theme="light"] .custom-range-row input[type="datetime-local"] { color-scheme: light; }
+    select.machine-select {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; max-width: 160px;
+    }
+    .tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 2px;
+      background: rgba(87, 148, 242, 0.15); color: var(--g-blue);
+      border: 1px solid rgba(87, 148, 242, 0.25);
+    }
+
+    .g-dashbar { padding: 14px 14px 8px; }
+    .g-dashbar h1 { font-size: 20px; font-weight: 500; }
+    .g-dashbar .sub { margin-top: 6px; font-size: 12px; color: var(--g-text-secondary); line-height: 1.45; max-width: 960px; }
+    .g-dashbar .sub a { color: var(--g-blue); }
+    .header-card {
+      margin: 0 14px 10px; padding: 12px 14px;
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center;
+    }
+    .header-card .hid { font-family: var(--mono); font-size: 22px; font-weight: 600; }
+    .header-card .hname { font-size: 13px; color: var(--g-text-secondary); }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 3px 8px; border-radius: 2px;
+    }
+    .badge.running { color: var(--g-green); background: rgba(115, 191, 105, 0.15); }
+    .badge.warning, .badge.setup { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .badge.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .badge.stopped { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+    .badge.idle { color: var(--g-text-secondary); background: var(--g-track); }
+    .hmeta { font-size: 12px; color: var(--g-text-secondary); }
+    .hmeta b { color: var(--g-text); font-weight: 500; }
+
+    .api-base-row {
+      display: flex; align-items: center; gap: 6px; margin: 0 14px 8px;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .api-base-row input {
+      flex: 1; max-width: 360px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 5px 8px; border-radius: 2px; font: inherit; font-size: 12px;
+    }
+
+    .board {
+      display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
+      gap: 8px; padding: 8px 14px 28px; align-content: start;
+      position: relative;
+    }
+    .panel {
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+    }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+
+    .panel-head { display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 26px; }
+    .panel-title-wrap { flex: 1; min-width: 0; }
+    .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); }
+    .panel-api { font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px; }
+    .panel-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+    .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
+    .panel-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
+
+    .stat { height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 2px 4px; }
+    .stat .value { font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+    .stat .value.green { color: var(--g-green); }
+    .stat .value.blue { color: var(--g-blue); }
+    .stat .value.orange { color: var(--g-orange); }
+    .stat .value.red { color: var(--g-red); }
+    .stat .value.purple { color: var(--g-purple); }
+    .stat .unit { font-size: 12px; color: var(--g-text-secondary); margin-left: 3px; font-weight: 400; }
+    .stat .name { margin-top: 3px; font-size: 11px; color: var(--g-text-secondary); }
+
+    .chart-wrap { position: absolute; inset: 2px 6px 6px; }
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .progress-block { padding: 8px 4px; }
+    .progress-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; }
+    .progress-track { height: 14px; background: var(--g-track); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #3274d9, #73bf69); }
+    .progress-foot { margin-top: 8px; font-size: 11px; color: var(--g-text-secondary); }
+
+    .gantt {
+      display: flex; height: 42px; width: 100%; border-radius: 2px; overflow: hidden;
+      border: 1px solid var(--g-panel-border); margin-top: 8px;
+    }
+    .gantt-seg { height: 100%; min-width: 1px; position: relative; }
+    .gantt-seg.running { background: var(--g-green); }
+    .gantt-seg.setup, .gantt-seg.warning { background: var(--g-orange); }
+    .gantt-seg.error, .gantt-seg.alarm { background: var(--g-red); }
+    .gantt-seg.stopped { background: var(--g-blue); }
+    .gantt-seg.idle { background: #6e6e76; }
+    .gantt-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--g-text-secondary); }
+    .gantt-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 1px; margin-right: 4px; vertical-align: middle; }
+
+    .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; height: 100%; }
+    .kpi-mini {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      padding: 8px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .kpi-mini .k { font-size: 10px; color: var(--g-text-secondary); }
+    .kpi-mini .v { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; overflow: auto; align-content: start; }
+    .zones-layout {
+      display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 10px; height: 100%; min-height: 0;
+    }
+    .zones-layout .chart-wrap { position: relative; inset: auto; height: 100%; min-height: 160px; }
+    .zone-card {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      padding: 8px; text-align: center;
+    }
+    .zone-card .zn { font-size: 10px; color: var(--g-text-secondary); }
+    .zone-card .zv { font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    @media (max-width: 900px) {
+      .zones-layout { grid-template-columns: 1fr; }
+      .zones-layout .chart-wrap { min-height: 200px; }
+    }
+
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th {
+      text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 6px;
+      border-bottom: 1px solid var(--g-panel-border); position: sticky; top: 0; background: var(--g-panel);
+    }
+    .data-table td { padding: 6px; border-bottom: 1px solid var(--g-panel-border); vertical-align: top; }
+    .data-table .mono { font-family: var(--mono); }
+    .data-table .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .table-scroll { height: 100%; overflow: auto; }
+
+    .sev { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 1px 5px; border-radius: 2px; }
+    .sev.error { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .sev.warning { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .sev.info { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(12px);
+      background: var(--g-toast); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      padding: 8px 14px; border-radius: 2px; font-size: 12px; opacity: 0; transition: 0.2s; z-index: 60;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .hint { font-size: 11px; color: var(--g-text-secondary); padding: 8px 0; }
+
+    .thr-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; overflow: auto; font-size: 12px; }
+    .thr-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .thr-toolbar label { color: var(--g-text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+    .thr-toolbar input[type="number"] {
+      width: 64px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 3px 6px; border-radius: 2px; font: inherit; font-size: 11px;
+    }
+    .thr-table { width: 100%; border-collapse: collapse; }
+    .thr-table th {
+      text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 4px;
+      border-bottom: 1px solid var(--g-panel-border); font-size: 10px;
+    }
+    .thr-table td { padding: 4px; border-bottom: 1px solid var(--g-panel-border); vertical-align: middle; }
+    .thr-table input[type="number"] {
+      width: 58px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 3px 4px; border-radius: 2px; font: inherit; font-size: 11px;
+    }
+    .thr-table .mono { font-family: var(--mono); font-size: 11px; }
+    .thr-level {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 2px;
+    }
+    .thr-level.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
+    .thr-level.warn { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
+    .thr-level.alarm { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .zone-card.thr-warn { border-color: rgba(255, 152, 48, 0.65); box-shadow: inset 0 0 0 1px rgba(255, 152, 48, 0.25); }
+    .zone-card.thr-alarm { border-color: rgba(242, 73, 92, 0.75); box-shadow: inset 0 0 0 1px rgba(242, 73, 92, 0.3); }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+    .panel-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+    .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
+
+    @media (max-width: 1100px) {
+      .panel[data-w="3"], .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"] { grid-column: span 12; }
+      .panel[data-w="12"], .panel[data-w="16"] { grid-column: span 24; }
+      .kpi-strip { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="g-topnav">
+    <div class="g-logo">G</div>
+    <div class="g-breadcrumb">
+      <span>Dashboards</span><span class="sep">/</span><span>MES</span><span class="sep">/</span>
+      <strong>Equipment Detail</strong>
+    </div>
+    <div class="nav-tabs">
+      <a href="mes-overview-100.html">Overview</a>
+      <a href="mes-control-tower-100.html">Energy</a>
+      <a href="mes-speed-lab-100.html">Speed Lab</a>
+      <a class="active" href="mes-equipment-detail-100.html">Detail</a>
+    </div>
+    <div class="g-spacer"></div>
+    <select id="machineSelect" class="machine-select" title="Chọn dây chuyền"></select>
+    <div class="g-time" id="timeRange" role="group" aria-label="Time range">
+      <button type="button" data-range="auto" class="active">Auto 1s</button><span class="divider"></span>
+      <button type="button" data-range="15m">15m</button><span class="divider"></span>
+      <button type="button" data-range="1h">1h</button><span class="divider"></span>
+      <button type="button" data-range="8h">8h</button><span class="divider"></span>
+      <button type="button" data-range="24h">24h</button><span class="divider"></span>
+      <button type="button" data-range="custom">Custom</button>
+    </div>
+    <span class="tag" id="windowTag">window=auto · pts=50 · tick=1s</span>
+    <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
+    <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
+    <button type="button" class="g-btn" id="btnLive">Live API</button>
+    <button type="button" class="g-btn theme-active" data-theme-btn="dark" id="btnThemeDark" title="Grafana Dark">Dark</button>
+    <button type="button" class="g-btn" data-theme-btn="light" id="btnThemeLight" title="Grafana Light">Light</button>
+    <button type="button" class="g-btn" data-theme-btn="midnight" id="btnThemeMidnight" title="Grafana Midnight">Midnight</button>
+    <button type="button" class="g-btn" data-theme-btn="ai" id="btnThemeAi" title="AI Neon">AI</button>
+    <button type="button" class="g-btn" id="btnEditLayout" title="Bật/tắt kéo & resize panel">Edit layout</button>
+    <button type="button" class="g-btn" id="btnReset">Reset panels</button>
+    <button type="button" class="g-btn primary" id="btnRefresh">Refresh</button>
+  </nav>
+
+  <div class="g-dashbar">
+    <h1>MES Equipment Detail</h1>
+    <p class="sub">
+      Chi tiết 1 dây chuyền — map từ React <code style="font-family:var(--mono);font-size:11px">EquipmentDetail</code>.
+      Time: <strong>Auto 50 pts @ 1s</strong> (giống Energy) · relative 15m/1h/8h/24h · <strong>Custom from→to</strong>.
+      Panel <em>Tba · Multi-zone</em>: thẻ nhiệt độ zone + line chart theo thời gian.
+      <strong>Alert thresholds</strong>: demo localStorage (warn/alarm + hold + hysteresis) — trước khi backend rule engine.
+      Deep-link: <code style="font-family:var(--mono);font-size:11px">?machine_id=SH-05</code> (có multi-zone mock).
+    </p>
+  </div>
+
+  <div class="header-card" id="headerCard">
+    <div>
+      <div class="hid" id="hdrId">—</div>
+      <div class="hname" id="hdrName">Chọn machine…</div>
+    </div>
+    <span class="badge idle" id="hdrStatus">—</span>
+    <div class="hmeta">Product<br><b id="hdrProduct">—</b></div>
+    <div class="hmeta">PO / Customer<br><b id="hdrPo">—</b></div>
+    <div class="hmeta">Operator<br><b id="hdrOp">—</b></div>
+    <div class="hmeta">Area<br><b id="hdrArea">—</b></div>
+    <span class="tag" id="rtTag">rt=—</span>
+  </div>
+
+  <div class="custom-range-row" id="customRangeRow">
+    <span>From</span>
+    <input type="datetime-local" id="rangeFrom" />
+    <span>To</span>
+    <input type="datetime-local" id="rangeTo" />
+    <button type="button" class="g-btn primary" id="btnApplyRange">Apply range</button>
+    <span class="hint" style="padding:0">Giống Grafana absolute time · ISO gửi API status/speed-history</span>
+  </div>
+
+  <div class="api-base-row">
+    <span>API base</span>
+    <input id="apiBase" type="text" value="http://100.114.213.115:3001" spellcheck="false" />
+    <span id="dataStatus">source: mock</span>
+  </div>
+
+  <div class="board" id="board"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  "use strict";
+
+  const MODE_KEY = "mes-ed-data-mode";
+  const API_KEY = "mes-ed-api-base";
+  const THEME_KEY = "mes-ct-theme";
+  const DEFAULT_API = "http://100.114.213.115:3001";
+  const Chart = window.Chart;
+  const charts = {};
+
+  const AREAS = {
+    drawing: { name: "KÉO", nameEn: "Drawing" },
+    stranding: { name: "XOẮN", nameEn: "Stranding" },
+    armoring: { name: "GIÁP", nameEn: "Armoring" },
+    sheathing: { name: "BỌC", nameEn: "Sheathing" },
+  };
+
+  const DEFAULT_LAYOUT_ITEMS = [
+    { id: "stat_speed", w: 4, h: 4 },
+    { id: "stat_target", w: 4, h: 4 },
+    { id: "stat_eff", w: 4, h: 4 },
+    { id: "stat_oee", w: 4, h: 4 },
+    { id: "stat_power", w: 4, h: 4 },
+    { id: "stat_temp", w: 4, h: 4 },
+    { id: "apq", w: 8, h: 5 },
+    { id: "length", w: 8, h: 5 },
+    { id: "speed_kpi", w: 8, h: 5 },
+    { id: "gantt", w: 24, h: 5 },
+    { id: "chart_speed", w: 16, h: 8 },
+    { id: "chart_temp", w: 8, h: 8 },
+    { id: "chart_current", w: 8, h: 7 },
+    { id: "chart_power", w: 8, h: 7 },
+    { id: "chart_energy", w: 8, h: 7 },
+    { id: "zones", w: 24, h: 10 },
+    { id: "thresholds", w: 12, h: 10 },
+    { id: "alarms", w: 12, h: 10 },
+    { id: "energy_buckets", w: 12, h: 8 },
+    { id: "orders", w: 12, h: 8 },
+  ];
+  const DEFAULT_LAYOUT = MesDemoLayout.packLayoutItems(DEFAULT_LAYOUT_ITEMS);
+
+  const PANEL_META = {
+    stat_speed: { title: "Line Speed", api: "machines/:id.lineSpeed" },
+    stat_target: { title: "Target Speed", api: "targetSpeed" },
+    stat_eff: { title: "Speed Efficiency", api: "lineSpeed / targetSpeed" },
+    stat_oee: { title: "Live OEE", api: "oee" },
+    stat_power: { title: "Active Power", api: "power kW" },
+    stat_temp: { title: "Temperature", api: "temperature °C" },
+    apq: { title: "OEE Factors A · P · Q", api: "availability · performance · quality" },
+    length: { title: "Production Length", api: "producedLengthOk / targetLength" },
+    speed_kpi: { title: "Speed history summary", api: "/speed-history.summary" },
+    gantt: { title: "Operational States (shift window)", api: "/status-history" },
+    chart_speed: { title: "Speed Trend · actual vs target", api: "speed-history | Auto RT 50@1s" },
+    chart_temp: { title: "Temperature Trend", api: "temperatureTrend | Auto RT" },
+    chart_current: { title: "Motor Current", api: "currentTrend | Auto RT" },
+    chart_power: { title: "Power Trend", api: "powerTrend | Auto RT" },
+    chart_energy: { title: "Energy Meter (kWh)", api: "energyMeterTrend · energyMeterKwh" },
+    zones: { title: "Tba · Multi-zone temperature", api: "multiZoneTemperatures + multiZoneTemperatureTrend (line)" },
+    thresholds: {
+      title: "Alert Thresholds (demo)",
+      api: "localStorage mes-ed-alert-rules-v1 · proposed backend",
+      badge: "proposed",
+    },
+    alarms: { title: "Alarms", api: "machines/:id.alarms + derived thresholds" },
+    energy_buckets: { title: "kWh by bucket (meter)", api: "energyConsumption[]" },
+    orders: { title: "Production Order History", api: "orderHistory[] · productionOrder" },
+  };
+
+  const ALERT_RULES_KEY = "mes-ed-alert-rules-v1";
+  /** Per-machine eval state: { [metric]: { level, candidate, since, fired } } */
+  let thrEvalState = {};
+  let thrDerivedAlarms = [];
+  let thrLastToastFp = "";
+  let thrPanelMachine = null;
+
+  function defaultAlertRules() {
+    return {
+      enabled: true,
+      holdMs: 3000,
+      hysteresis: 2,
+      metrics: {
+        temperature: { enabled: true, warn: 75, alarm: 82, unit: "°C" },
+        current: { enabled: true, warn: 55, alarm: 70, unit: "A" },
+        power: { enabled: true, warn: 70, alarm: 95, unit: "kW" },
+      },
+    };
+  }
+
+  function loadAllAlertRules() {
+    try {
+      return JSON.parse(localStorage.getItem(ALERT_RULES_KEY) || "{}") || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveAllAlertRules(map) {
+    localStorage.setItem(ALERT_RULES_KEY, JSON.stringify(map));
+  }
+
+  function getAlertRules(mid) {
+    const all = loadAllAlertRules();
+    const base = defaultAlertRules();
+    const saved = all[mid];
+    if (!saved) return base;
+    return {
+      enabled: saved.enabled !== false,
+      holdMs: Number(saved.holdMs) > 0 ? Number(saved.holdMs) : base.holdMs,
+      hysteresis: saved.hysteresis != null ? Number(saved.hysteresis) : base.hysteresis,
+      metrics: Object.assign({}, base.metrics, saved.metrics || {}),
+    };
+  }
+
+  function setAlertRules(mid, rules) {
+    const all = loadAllAlertRules();
+    all[mid] = rules;
+    saveAllAlertRules(all);
+  }
+
+  function ensureZoneRules(rules, zones) {
+    const z = zones || {};
+    Object.keys(z).forEach((k) => {
+      const key = "zone_" + k;
+      if (!rules.metrics[key]) {
+        const v = Number(z[k]) || 180;
+        rules.metrics[key] = {
+          enabled: true,
+          warn: Math.round(v * 1.08),
+          alarm: Math.round(v * 1.15),
+          unit: "°C",
+          label: k,
+        };
+      }
+    });
+    return rules;
+  }
+
+  function readMetricValue(metricKey, m) {
+    if (!m) return null;
+    if (metricKey === "temperature") return m.temperature != null ? Number(m.temperature) : null;
+    if (metricKey === "current") return m.current != null ? Number(m.current) : null;
+    if (metricKey === "power") return m.power != null ? Number(m.power) : null;
+    if (metricKey.indexOf("zone_") === 0) {
+      const zk = metricKey.slice(5);
+      const z = m.multiZoneTemperatures || {};
+      return z[zk] != null ? Number(z[zk]) : null;
+    }
+    return null;
+  }
+
+  function rawLevelForValue(val, rule) {
+    if (val == null || !rule || !rule.enabled) return "ok";
+    const alarm = Number(rule.alarm);
+    const warn = Number(rule.warn);
+    if (!Number.isFinite(alarm) || !Number.isFinite(warn)) return "ok";
+    if (val >= alarm) return "alarm";
+    if (val >= warn) return "warn";
+    return "ok";
+  }
+
+  /** Apply hysteresis when recovering from higher severity */
+  function levelWithHysteresis(val, rule, prevLevel, hyst) {
+    const raw = rawLevelForValue(val, rule);
+    if (!prevLevel || prevLevel === "ok") return raw;
+    if (raw === "alarm") return "alarm";
+    const alarm = Number(rule.alarm);
+    const warn = Number(rule.warn);
+    const h = Number(hyst) || 0;
+    if (prevLevel === "alarm") {
+      if (val >= alarm - h) return "alarm";
+      if (val >= warn - h) return "warn";
+      return "ok";
+    }
+    if (prevLevel === "warn") {
+      if (raw === "warn" || raw === "alarm") return raw === "alarm" ? "alarm" : "warn";
+      if (val >= warn - h) return "warn";
+      return "ok";
+    }
+    return raw;
+  }
+
+  function evaluateThresholds() {
+    if (!detail || !machineId) return;
+    let rules = ensureZoneRules(getAlertRules(machineId), detail.multiZoneTemperatures);
+    if (!thrEvalState[machineId]) thrEvalState[machineId] = {};
+    const st = thrEvalState[machineId];
+    const now = Date.now();
+    const derived = [];
+    const toastParts = [];
+
+    if (rules.enabled) {
+      Object.keys(rules.metrics).forEach((key) => {
+        const rule = rules.metrics[key];
+        if (!rule || !rule.enabled) {
+          delete st[key];
+          return;
+        }
+        const val = readMetricValue(key, detail);
+        if (val == null) return;
+        const prev = st[key] || { level: "ok", candidate: "ok", since: now, fired: "" };
+        const candidate = levelWithHysteresis(val, rule, prev.level, rules.hysteresis);
+        let level = prev.level;
+        let since = prev.since;
+        let fired = prev.fired || "";
+
+        if (candidate !== prev.candidate) {
+          since = now;
+        }
+        if (candidate === "ok") {
+          level = "ok";
+          fired = "";
+        } else if (now - since >= (rules.holdMs || 0)) {
+          level = candidate;
+          const fp = key + ":" + level;
+          if (fired !== fp) {
+            fired = fp;
+            toastParts.push((rule.label || key) + " " + level.toUpperCase() + " (" + val + (rule.unit || "") + ")");
+          }
+        } else {
+          level = prev.level === candidate ? candidate : prev.level;
+        }
+
+        st[key] = { level, candidate, since, fired, value: val };
+
+        if (level === "warn" || level === "alarm") {
+          const label = rule.label || key;
+          derived.push({
+            severity: level === "alarm" ? "error" : "warning",
+            message: "[threshold] " + label + " = " + Number(val).toFixed(1) + (rule.unit || "") +
+              " ≥ " + (level === "alarm" ? rule.alarm : rule.warn) + (rule.unit || ""),
+            timestamp: new Date(since).toISOString(),
+            source: "localStorage",
+            metric: key,
+          });
+        }
+      });
+    }
+
+    thrDerivedAlarms = derived;
+    if (toastParts.length) {
+      const fp = toastParts.join("|");
+      if (fp !== thrLastToastFp) {
+        thrLastToastFp = fp;
+        showToast("Alert: " + toastParts.join(" · "));
+      }
+    }
+  }
+
+  function thresholdLineDatasets(metricKey, n) {
+    if (!machineId || n < 1) return [];
+    const rules = getAlertRules(machineId);
+    if (!rules.enabled) return [];
+    const rule = rules.metrics[metricKey];
+    if (!rule || !rule.enabled) return [];
+    const warn = Number(rule.warn);
+    const alarm = Number(rule.alarm);
+    const out = [];
+    if (Number.isFinite(warn)) {
+      out.push({
+        label: "warn",
+        data: Array(n).fill(warn),
+        borderColor: "rgba(255,152,48,0.85)",
+        borderDash: [5, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 10,
+      });
+    }
+    if (Number.isFinite(alarm)) {
+      out.push({
+        label: "alarm",
+        data: Array(n).fill(alarm),
+        borderColor: "rgba(242,73,92,0.9)",
+        borderDash: [3, 3],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 10,
+      });
+    }
+    return out;
+  }
+
+  function renderThresholdPanel() {
+    const host = document.getElementById("thrHost");
+    if (!host || !detail) return;
+    let rules = ensureZoneRules(getAlertRules(machineId), detail.multiZoneTemperatures);
+    const st = (thrEvalState[machineId] || {});
+    const rows = Object.keys(rules.metrics).map((key) => {
+      const r = rules.metrics[key];
+      const ev = st[key] || { level: "ok" };
+      const label = r.label || key;
+      return (
+        "<tr data-metric=\"" + key + "\">" +
+        '<td><input type="checkbox" data-f="enabled"' + (r.enabled ? " checked" : "") + " /></td>" +
+        '<td class="mono">' + label + "</td>" +
+        '<td><input type="number" data-f="warn" step="0.1" value="' + r.warn + '" /></td>' +
+        '<td><input type="number" data-f="alarm" step="0.1" value="' + r.alarm + '" /></td>' +
+        "<td>" + (r.unit || "") + "</td>" +
+        '<td><span class="thr-level ' + (ev.level || "ok") + '">' + (ev.level || "ok") + "</span></td>" +
+        '<td class="mono">' + (ev.value != null ? Number(ev.value).toFixed(1) : "—") + "</td>" +
+        "</tr>"
+      );
+    }).join("");
+
+    host.innerHTML =
+      '<div class="thr-toolbar">' +
+      '<label><input type="checkbox" id="thrEnabled"' + (rules.enabled ? " checked" : "") + " /> Enable evaluator</label>" +
+      '<label>Hold (ms) <input type="number" id="thrHold" min="0" step="500" value="' + rules.holdMs + '" /></label>' +
+      '<label>Hysteresis <input type="number" id="thrHyst" min="0" step="0.5" value="' + rules.hysteresis + '" /></label>' +
+      '<button type="button" class="g-btn primary" id="btnThrSave">Save</button>' +
+      '<button type="button" class="g-btn" id="btnThrReset">Reset defaults</button>' +
+      "</div>" +
+      '<table class="thr-table"><thead><tr>' +
+      "<th>On</th><th>Metric</th><th>Warn ≥</th><th>Alarm ≥</th><th></th><th>Level</th><th>Now</th>" +
+      "</tr></thead><tbody id=\"thrBody\">" + rows + "</tbody></table>" +
+      '<p class="hint" style="padding:4px 0 0">Demo only · rules per machine_id trong localStorage. Production: backend evaluate → alarms table.</p>';
+
+    document.getElementById("btnThrSave").onclick = () => {
+      const next = {
+        enabled: document.getElementById("thrEnabled").checked,
+        holdMs: Number(document.getElementById("thrHold").value) || 0,
+        hysteresis: Number(document.getElementById("thrHyst").value) || 0,
+        metrics: {},
+      };
+      Array.from(document.querySelectorAll("#thrBody tr")).forEach((tr) => {
+        const key = tr.getAttribute("data-metric");
+        const prev = rules.metrics[key] || {};
+        next.metrics[key] = {
+          enabled: tr.querySelector('[data-f="enabled"]').checked,
+          warn: Number(tr.querySelector('[data-f="warn"]').value),
+          alarm: Number(tr.querySelector('[data-f="alarm"]').value),
+          unit: prev.unit || "",
+          label: prev.label,
+        };
+      });
+      setAlertRules(machineId, next);
+      thrEvalState[machineId] = {};
+      thrLastToastFp = "";
+      thrPanelMachine = null;
+      showToast("Saved thresholds for " + machineId);
+      thrPanelMachine = machineId;
+      evaluateThresholds();
+      renderThresholdPanel();
+      thrPanelMachine = machineId;
+      renderAlarms();
+      renderCharts();
+      renderZones();
+      renderStats();
+    };
+    document.getElementById("btnThrReset").onclick = () => {
+      const all = loadAllAlertRules();
+      delete all[machineId];
+      saveAllAlertRules(all);
+      thrEvalState[machineId] = {};
+      thrLastToastFp = "";
+      thrPanelMachine = null;
+      showToast("Reset thresholds → defaults");
+      evaluateThresholds();
+      renderThresholdPanel();
+      renderAlarms();
+      renderCharts();
+      renderZones();
+      renderStats();
+    };
+  }
+
+  const ZONE_PALETTE = ["#f2495c", "#ff9830", "#fade2a", "#73bf69", "#5794f2", "#b877d9", "#8ab8ff", "#e0b400"];
+
+  /** Grafana-like windows — Auto mirrors Energy Control Tower (50 pts @ 1s) */
+  const RANGE_CFG = {
+    auto: { points: 50, spanMs: 50 * 1000, pollMs: 1000, title: "Auto · 50 pts @ 1s" },
+    "15m": { points: 30, spanMs: 15 * 60 * 1000, pollMs: 5000, title: "Last 15 minutes" },
+    "1h": { points: 40, spanMs: 60 * 60 * 1000, pollMs: 8000, title: "Last 1 hour" },
+    "8h": { points: 48, spanMs: 8 * 60 * 60 * 1000, pollMs: 10000, title: "Last 8 hours (shift)" },
+    "24h": { points: 48, spanMs: 24 * 60 * 60 * 1000, pollMs: 15000, title: "Last 24 hours" },
+    custom: { points: 60, spanMs: null, pollMs: 15000, title: "Custom absolute range" },
+  };
+
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  const THEME_LABELS = {
+    dark: "Grafana Dark",
+    light: "Grafana Light",
+    midnight: "Grafana Midnight",
+    ai: "AI Neon",
+  };
+  function normalizeTheme(theme) {
+    return THEME_LABELS[theme] ? theme : "dark";
+  }
+  function applyTheme(theme, opts) {
+    const t = normalizeTheme(theme);
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem(THEME_KEY, t);
+    document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+      btn.classList.toggle("theme-active", btn.getAttribute("data-theme-btn") === t);
+    });
+    Chart.defaults.color = cssVar("--g-muted-hex", "#8e8e9a");
+    Chart.defaults.borderColor = cssVar("--g-panel-border", "#2c3235");
+    Object.keys(charts).forEach((k) => { try { charts[k].update("none"); } catch (_) {} });
+    if (opts && opts.toast) showToast("Theme: " + THEME_LABELS[t]);
+  }
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+  Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
+  Chart.defaults.font.size = 11;
+
+  function qs(name) {
+    return new URLSearchParams(location.search).get(name);
+  }
+  function setQsMachine(id) {
+    const u = new URL(location.href);
+    u.searchParams.set("machine_id", id);
+    history.replaceState(null, "", u.toString());
+  }
+
+  function mulberry32(a) {
+    return function () {
+      let t = (a += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function speedInfo(m) {
+    let v = Number(m.lineSpeed) || 0;
+    let t = Number(m.targetSpeed) || 0;
+    let unit = "m/min";
+    if (m.area === "drawing") {
+      unit = "m/s";
+      if (v > 50) { v /= 60; t /= 60; }
+    }
+    const pct = t > 0 ? (v / t) * 100 : 0;
+    return { v: +v.toFixed(v >= 100 ? 0 : 2), t: +t.toFixed(t >= 100 ? 0 : 2), unit, pct };
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function getApiBase() {
+    return (document.getElementById("apiBase").value || DEFAULT_API).replace(/\/$/, "");
+  }
+
+  async function fetchJson(path) {
+    const res = await fetch(getApiBase() + path, {
+      headers: { Accept: "application/json" },
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(res.status + " " + path);
+    const json = await res.json();
+    if (json && json.success === false) throw new Error(json.message || "API error");
+    return json;
+  }
+
+  function unwrap(json) {
+    if (json == null) return json;
+    if (json.data !== undefined) return json.data;
+    return json;
+  }
+  function unwrapList(json) {
+    const d = unwrap(json);
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.items)) return d.items;
+    if (d && Array.isArray(d.machines)) return d.machines;
+    return [];
+  }
+
+  function seriesPoints(n, base, jitter, rng) {
+    const arr = [];
+    let v = base;
+    const now = Date.now();
+    const step = 60000;
+    for (let i = 0; i < n; i++) {
+      v = Math.max(0, v + (rng() - 0.48) * jitter);
+      arr.push({ time: new Date(now - (n - 1 - i) * step).toISOString(), v: +v.toFixed(2) });
+    }
+    return arr;
+  }
+
+  function buildMockDetail(id) {
+    const rng = mulberry32(String(id).split("").reduce((s, c) => s + c.charCodeAt(0), 1));
+    const area =
+      id.indexOf("D-") === 0 || id.indexOf("LHT") === 0 ? "drawing"
+        : id.indexOf("S-") === 0 ? "stranding"
+          : id.indexOf("A-") === 0 ? "armoring" : "sheathing";
+    const statusPool = ["running", "running", "running", "setup", "stopped", "warning"];
+    const status = statusPool[Math.floor(rng() * statusPool.length)];
+    const targetSpeed = area === "drawing" ? 1000 : area === "stranding" ? 720 : area === "armoring" ? 480 : 500;
+    const lineSpeed = status === "running" ? Math.round(targetSpeed * (0.88 + rng() * 0.12)) : status === "setup" ? Math.round(targetSpeed * 0.3) : 0;
+    const availability = +(82 + rng() * 15).toFixed(1);
+    const performance = targetSpeed ? +((lineSpeed / targetSpeed) * 100).toFixed(1) : 0;
+    const quality = +(96 + rng() * 3.5).toFixed(1);
+    const oee = +((availability * performance * quality) / 10000).toFixed(1);
+    const targetLength = 5000;
+    const producedLengthOk = Math.floor(targetLength * (0.4 + rng() * 0.45));
+    const productName = ["CV 3×95+50", "CVV 4×25", "CXV 3×150", "CV 1×185"][Math.floor(rng() * 4)];
+    const po = "PO-2026-" + (200 + Math.floor(rng() * 500));
+    const power = status === "running" ? +(50 + rng() * 40).toFixed(1) : +(5 + rng() * 10).toFixed(1);
+    const temp = Math.round(60 + rng() * 25);
+    const now = Date.now();
+
+    const speedTrend = seriesPoints(60, lineSpeed || 10, Math.max(5, targetSpeed * 0.03), rng).map((p) => ({
+      time: p.time, speed: p.v, target: targetSpeed,
+    }));
+    const temperatureTrend = seriesPoints(40, temp, 2, rng).map((p) => ({ time: p.time, temp: p.v }));
+    const currentTrend = seriesPoints(40, power * 0.7, 3, rng).map((p) => ({ time: p.time, current: p.v }));
+    const powerTrend = seriesPoints(40, power, 4, rng).map((p) => ({
+      time: p.time, power: p.v, avgPower: power, minRange: power * 0.8, maxRange: power * 1.2,
+    }));
+    let meter = 180000 + rng() * 20000;
+    const energyMeterTrend = seriesPoints(48, meter, 8, rng).map((p) => {
+      meter = p.v;
+      return { time: p.time, timestamp: p.time, meterKwh: +p.v.toFixed(2) };
+    });
+
+    const statuses = ["running", "running", "setup", "running", "stopped", "running", "idle", "running"];
+    let t0 = now - 8 * 3600e3;
+    const statusHistory = statuses.map((st, i) => {
+      const dur = (0.4 + rng() * 1.2) * 3600e3;
+      const start = t0;
+      t0 += dur;
+      return {
+        id: "SH-" + i,
+        machineId: id,
+        status: st,
+        previousStatus: i ? statuses[i - 1] : null,
+        startTime: new Date(start).toISOString(),
+        endTime: i === statuses.length - 1 ? null : new Date(t0).toISOString(),
+        durationSeconds: Math.round(dur / 1000),
+        isProductionTime: st === "running",
+      };
+    });
+
+    const speedHistoryPoints = speedTrend.map((p, i) => ({
+      timestamp: p.time,
+      actualSpeed: p.speed,
+      targetSpeed: p.target,
+      performance: targetSpeed ? (p.speed / targetSpeed) * 100 : 0,
+      phase: status === "running" ? (i % 17 === 0 ? "variable_running" : "stable_running") : "stopped",
+    }));
+
+    const multiZone = area === "sheathing" || area === "armoring" ? {
+      zone1: 148 + rng() * 10, zone2: 160 + rng() * 8, zone3: 155 + rng() * 8, zone4: 150 + rng() * 8,
+      zone5: 145 + rng() * 6, zone6: 140 + rng() * 6,
+    } : null;
+
+    let multiZoneTemperatureTrend = null;
+    if (multiZone) {
+      const zoneKeys = Object.keys(multiZone);
+      const bases = zoneKeys.map((k) => Number(multiZone[k]));
+      multiZoneTemperatureTrend = Array.from({ length: 48 }, (_, i) => {
+        const t = new Date(now - (47 - i) * 60000).toISOString();
+        const row = { time: t };
+        zoneKeys.forEach((k, zi) => {
+          row[k] = +(bases[zi] + (rng() - 0.5) * 4 + Math.sin(i / 6 + zi) * 1.5).toFixed(1);
+        });
+        return row;
+      });
+    }
+
+    const energyConsumption = Array.from({ length: 8 }, (_, i) => {
+      const end = now - i * 3600e3;
+      const start = end - 3600e3;
+      return {
+        bucketStart: new Date(start).toISOString(),
+        bucketEnd: new Date(end).toISOString(),
+        energy: +(8 + rng() * 20).toFixed(2),
+        powerKw: +(power * (0.7 + rng() * 0.4)).toFixed(1),
+        productName,
+        machineStatus: i === 0 ? status : "running",
+        producedLengthM: Math.round(80 + rng() * 200),
+        kwhPer100m: +(1.2 + rng() * 0.8).toFixed(2),
+        sampleCount: 60,
+      };
+    }).reverse();
+
+    const orderHistory = [
+      {
+        id: po, name: po, productName, customer: "KH Nội bộ", machineId: id,
+        startTime: new Date(now - 5 * 3600e3).toISOString(), endTime: null,
+        producedLength: producedLengthOk + 20, producedLengthOk, targetLength, status: "running",
+        bobbinCuts: [
+          { id: "BC-1", recordedAt: new Date(now - 2 * 3600e3).toISOString(), lengthM: 1200 },
+          { id: "BC-2", recordedAt: new Date(now - 0.5 * 3600e3).toISOString(), lengthM: 980 },
+        ],
+      },
+      {
+        id: "PO-2026-088", name: "PO-2026-088", productName: "CVV 4×25", customer: "ABC Cable",
+        machineId: id, startTime: new Date(now - 20 * 3600e3).toISOString(),
+        endTime: new Date(now - 6 * 3600e3).toISOString(),
+        producedLength: 4800, producedLengthOk: 4750, targetLength: 5000, status: "completed",
+        bobbinCuts: [],
+      },
+    ];
+
+    return {
+      id,
+      name: (AREAS[area] && AREAS[area].nameEn) + " Line " + id,
+      area, status, lineSpeed, targetSpeed,
+      producedLength: producedLengthOk + 15,
+      producedLengthOk, producedLengthNg: 15, targetLength,
+      productionOrderId: po, productionOrderName: po, productionOrderProductName: productName,
+      productName, operatorName: "Nguyễn Văn An",
+      oee, availability, performance, quality,
+      current: +(power * 0.72).toFixed(1), power,
+      energyMeterKwh: +meter.toFixed(2), temperature: temp,
+      multiZoneTemperatures: multiZone,
+      multiZoneTemperatureTrend,
+      alarms: status === "warning" || status === "error" ? [{
+        id: "ALM-1", machineId: id, severity: status === "error" ? "error" : "warning",
+        message: status === "error" ? "High temperature" : "Speed below target",
+        timestamp: new Date(now - 600000).toISOString(), acknowledged: false,
+      }] : [],
+      lastUpdated: new Date().toISOString(),
+      productionOrder: orderHistory[0],
+      speedTrend, temperatureTrend, currentTrend, powerTrend, energyMeterTrend,
+      energyConsumption, orderHistory,
+      _statusHistory: statusHistory,
+      _speedHistory: {
+        points: speedHistoryPoints,
+        summary: {
+          stableRunningMedian: +(lineSpeed * 0.98).toFixed(1),
+          stableRunningP90: +(lineSpeed * 1.02).toFixed(1),
+          setupAvgSpeed: +(targetSpeed * 0.25).toFixed(1),
+          stoppedDurationSec: 1800,
+          proposedTargetSpeed: targetSpeed,
+          currentTargetSpeed: targetSpeed,
+          deltaVsTargetPct: +(((lineSpeed / targetSpeed) - 1) * 100).toFixed(1),
+        },
+      },
+    };
+  }
+
+  function buildMockFleet() {
+    const ids = [];
+    ["D", "S", "A"].forEach((p) => {
+      for (let i = 1; i <= 8; i++) ids.push(p + "-" + String(i).padStart(2, "0"));
+    });
+    for (let i = 1; i <= 8; i++) ids.push("SH-" + String(i).padStart(2, "0"));
+    return ids.map((id) => {
+      const d = buildMockDetail(id);
+      return { id: d.id, name: d.name, area: d.area, status: d.status };
+    });
+  }
+
+  let dataMode = localStorage.getItem(MODE_KEY) || "mock";
+  let machineId = qs("machine_id") || "D-01";
+  let timeRange = localStorage.getItem("mes-ed-time-range") || "auto";
+  let customFrom = localStorage.getItem("mes-ed-custom-from") || "";
+  let customTo = localStorage.getItem("mes-ed-custom-to") || "";
+  let fleet = [];
+  let detail = null;
+  let statusHistory = [];
+  let speedHistory = null;
+  let pollTimer = null;
+  let lastRtAt = 0;
+  /** Auto RT buffers: { t, speed, target, temp, current, power, zones:{} } */
+  let rtSeries = [];
+  let rtMachineId = null;
+
+  function rangeCfg() {
+    return RANGE_CFG[timeRange] || RANGE_CFG.auto;
+  }
+
+  function toLocalInputValue(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+      "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function parseLocalInput(val) {
+    if (!val) return null;
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function getWindowRange() {
+    const cfg = rangeCfg();
+    const end = new Date();
+    if (timeRange === "custom") {
+      const from = parseLocalInput(customFrom);
+      const to = parseLocalInput(customTo) || end;
+      if (from && to && from < to) return { start: from, end: to, hours: (to - from) / 3600e3 };
+      return { start: new Date(end.getTime() - 8 * 3600e3), end, hours: 8 };
+    }
+    const span = cfg.spanMs || 8 * 3600e3;
+    return { start: new Date(end.getTime() - span), end, hours: span / 3600e3 };
+  }
+
+  function updateWindowTag() {
+    const el = document.getElementById("windowTag");
+    if (!el) return;
+    const cfg = rangeCfg();
+    if (timeRange === "auto") {
+      el.textContent = "window=auto · pts=" + cfg.points + " · tick=1s";
+    } else if (timeRange === "custom") {
+      const w = getWindowRange();
+      el.textContent = "custom · " + w.start.toLocaleString("vi-VN") + " → " + w.end.toLocaleString("vi-VN");
+    } else {
+      el.textContent = "window=" + timeRange + " · " + cfg.title;
+    }
+  }
+
+  function syncTimeRangeUi() {
+    document.querySelectorAll("#timeRange button").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-range") === timeRange);
+    });
+    const row = document.getElementById("customRangeRow");
+    if (row) row.classList.toggle("open", timeRange === "custom");
+    const fromEl = document.getElementById("rangeFrom");
+    const toEl = document.getElementById("rangeTo");
+    if (fromEl && toEl) {
+      if (!customFrom || !customTo) {
+        const end = new Date();
+        const start = new Date(end.getTime() - 8 * 3600e3);
+        if (!customFrom) customFrom = toLocalInputValue(start);
+        if (!customTo) customTo = toLocalInputValue(end);
+      }
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    }
+    updateWindowTag();
+  }
+
+  function resetRtSeries() {
+    rtSeries = [];
+    rtMachineId = machineId;
+  }
+
+  function pushRtSample(m) {
+    if (!m) return;
+    if (rtMachineId !== machineId) resetRtSeries();
+    const sp = speedInfo(m);
+    const zones = {};
+    const mz = m.multiZoneTemperatures;
+    if (mz && typeof mz === "object") {
+      Object.keys(mz).forEach((k) => { if (mz[k] != null) zones[k] = Number(mz[k]); });
+    }
+    rtSeries.push({
+      t: Date.now(),
+      speed: sp.v,
+      target: sp.t,
+      temp: m.temperature != null ? Number(m.temperature) : null,
+      current: m.current != null ? Number(m.current) : null,
+      power: m.power != null ? Number(m.power) : null,
+      zones,
+    });
+    const maxPts = (RANGE_CFG.auto && RANGE_CFG.auto.points) || 50;
+    while (rtSeries.length > maxPts) rtSeries.shift();
+  }
+
+  function fmtAxisTs(ts) {
+    const d = new Date(ts);
+    if (timeRange === "auto" || timeRange === "15m") {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    if (timeRange === "24h" || timeRange === "custom") {
+      return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function destroyCharts() {
+    Object.keys(charts).forEach((k) => {
+      try { charts[k].destroy(); } catch (_) {}
+      delete charts[k];
+    });
+  }
+
+  const board = document.getElementById("board");
+  const layoutApi = MesDemoLayout.create({
+    board: board,
+    layoutKey: "mes-ed-layout-v1",
+    editKey: "mes-ed-edit-layout",
+    defaultLayout: DEFAULT_LAYOUT,
+    panelMeta: PANEL_META,
+    showToast: showToast,
+    onResizeCharts: function (el) {
+      Object.keys(charts).forEach((k) => {
+        const ch = charts[k];
+        if (!ch || !ch.canvas) return;
+        if (el && !el.contains(ch.canvas)) return;
+        try { ch.resize(); } catch (_) {}
+      });
+    },
+  });
+
+  function panelHTML(item, inner) {
+    const meta = PANEL_META[item.id] || {};
+    const badge = meta.badge
+      ? '<span class="panel-badge ' + meta.badge + '">' + meta.badge + "</span>"
+      : "";
+    const proposed = meta.badge === "proposed" ? " proposed" : "";
+    return (
+      layoutApi.panelShellOpen(item, proposed) +
+      layoutApi.panelHeadHtml(item, badge) +
+      '<div class="panel-body" id="body-' + item.id + '">' + inner + "</div>" +
+      layoutApi.panelResizeHtml() +
+      "</section>"
+    );
+  }
+
+  function renderBoardShell() {
+    destroyCharts();
+    layoutApi.cleanupArtifacts();
+    thrPanelMachine = null;
+    board.innerHTML = layoutApi.layout.map((p) => {
+      let inner = "";
+      if (p.id.startsWith("stat_")) {
+        inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div></div>';
+      } else if (p.id === "apq") {
+        inner = '<div class="kpi-strip" id="apqStrip"></div>';
+      } else if (p.id === "length") {
+        inner = '<div class="progress-block" id="lengthBlock"></div>';
+      } else if (p.id === "speed_kpi") {
+        inner = '<div class="kpi-strip" id="speedKpiStrip"></div>';
+      } else if (p.id === "gantt") {
+        inner = '<div id="ganttHost"><div class="hint">Loading status history…</div></div>';
+      } else if (p.id.indexOf("chart_") === 0) {
+        inner = '<div class="chart-wrap"><canvas id="' + p.id + '_c"></canvas></div>';
+      } else if (p.id === "zones") {
+        inner =
+          '<div class="zones-layout">' +
+          '<div class="zone-grid" id="zoneGrid"></div>' +
+          '<div class="chart-wrap"><canvas id="chart_zones_c"></canvas></div>' +
+          "</div>";
+      } else if (p.id === "thresholds") {
+        inner = '<div class="thr-panel" id="thrHost"><p class="hint">Loading…</p></div>';
+      } else if (p.id === "alarms") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Sev</th><th>Message</th><th>Age</th><th>Src</th></tr></thead><tbody id="alarmBody"></tbody></table></div>';
+      } else if (p.id === "energy_buckets") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Bucket</th><th class="num">kWh</th><th class="num">kW</th><th>Product</th><th class="num">m</th><th class="num">kWh/100m</th></tr></thead><tbody id="energyBody"></tbody></table></div>';
+      } else if (p.id === "orders") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>PO</th><th>Product</th><th>Status</th><th class="num">OK m</th><th class="num">Target</th><th>Bobbins</th></tr></thead><tbody id="orderBody"></tbody></table></div>';
+      }
+      return panelHTML(p, inner);
+    }).join("");
+    layoutApi.syncDomFromLayout();
+    layoutApi.bindPanelInteractions();
+  }
+
+  function lineChart(key, canvas, labels, datasets, yLabel) {
+    if (!canvas) return;
+    const muted = cssVar("--g-muted-hex", "#8e8e9a");
+    const grid = cssVar("--g-grid", "rgba(44,50,53,0.6)");
+    const sameLen = charts[key] && charts[key].data && charts[key].data.datasets &&
+      charts[key].data.datasets.length === datasets.length;
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected && sameLen) {
+      charts[key].data.labels = labels;
+      charts[key].data.datasets.forEach((ds, i) => {
+        if (datasets[i]) {
+          ds.data = datasets[i].data;
+          if (datasets[i].label != null) ds.label = datasets[i].label;
+        }
+      });
+      charts[key].update("none");
+      return;
+    }
+    if (charts[key]) { try { charts[key].destroy(); } catch (_) {} }
+    charts[key] = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: datasets.length > 1, labels: { boxWidth: 10, color: muted } },
+        },
+        scales: {
+          x: { ticks: { maxTicksLimit: 6, color: muted, maxRotation: 0 }, grid: { color: grid } },
+          y: { title: yLabel ? { display: true, text: yLabel, color: muted } : undefined, ticks: { color: muted }, grid: { color: grid } },
+        },
+      },
+    });
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    return fmtAxisTs(new Date(iso).getTime());
+  }
+
+  function renderHeader() {
+    const m = detail;
+    if (!m) return;
+    document.getElementById("hdrId").textContent = m.id;
+    document.getElementById("hdrName").textContent = m.name || "";
+    const st = document.getElementById("hdrStatus");
+    st.className = "badge " + (m.status || "idle");
+    st.textContent = m.status || "—";
+    document.getElementById("hdrProduct").textContent = m.productName || m.productionOrderProductName || (m.productionOrder && m.productionOrder.productName) || "—";
+    const po = m.productionOrderName || m.productionOrderId || (m.productionOrder && m.productionOrder.name) || "—";
+    const cust = m.productionOrder && m.productionOrder.customer ? " · " + m.productionOrder.customer : "";
+    document.getElementById("hdrPo").textContent = po + cust;
+    document.getElementById("hdrOp").textContent = m.operatorName || "—";
+    const am = AREAS[m.area] || { name: m.area, nameEn: m.area };
+    document.getElementById("hdrArea").textContent = am.name + " · " + am.nameEn;
+    document.getElementById("rtTag").textContent = lastRtAt
+      ? "rt=" + new Date(lastRtAt).toLocaleTimeString("vi-VN")
+      : "rt=—";
+  }
+
+  function renderStats() {
+    const m = detail;
+    if (!m) return;
+    const sp = speedInfo(m);
+    const st = (thrEvalState[machineId] || {});
+    function thrCls(metric, fallback) {
+      const lv = st[metric] && st[metric].level;
+      if (lv === "alarm") return "red";
+      if (lv === "warn") return "orange";
+      return fallback;
+    }
+    const specs = [
+      { id: "stat_speed", v: String(sp.v), unit: sp.unit, name: "lineSpeed", cls: "blue" },
+      { id: "stat_target", v: String(sp.t), unit: sp.unit, name: "targetSpeed", cls: "purple" },
+      { id: "stat_eff", v: sp.pct.toFixed(0), unit: "%", name: "vs target", cls: sp.pct >= 95 ? "green" : sp.pct >= 85 ? "orange" : "red" },
+      { id: "stat_oee", v: Number(m.oee || 0).toFixed(1), unit: "%", name: "live OEE", cls: (m.oee || 0) >= 80 ? "green" : (m.oee || 0) >= 70 ? "orange" : "red" },
+      { id: "stat_power", v: Number(m.power || 0).toFixed(1), unit: "kW", name: "active power", cls: thrCls("power", "orange") },
+      { id: "stat_temp", v: m.temperature != null ? String(Math.round(m.temperature)) : "—", unit: "°C", name: "temperature", cls: thrCls("temperature", "red") },
+    ];
+    specs.forEach((s) => {
+      const vel = document.getElementById(s.id + "_v");
+      const nel = document.getElementById(s.id + "_n");
+      if (!vel) return;
+      vel.className = "value " + s.cls;
+      vel.innerHTML = s.v + (s.unit ? '<span class="unit">' + s.unit + "</span>" : "");
+      if (nel) nel.textContent = s.name;
+    });
+  }
+
+  function renderApq() {
+    const el = document.getElementById("apqStrip");
+    if (!el || !detail) return;
+    const items = [
+      { k: "Availability", v: Number(detail.availability || 0), c: "var(--g-blue)" },
+      { k: "Performance", v: Number(detail.performance || 0), c: "var(--g-orange)" },
+      { k: "Quality", v: Number(detail.quality || 0), c: "var(--g-green)" },
+      { k: "OEE", v: Number(detail.oee || 0), c: "var(--g-purple)" },
+    ];
+    el.innerHTML = items.map((it) =>
+      '<div class="kpi-mini"><div class="k">' + it.k + '</div><div class="v" style="color:' + it.c + '">' +
+      it.v.toFixed(1) + "%</div></div>"
+    ).join("");
+  }
+
+  function renderLength() {
+    const el = document.getElementById("lengthBlock");
+    if (!el || !detail) return;
+    const ok = Number(detail.producedLengthOk) || Number(detail.producedLength) || 0;
+    const tgt = Number(detail.targetLength) || 0;
+    const pct = tgt > 0 ? Math.min(100, (ok / tgt) * 100) : 0;
+    const runtime = detail.runtimeHours != null ? Number(detail.runtimeHours).toFixed(1) + " h" : "—";
+    el.innerHTML =
+      '<div class="progress-meta"><span>OK length <b style="color:var(--g-text)">' + Math.round(ok) + " m</b></span>" +
+      "<span>Target <b style=\"color:var(--g-text)\">" + (tgt ? Math.round(tgt) + " m" : "—") + "</b></span></div>" +
+      '<div class="progress-track"><div class="progress-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="progress-foot">' + pct.toFixed(1) + "% · NG " + (Number(detail.producedLengthNg) || 0) +
+      " m · runtime " + runtime + "</div>";
+  }
+
+  function renderSpeedKpi() {
+    const el = document.getElementById("speedKpiStrip");
+    if (!el) return;
+    const s = (speedHistory && speedHistory.summary) || {};
+    const items = [
+      { k: "Stable median", v: s.stableRunningMedian != null ? s.stableRunningMedian : "—" },
+      { k: "Stable P90", v: s.stableRunningP90 != null ? s.stableRunningP90 : "—" },
+      { k: "Setup avg", v: s.setupAvgSpeed != null ? s.setupAvgSpeed : "—" },
+      { k: "Stopped", v: s.stoppedDurationSec != null ? Math.round(s.stoppedDurationSec / 60) + " m" : "—" },
+    ];
+    el.innerHTML = items.map((it) =>
+      '<div class="kpi-mini"><div class="k">' + it.k + '</div><div class="v">' + it.v + "</div></div>"
+    ).join("");
+  }
+
+  function renderGantt() {
+    const host = document.getElementById("ganttHost");
+    if (!host) return;
+    const rows = statusHistory || [];
+    if (!rows.length) {
+      host.innerHTML = '<p class="hint">No status-history in window</p>';
+      return;
+    }
+    const start = Math.min(...rows.map((r) => new Date(r.startTime).getTime()));
+    const end = Math.max(...rows.map((r) => new Date(r.endTime || Date.now()).getTime()));
+    const span = Math.max(1, end - start);
+    const segs = rows.map((r) => {
+      const a = new Date(r.startTime).getTime();
+      const b = new Date(r.endTime || Date.now()).getTime();
+      const pct = ((b - a) / span) * 100;
+      const st = r.status || "idle";
+      return '<div class="gantt-seg ' + st + '" style="width:' + pct + '%" title="' +
+        st + " · " + fmtTime(r.startTime) + " → " + fmtTime(r.endTime) + '"></div>';
+    }).join("");
+    host.innerHTML =
+      '<div style="font-size:11px;color:var(--g-text-secondary)">' +
+      fmtTime(new Date(start).toISOString()) + " → " + fmtTime(new Date(end).toISOString()) +
+      " · " + rows.length + " segments</div>" +
+      '<div class="gantt">' + segs + "</div>" +
+      '<div class="gantt-legend">' +
+      '<span><i style="background:var(--g-green)"></i>running</span>' +
+      '<span><i style="background:var(--g-orange)"></i>setup/warn</span>' +
+      '<span><i style="background:var(--g-red)"></i>error</span>' +
+      '<span><i style="background:var(--g-blue)"></i>stopped</span>' +
+      '<span><i style="background:#6e6e76"></i>idle</span></div>';
+  }
+
+  function renderCharts() {
+    if (!detail) return;
+    const spUnit = speedInfo(detail).unit;
+    const useAuto = timeRange === "auto" && rtSeries.length > 0;
+
+    let speedLabels = [];
+    let speedActual = [];
+    let speedTarget = [];
+    if (useAuto) {
+      speedLabels = rtSeries.map((p) => fmtAxisTs(p.t));
+      speedActual = rtSeries.map((p) => p.speed);
+      speedTarget = rtSeries.map((p) => p.target);
+    } else if (speedHistory && Array.isArray(speedHistory.points) && speedHistory.points.length) {
+      const pts = speedHistory.points.slice(-80);
+      speedLabels = pts.map((p) => fmtTime(p.timestamp));
+      speedActual = pts.map((p) => Number(p.actualSpeed) || 0);
+      speedTarget = pts.map((p) => Number(p.targetSpeed) || 0);
+    } else if (detail.speedTrend && detail.speedTrend.length) {
+      const pts = detail.speedTrend.slice(-80);
+      speedLabels = pts.map((p) => fmtTime(p.time));
+      speedActual = pts.map((p) => Number(p.speed) || 0);
+      speedTarget = pts.map((p) => Number(p.target) || 0);
+    }
+    lineChart("chart_speed", document.getElementById("chart_speed_c"), speedLabels, [
+      { label: "Actual", data: speedActual, borderColor: "#5794f2", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+      { label: "Target", data: speedTarget, borderColor: "#ff9830", borderWidth: 1.2, pointRadius: 0, borderDash: [4, 4], tension: 0 },
+    ], spUnit);
+
+    if (useAuto) {
+      const labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      const n = labels.length;
+      lineChart("chart_temp", document.getElementById("chart_temp_c"), labels, [
+        { label: "Temp", data: rtSeries.map((p) => p.temp != null ? p.temp : null), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ].concat(thresholdLineDatasets("temperature", n)), "°C");
+      lineChart("chart_current", document.getElementById("chart_current_c"), labels, [
+        { label: "A", data: rtSeries.map((p) => p.current != null ? p.current : null), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ].concat(thresholdLineDatasets("current", n)), "A");
+      lineChart("chart_power", document.getElementById("chart_power_c"), labels, [
+        { label: "kW", data: rtSeries.map((p) => p.power != null ? p.power : null), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25, spanGaps: true },
+      ].concat(thresholdLineDatasets("power", n)), "kW");
+    } else {
+      const tt = (detail.temperatureTrend || []).slice(-60);
+      lineChart("chart_temp", document.getElementById("chart_temp_c"), tt.map((p) => fmtTime(p.time)), [
+        { label: "Temp", data: tt.map((p) => Number(p.temp) || 0), borderColor: "#f2495c", borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: false },
+      ].concat(thresholdLineDatasets("temperature", tt.length)), "°C");
+
+      const ct = (detail.currentTrend || []).slice(-60);
+      lineChart("chart_current", document.getElementById("chart_current_c"), ct.map((p) => fmtTime(p.time)), [
+        { label: "A", data: ct.map((p) => Number(p.current) || 0), borderColor: "#b877d9", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+      ].concat(thresholdLineDatasets("current", ct.length)), "A");
+
+      const pt = (detail.powerTrend || []).slice(-60);
+      lineChart("chart_power", document.getElementById("chart_power_c"), pt.map((p) => fmtTime(p.time)), [
+        { label: "kW", data: pt.map((p) => Number(p.power) || 0), borderColor: "#ff9830", borderWidth: 1.5, pointRadius: 0, tension: 0.25 },
+      ].concat(thresholdLineDatasets("power", pt.length)), "kW");
+    }
+
+    const et = (detail.energyMeterTrend || []).slice(-60);
+    const meterNow = detail.energyMeterKwh != null ? Number(detail.energyMeterKwh).toFixed(1) + " kWh" : "";
+    lineChart("chart_energy", document.getElementById("chart_energy_c"), et.map((p) => fmtTime(p.time || p.timestamp)), [
+      { label: "Meter " + meterNow, data: et.map((p) => Number(p.meterKwh) || 0), borderColor: "#73bf69", borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
+    ], "kWh");
+  }
+
+  function zoneKeysFromDetail() {
+    const z = detail && detail.multiZoneTemperatures;
+    if (z && typeof z === "object") {
+      return Object.keys(z).filter((k) => z[k] != null);
+    }
+    const trend = detail && detail.multiZoneTemperatureTrend;
+    if (Array.isArray(trend) && trend[0]) {
+      return Object.keys(trend[0]).filter((k) => k !== "time" && k !== "timestamp");
+    }
+    return [];
+  }
+
+  function renderZoneChart() {
+    const canvas = document.getElementById("chart_zones_c");
+    if (!canvas) return;
+    const keys = zoneKeysFromDetail();
+    if (!keys.length) {
+      if (charts.chart_zones) { try { charts.chart_zones.destroy(); } catch (_) {} delete charts.chart_zones; }
+      return;
+    }
+
+    let labels = [];
+    let datasets = [];
+    const useAuto = timeRange === "auto" && rtSeries.length > 0 &&
+      rtSeries.some((p) => p.zones && Object.keys(p.zones).length);
+
+    if (useAuto) {
+      labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      datasets = keys.map((k, i) => ({
+        label: k,
+        data: rtSeries.map((p) => (p.zones && p.zones[k] != null) ? p.zones[k] : null),
+        borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.25,
+        spanGaps: true,
+      }));
+    } else {
+      const trend = (detail.multiZoneTemperatureTrend || []).slice(-60);
+      if (trend.length) {
+        labels = trend.map((p) => fmtTime(p.time || p.timestamp));
+        datasets = keys.map((k, i) => ({
+          label: k,
+          data: trend.map((p) => Number(p[k]) || null),
+          borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.25,
+          spanGaps: true,
+        }));
+      } else {
+        // Snapshot only — single-point bar-like line from current zones
+        const z = detail.multiZoneTemperatures || {};
+        labels = ["now"];
+        datasets = keys.map((k, i) => ({
+          label: k,
+          data: [Number(z[k]) || 0],
+          borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+          borderWidth: 1.5,
+          pointRadius: 3,
+          tension: 0,
+        }));
+      }
+    }
+    // First zone warn/alarm as reference bands (demo)
+    if (keys[0] && labels.length) {
+      datasets = datasets.concat(thresholdLineDatasets("zone_" + keys[0], labels.length));
+    }
+    lineChart("chart_zones", canvas, labels, datasets, "°C");
+  }
+
+  function renderZones() {
+    const el = document.getElementById("zoneGrid");
+    if (!el) return;
+    const z = detail && detail.multiZoneTemperatures;
+    if (!z || typeof z !== "object") {
+      el.innerHTML = '<p class="hint">Không có multi-zone (thường Bọc / đùn). Chọn SH-xx để xem mock.</p>';
+      if (charts.chart_zones) { try { charts.chart_zones.destroy(); } catch (_) {} delete charts.chart_zones; }
+      return;
+    }
+    const st = thrEvalState[machineId] || {};
+    el.innerHTML = Object.keys(z).filter((k) => z[k] != null).map((k, i) => {
+      const lv = (st["zone_" + k] && st["zone_" + k].level) || "ok";
+      const cls = lv === "alarm" ? " thr-alarm" : lv === "warn" ? " thr-warn" : "";
+      return '<div class="zone-card' + cls + '"><div class="zn" style="color:' + ZONE_PALETTE[i % ZONE_PALETTE.length] + '">' + k +
+        '</div><div class="zv">' + Number(z[k]).toFixed(0) + "°</div></div>";
+    }).join("") || '<p class="hint">Empty zones</p>';
+    renderZoneChart();
+  }
+
+  function renderAlarms() {
+    const body = document.getElementById("alarmBody");
+    if (!body || !detail) return;
+    const apiRows = (detail.alarms || []).map((a) => Object.assign({ source: "api" }, a));
+    const rows = apiRows.concat(thrDerivedAlarms || []);
+    body.innerHTML = rows.map((a) => {
+      const age = a.timestamp ? Math.max(0, Math.round((Date.now() - new Date(a.timestamp).getTime()) / 60000)) + "m" : "—";
+      return '<tr><td><span class="sev ' + (a.severity || "info") + '">' + (a.severity || "info") +
+        "</span></td><td>" + (a.message || "—") + "</td><td>" + age +
+        '</td><td class="mono" style="font-size:10px">' + (a.source || "api") + "</td></tr>";
+    }).join("") || '<tr><td colspan="4" class="hint">No active alarms</td></tr>';
+  }
+
+  function updateThresholdLevelsUI() {
+    const body = document.getElementById("thrBody");
+    if (!body) return;
+    const st = thrEvalState[machineId] || {};
+    Array.from(body.querySelectorAll("tr")).forEach((tr) => {
+      const key = tr.getAttribute("data-metric");
+      const ev = st[key] || {};
+      const span = tr.querySelector(".thr-level");
+      if (span) {
+        span.className = "thr-level " + (ev.level || "ok");
+        span.textContent = ev.level || "ok";
+      }
+      const cells = tr.querySelectorAll("td");
+      if (cells[6]) cells[6].textContent = ev.value != null ? Number(ev.value).toFixed(1) : "—";
+    });
+  }
+
+  function renderEnergyBuckets() {
+    const body = document.getElementById("energyBody");
+    if (!body || !detail) return;
+    const rows = detail.energyConsumption || [];
+    body.innerHTML = rows.slice().reverse().slice(0, 24).map((b) =>
+      "<tr><td class=\"mono\">" + fmtTime(b.bucketStart) + "–" + fmtTime(b.bucketEnd) + "</td>" +
+      '<td class="num">' + Number(b.energy || 0).toFixed(2) + "</td>" +
+      '<td class="num">' + (b.powerKw != null ? Number(b.powerKw).toFixed(1) : "—") + "</td>" +
+      "<td>" + (b.productName || "—") + "</td>" +
+      '<td class="num">' + (b.producedLengthM != null ? Math.round(b.producedLengthM) : "—") + "</td>" +
+      '<td class="num">' + (b.kwhPer100m != null ? Number(b.kwhPer100m).toFixed(2) : "—") + "</td></tr>"
+    ).join("") || '<tr><td colspan="6" class="hint">No energyConsumption buckets</td></tr>';
+  }
+
+  function renderOrders() {
+    const body = document.getElementById("orderBody");
+    if (!body || !detail) return;
+    const rows = detail.orderHistory || (detail.productionOrder ? [detail.productionOrder] : []);
+    body.innerHTML = rows.map((o) => {
+      const cuts = (o.bobbinCuts || []).length;
+      return '<tr><td class="mono">' + (o.name || o.id || "—") + "</td>" +
+        "<td>" + (o.productName || "—") + "</td>" +
+        "<td>" + (o.status || "—") + "</td>" +
+        '<td class="num">' + Math.round(Number(o.producedLengthOk) || Number(o.producedLength) || 0) + "</td>" +
+        '<td class="num">' + (o.targetLength != null ? Math.round(o.targetLength) : "—") + "</td>" +
+        '<td class="num">' + cuts + "</td></tr>";
+    }).join("") || '<tr><td colspan="6" class="hint">No order history</td></tr>';
+  }
+
+  function refreshAll() {
+    evaluateThresholds();
+    renderHeader();
+    renderStats();
+    renderApq();
+    renderLength();
+    renderSpeedKpi();
+    renderGantt();
+    renderCharts();
+    renderZones();
+    if (!document.getElementById("thrBody") || thrPanelMachine !== machineId) {
+      renderThresholdPanel();
+      thrPanelMachine = machineId;
+    } else {
+      updateThresholdLevelsUI();
+    }
+    renderAlarms();
+    renderEnergyBuckets();
+    renderOrders();
+  }
+
+  function fillMachineSelect() {
+    const sel = document.getElementById("machineSelect");
+    const ids = fleet.length ? fleet : [{ id: machineId, name: machineId }];
+    sel.innerHTML = ids.map((m) =>
+      '<option value="' + m.id + '"' + (m.id === machineId ? " selected" : "") + ">" +
+      m.id + (m.name ? " · " + m.name : "") + "</option>"
+    ).join("");
+  }
+
+  async function loadFleetLive() {
+    const list = unwrapList(await fetchJson("/api/machines"));
+    fleet = list.map((m) => ({ id: m.id, name: m.name, area: m.area, status: m.status }));
+    if (!fleet.find((m) => m.id === machineId) && fleet[0]) machineId = fleet[0].id;
+    fillMachineSelect();
+  }
+
+  async function loadDetailLive() {
+    const win = getWindowRange();
+    const hours = Math.max(1, Math.ceil(win.hours));
+    const startIso = encodeURIComponent(win.start.toISOString());
+    const endIso = encodeURIComponent(win.end.toISOString());
+    const isAuto = timeRange === "auto";
+
+    const detailRaw = await fetchJson("/api/machines/" + encodeURIComponent(machineId));
+    detail = unwrap(detailRaw);
+    pushRtSample(detail);
+
+    if (isAuto) {
+      // Keep last history for KPI/gantt fallback; don't refetch every second
+      if (!statusHistory.length || !speedHistory) {
+        const [statusRaw, speedRaw] = await Promise.all([
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=8").catch(() => null),
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/speed-history?start=" + startIso + "&end=" + endIso).catch(() => null),
+        ]);
+        statusHistory = unwrapList(statusRaw);
+        speedHistory = unwrap(speedRaw);
+      }
+    } else {
+      const [statusRaw, speedRaw] = await Promise.all([
+        fetchJson(
+          "/api/machines/" + encodeURIComponent(machineId) +
+          "/status-history?start=" + startIso + "&end=" + endIso + "&hours=" + hours
+        ).catch(() =>
+          fetchJson("/api/machines/" + encodeURIComponent(machineId) + "/status-history?hours=" + hours).catch(() => null)
+        ),
+        fetchJson(
+          "/api/machines/" + encodeURIComponent(machineId) +
+          "/speed-history?start=" + startIso + "&end=" + endIso
+        ).catch(() => null),
+      ]);
+      statusHistory = unwrapList(statusRaw);
+      speedHistory = unwrap(speedRaw);
+    }
+
+    lastRtAt = Date.now();
+    document.getElementById("dataStatus").textContent =
+      "source: live · " + machineId + " · " + timeRange + " · " + getApiBase();
+  }
+
+  function loadDetailMock() {
+    detail = buildMockDetail(machineId);
+    statusHistory = detail._statusHistory || [];
+    speedHistory = detail._speedHistory || null;
+    // Simulate zone/speed drift each poll in auto
+    if (timeRange === "auto" && detail.multiZoneTemperatures) {
+      Object.keys(detail.multiZoneTemperatures).forEach((k) => {
+        detail.multiZoneTemperatures[k] = +(Number(detail.multiZoneTemperatures[k]) + (Math.random() - 0.5) * 1.2).toFixed(1);
+      });
+      detail.temperature = Math.round(Number(detail.temperature) + (Math.random() - 0.5) * 0.8);
+      detail.power = +(Number(detail.power) + (Math.random() - 0.5) * 1.5).toFixed(1);
+      detail.current = +(Number(detail.current) + (Math.random() - 0.5) * 0.8).toFixed(1);
+      const sp = speedInfo(detail);
+      detail.lineSpeed = sp.v + (Math.random() - 0.5) * (sp.unit === "m/s" ? 0.2 : 8);
+    }
+    pushRtSample(detail);
+    lastRtAt = Date.now();
+    document.getElementById("dataStatus").textContent = "source: mock detail · " + machineId + " · " + timeRange;
+  }
+
+  async function refreshData(opts) {
+    const quiet = opts && opts.quiet;
+    if (dataMode === "live") {
+      try {
+        if (!fleet.length) await loadFleetLive();
+        await loadDetailLive();
+        if (!quiet) showToast("Live detail · " + machineId);
+      } catch (err) {
+        console.error(err);
+        showToast("Live failed → Mock: " + (err.message || err));
+        setMode("mock");
+        loadDetailMock();
+      }
+    } else {
+      fleet = buildMockFleet();
+      fillMachineSelect();
+      loadDetailMock();
+    }
+    setQsMachine(machineId);
+    refreshAll();
+  }
+
+  function setMode(mode) {
+    dataMode = mode === "live" ? "live" : "mock";
+    localStorage.setItem(MODE_KEY, dataMode);
+    const live = document.getElementById("modeLive");
+    document.getElementById("btnMock").classList.toggle("active-mode", dataMode === "mock");
+    document.getElementById("btnLive").classList.toggle("active-mode", dataMode === "live");
+    if (dataMode === "live") {
+      live.classList.remove("mock");
+      document.getElementById("modeLabel").textContent = "Live";
+    } else {
+      live.classList.add("mock");
+      document.getElementById("modeLabel").textContent = "Mock";
+    }
+  }
+
+  function restartPoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    const ms = rangeCfg().pollMs || (dataMode === "live" ? 5000 : 2000);
+    pollTimer = setInterval(() => {
+      refreshData({ quiet: true });
+    }, ms);
+  }
+
+  function setTimeRange(range) {
+    timeRange = RANGE_CFG[range] ? range : "auto";
+    localStorage.setItem("mes-ed-time-range", timeRange);
+    if (timeRange === "auto") resetRtSeries();
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
+  }
+
+  // Init
+  (function initApiBase() {
+    let saved = localStorage.getItem(API_KEY);
+    if (!saved || saved === "http://localhost:3001") saved = DEFAULT_API;
+    document.getElementById("apiBase").value = saved;
+  })();
+  document.getElementById("apiBase").addEventListener("change", () => {
+    localStorage.setItem(API_KEY, getApiBase());
+  });
+
+  syncTimeRangeUi();
+  document.querySelectorAll("#timeRange button").forEach((btn) => {
+    btn.addEventListener("click", () => setTimeRange(btn.getAttribute("data-range")));
+  });
+  document.getElementById("btnApplyRange").addEventListener("click", () => {
+    customFrom = document.getElementById("rangeFrom").value;
+    customTo = document.getElementById("rangeTo").value;
+    localStorage.setItem("mes-ed-custom-from", customFrom);
+    localStorage.setItem("mes-ed-custom-to", customTo);
+    timeRange = "custom";
+    localStorage.setItem("mes-ed-time-range", "custom");
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
+    showToast("Applied custom range");
+  });
+
+  document.getElementById("machineSelect").addEventListener("change", (e) => {
+    machineId = e.target.value;
+    thrLastToastFp = "";
+    thrPanelMachine = null;
+    resetRtSeries();
+    setQsMachine(machineId);
+    refreshData();
+  });
+
+  document.getElementById("btnMock").addEventListener("click", () => {
+    setMode("mock");
+    resetRtSeries();
+    refreshData().then(() => restartPoll());
+  });
+  document.getElementById("btnLive").addEventListener("click", () => {
+    setMode("live");
+    resetRtSeries();
+    refreshData().then(() => restartPoll());
+  });
+  document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn"), { toast: true }));
+  });
+  document.getElementById("btnEditLayout").addEventListener("click", () => {
+    layoutApi.setEditLayout(!board.classList.contains("layout-edit"), { toast: true });
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    layoutApi.resetLayout(DEFAULT_LAYOUT);
+    renderBoardShell();
+    refreshAll();
+    showToast("Layout reset");
+  });
+  document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
+
+  layoutApi.setEditLayout(localStorage.getItem("mes-ed-edit-layout") === "1");
+  renderBoardShell();
+  setMode(dataMode);
+  refreshData().then(() => restartPoll());
+})();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1556 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MES Speed Lab Pro — contract review</title>
+  <!--
+    Speed Lab Pro (HTML contract demo) — kế thừa React Speed Lab + Grafana mes-speed-lab,
+    nâng cấp: downtime taxonomy · changeover · Line AI profile.
+    APIs:
+      GET /api/speed-lab/machines
+      GET /api/speed-lab/query?machineId&start&end&bucketSec&includeRaw=1
+      GET /api/speed-lab/waterfall?machineId&start&end
+      GET /api/machines/:id/speed-history?start&end
+      GET /api/machines/:id/status-history?start&end | hours=
+    Gaps (proposed): per-line ML model store, changeover matrix endpoint, downtime reason PLC codes.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="mes-demo-layout.js"></script>
+  <link rel="stylesheet" href="mes-demo-layout.css" />
+  <style>
+    :root, html[data-theme="dark"] {
+      --g-bg: #111217; --g-panel: #181b1f; --g-panel-border: #2c3235;
+      --g-text: #ccccdc; --g-text-secondary: #8e8e9a; --g-muted-hex: #8e8e9a;
+      --g-blue: #5794f2; --g-green: #73bf69; --g-yellow: #fade2a;
+      --g-orange: #ff9830; --g-red: #f2495c; --g-purple: #b877d9;
+      --g-input: #141619; --g-hover: #22252b; --g-track: #22252b; --g-cell: #22252b;
+      --g-grid: rgba(44, 50, 53, 0.8); --g-toast: #22252b;
+      --g-topnav: #111217; --g-topnav-border: #22252b; --g-api-note: #6b6b78;
+      --font: Inter, "Helvetica Neue", Arial, sans-serif;
+      --mono: "Roboto Mono", Consolas, monospace;
+    }
+    html[data-theme="light"] {
+      --g-bg: #f4f5f5; --g-panel: #ffffff; --g-panel-border: #dce1e6;
+      --g-text: #111217; --g-text-secondary: #52545c; --g-muted-hex: #6e6e76;
+      --g-blue: #3871dc; --g-green: #1a7f37; --g-yellow: #ad7800;
+      --g-orange: #d05a00; --g-red: #c81e1e; --g-purple: #8a3ffc;
+      --g-input: #ffffff; --g-hover: #e9edf2; --g-track: #e6e9ed; --g-cell: #f4f5f5;
+      --g-grid: rgba(36, 41, 46, 0.12); --g-toast: #ffffff;
+      --g-topnav: #ffffff; --g-topnav-border: #dce1e6; --g-api-note: #6e6e76;
+    }
+    html[data-theme="midnight"] {
+      --g-bg: #0b0f19; --g-panel: #121826; --g-panel-border: #1e2a3d;
+      --g-text: #d8dee9; --g-text-secondary: #8b9bb4; --g-muted-hex: #8b9bb4;
+      --g-blue: #5b9cf5; --g-green: #6bcf8e; --g-yellow: #e8c547;
+      --g-orange: #f0a05a; --g-red: #e85d6f; --g-purple: #9b7fd4;
+      --g-input: #0e1420; --g-hover: #1a2436; --g-track: #1a2436; --g-cell: #1a2436;
+      --g-grid: rgba(91, 156, 245, 0.12); --g-toast: #1a2436;
+      --g-topnav: #0b0f19; --g-topnav-border: #1e2a3d; --g-api-note: #6e7f99;
+    }
+    html[data-theme="ai"] {
+      --g-bg: #050a14; --g-panel: #0a1628; --g-panel-border: rgba(0, 212, 255, 0.22);
+      --g-text: #e8f4ff; --g-text-secondary: #7a9bb8; --g-muted-hex: #7a9bb8;
+      --g-blue: #00d4ff; --g-green: #00ffa3; --g-yellow: #ffe566;
+      --g-orange: #ff9f43; --g-red: #ff4d6d; --g-purple: #a78bfa;
+      --g-input: #071018; --g-hover: #0f2138; --g-track: #0f2138; --g-cell: #0c1a2e;
+      --g-grid: rgba(0, 212, 255, 0.14); --g-toast: #0c1a2e;
+      --g-topnav: rgba(5, 10, 20, 0.92); --g-topnav-border: rgba(0, 212, 255, 0.18); --g-api-note: #5a7a94;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--g-bg); color: var(--g-text); font-family: var(--font); font-size: 14px; }
+    body { overflow: auto; }
+    html[data-theme="ai"] body {
+      background:
+        radial-gradient(ellipse 90% 55% at 12% -8%, rgba(0, 212, 255, 0.2), transparent 55%),
+        radial-gradient(ellipse 70% 45% at 92% 8%, rgba(88, 101, 242, 0.28), transparent 50%),
+        radial-gradient(ellipse 55% 35% at 48% 105%, rgba(0, 255, 200, 0.1), transparent 55%),
+        linear-gradient(180deg, #050a14 0%, #071428 50%, #050a14 100%);
+      background-attachment: fixed;
+    }
+    html[data-theme="ai"] .g-topnav {
+      backdrop-filter: blur(10px);
+      box-shadow: 0 1px 0 rgba(0, 212, 255, 0.12), 0 8px 28px rgba(0, 40, 80, 0.35);
+    }
+    html[data-theme="ai"] .g-logo {
+      background: linear-gradient(135deg, #00d4ff, #5865f2 48%, #a855f7);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.55);
+      color: #041018;
+    }
+    html[data-theme="ai"] .panel {
+      background: linear-gradient(165deg, rgba(14, 36, 64, 0.92), rgba(8, 18, 36, 0.96));
+      box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.1), 0 10px 36px rgba(0, 24, 56, 0.45);
+    }
+    html[data-theme="ai"] .nav-tabs a.active {
+      background: rgba(0, 212, 255, 0.14);
+      box-shadow: 0 0 14px rgba(0, 212, 255, 0.22);
+    }
+    html[data-theme="ai"] .g-btn.primary {
+      background: linear-gradient(135deg, #0099cc, #00d4ff);
+      border-color: #00d4ff; color: #041018;
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.35);
+    }
+    html[data-theme="ai"] .live i { box-shadow: 0 0 8px currentColor; }
+    html[data-theme="midnight"] .g-logo {
+      background: linear-gradient(135deg, #5b9cf5, #9b7fd4 55%, #6bcf8e);
+    }
+
+    .g-topnav {
+      height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+      background: var(--g-topnav); border-bottom: 1px solid var(--g-topnav-border);
+      position: sticky; top: 0; z-index: 30; flex-wrap: wrap; min-height: 40px;
+    }
+    .g-logo {
+      width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0;
+      background: linear-gradient(135deg, #f2495c, #ff9830 45%, #fade2a);
+      display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #111;
+    }
+    .g-breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
+    .g-breadcrumb strong { color: var(--g-text); font-weight: 500; }
+    .g-breadcrumb .sep { opacity: 0.5; }
+    .nav-tabs { display: flex; gap: 4px; margin-left: 8px; }
+    .nav-tabs a {
+      font-size: 12px; padding: 4px 10px; border-radius: 2px; text-decoration: none;
+      color: var(--g-text-secondary); border: 1px solid transparent;
+    }
+    .nav-tabs a:hover { background: var(--g-hover); color: var(--g-text); }
+    .nav-tabs a.active {
+      background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue);
+    }
+    .g-spacer { flex: 1; }
+    .g-time {
+      display: flex; align-items: center; border: 1px solid var(--g-panel-border);
+      border-radius: 2px; overflow: hidden; background: var(--g-input);
+    }
+    .g-time button {
+      border: 0; background: transparent; color: var(--g-text); font: inherit; font-size: 12px;
+      padding: 5px 8px; cursor: pointer; white-space: nowrap;
+    }
+    .g-time button:hover { background: var(--g-hover); }
+    .g-time button.active { background: rgba(87, 148, 242, 0.2); color: var(--g-blue); }
+    .g-time .divider { width: 1px; align-self: stretch; background: var(--g-panel-border); }
+    .g-btn {
+      border: 1px solid var(--g-panel-border); background: var(--g-input); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+    }
+    .g-btn:hover { background: var(--g-hover); }
+    .g-btn.primary { background: #3d71d9; border-color: #3d71d9; color: #fff; }
+    .g-btn.active-mode { background: rgba(115, 191, 105, 0.2); border-color: var(--g-green); color: var(--g-green); }
+    .g-btn.theme-active { background: rgba(87, 148, 242, 0.18); border-color: var(--g-blue); color: var(--g-blue); }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--g-green); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+    .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-green); animation: blink 1.5s infinite; }
+    .live.mock { color: var(--g-orange); }
+    .live.mock i { background: var(--g-orange); }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    select.machine-select {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; max-width: 180px;
+    }
+    .tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 2px;
+      background: rgba(87, 148, 242, 0.15); color: var(--g-blue);
+      border: 1px solid rgba(87, 148, 242, 0.25);
+    }
+    .tag.warn { background: rgba(255, 152, 48, 0.15); color: var(--g-orange); border-color: rgba(255, 152, 48, 0.3); }
+    .tag.gap { background: rgba(184, 119, 217, 0.15); color: var(--g-purple); border-color: rgba(184, 119, 217, 0.3); }
+
+    .g-dashbar { padding: 14px 14px 8px; }
+    .g-dashbar h1 { font-size: 20px; font-weight: 500; }
+    .g-dashbar .sub { margin-top: 6px; font-size: 12px; color: var(--g-text-secondary); line-height: 1.45; max-width: 980px; }
+    .g-dashbar .sub code { font-family: var(--mono); font-size: 11px; }
+    .gap-banner {
+      margin: 0 14px 8px; padding: 8px 12px; border-radius: 2px; font-size: 12px; line-height: 1.45;
+      border: 1px solid rgba(184, 119, 217, 0.35); background: rgba(184, 119, 217, 0.08); color: var(--g-text-secondary);
+    }
+    .gap-banner strong { color: var(--g-purple); }
+    .gap-banner code { font-family: var(--mono); font-size: 11px; color: var(--g-text); }
+    .custom-range-row {
+      display: none; align-items: center; gap: 8px; margin: 0 14px 8px; flex-wrap: wrap;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .custom-range-row.open { display: flex; }
+    .custom-range-row input[type="datetime-local"] {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; color-scheme: dark;
+    }
+    html[data-theme="light"] .custom-range-row input[type="datetime-local"] { color-scheme: light; }
+    .api-base-row {
+      display: flex; align-items: center; gap: 6px; margin: 0 14px 8px;
+      font-size: 12px; color: var(--g-text-secondary);
+    }
+    .api-base-row input {
+      flex: 1; max-width: 360px; background: var(--g-input); border: 1px solid var(--g-panel-border);
+      color: var(--g-text); padding: 5px 8px; border-radius: 2px; font: inherit; font-size: 12px;
+    }
+
+    .board {
+      display: grid; grid-template-columns: repeat(24, 1fr); grid-auto-rows: 36px;
+      gap: 8px; padding: 8px 14px 24px; align-content: start;
+      position: relative;
+    }
+    .panel {
+      background: var(--g-panel); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+    }
+    .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
+    .panel-head {
+      display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px 0; min-height: 28px;
+    }
+    .panel-title-wrap { flex: 1; min-width: 0; }
+    .panel-title { font-size: 12px; font-weight: 500; color: var(--g-text-secondary); }
+    .panel-api { font-size: 10px; color: var(--g-api-note); font-family: var(--mono); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel-badge {
+      display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+    .panel-badge.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
+    .panel-badge.proposed { color: var(--g-purple); background: rgba(184, 119, 217, 0.15); }
+    .panel-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
+
+    .stat { height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 4px; }
+    .stat .value { font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .stat .value.green { color: var(--g-green); }
+    .stat .value.blue { color: var(--g-blue); }
+    .stat .value.orange { color: var(--g-orange); }
+    .stat .value.red { color: var(--g-red); }
+    .stat .value.purple { color: var(--g-purple); }
+    .stat .unit { font-size: 12px; color: var(--g-text-secondary); margin-left: 4px; font-weight: 400; }
+    .stat .name { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
+    .chart-wrap { position: absolute; inset: 4px 8px 8px; }
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .gantt { display: flex; height: 28px; width: 100%; border-radius: 1px; overflow: hidden; background: var(--g-track); margin-top: 6px; }
+    .gantt-seg { height: 100%; min-width: 1px; }
+    .gantt-seg.running { background: var(--g-green); }
+    .gantt-seg.creep { background: var(--g-yellow); }
+    .gantt-seg.stopped, .gantt-seg.error { background: var(--g-red); }
+    .gantt-seg.setup, .gantt-seg.warning { background: var(--g-orange); }
+    .gantt-seg.idle { background: #6e6e76; }
+    .gantt-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--g-text-secondary); }
+    .gantt-legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .gantt-legend i { width: 10px; height: 10px; border-radius: 1px; display: inline-block; }
+
+    .bar-gauge { display: flex; flex-direction: column; gap: 6px; height: 100%; overflow: auto; padding-top: 4px; }
+    .bg-row { display: grid; grid-template-columns: 110px 1fr 56px; gap: 8px; align-items: center; font-size: 12px; }
+    .bg-row .lbl { font-family: var(--mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bg-track { height: 16px; background: var(--g-track); border-radius: 1px; overflow: hidden; }
+    .bg-fill { height: 100%; min-width: 2px; background: linear-gradient(90deg, #3274d9, #5794f2); }
+    .bg-fill.dtl { background: linear-gradient(90deg, #d10e35, #f2495c); }
+    .bg-fill.chg { background: linear-gradient(90deg, #c77d1a, #ff9830); }
+    .bg-fill.speed { background: linear-gradient(90deg, #ad7800, #fade2a); }
+    .bg-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--g-text-secondary); font-size: 11px; }
+
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th { text-align: left; color: var(--g-text-secondary); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--g-panel-border); }
+    .data-table td { padding: 5px 6px; border-bottom: 1px solid var(--g-panel-border); vertical-align: top; }
+    .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .data-table .mono { font-family: var(--mono); font-size: 11px; }
+    .table-scroll { max-height: 100%; overflow: auto; }
+
+    .ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 100%; }
+    .ai-card {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); border-radius: 2px;
+      padding: 8px 10px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .ai-card .k { font-size: 10px; color: var(--g-text-secondary); }
+    .ai-card .v { font-size: 18px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .ai-card .s { font-size: 10px; color: var(--g-text-secondary); margin-top: 2px; }
+    .ai-insight {
+      grid-column: 1 / -1; font-size: 12px; line-height: 1.45; color: var(--g-text-secondary);
+      padding: 8px; border: 1px dashed rgba(184, 119, 217, 0.4); border-radius: 2px;
+      background: rgba(184, 119, 217, 0.06);
+    }
+    .ai-insight strong { color: var(--g-purple); }
+    .hint { font-size: 11px; color: var(--g-text-secondary); padding: 8px 0 0; }
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(12px);
+      background: var(--g-toast); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      padding: 8px 14px; border-radius: 2px; font-size: 12px; opacity: 0; transition: 0.2s; z-index: 60;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1100px) {
+      .panel[data-w="4"], .panel[data-w="6"], .panel[data-w="8"] { grid-column: span 12; }
+      .panel[data-w="12"], .panel[data-w="16"] { grid-column: span 24; }
+      .ai-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="g-topnav">
+    <div class="g-logo">G</div>
+    <div class="g-breadcrumb">
+      <span>Dashboards</span><span class="sep">/</span><span>MES</span><span class="sep">/</span>
+      <strong>Speed Lab Pro</strong>
+    </div>
+    <div class="nav-tabs">
+      <a href="mes-overview-100.html">Overview</a>
+      <a href="mes-control-tower-100.html">Energy</a>
+      <a class="active" href="mes-speed-lab-100.html">Speed Lab</a>
+      <a href="mes-equipment-detail-100.html">Detail</a>
+    </div>
+    <div class="g-spacer"></div>
+    <select id="machineSelect" class="machine-select" title="Chọn dây chuyền"></select>
+    <div class="g-time" id="timeRange" role="group" aria-label="Time range">
+      <button type="button" data-range="auto" class="active">Auto 1s</button><span class="divider"></span>
+      <button type="button" data-range="8h">8h ca</button><span class="divider"></span>
+      <button type="button" data-range="24h">24h</button><span class="divider"></span>
+      <button type="button" data-range="7d">7d</button><span class="divider"></span>
+      <button type="button" data-range="custom">Custom</button>
+    </div>
+    <span class="tag" id="windowTag">window=auto · pts=50 · tick=1s</span>
+    <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
+    <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
+    <button type="button" class="g-btn" id="btnLive">Live API</button>
+    <button type="button" class="g-btn theme-active" data-theme-btn="dark" id="btnThemeDark" title="Grafana Dark">Dark</button>
+    <button type="button" class="g-btn" data-theme-btn="light" id="btnThemeLight" title="Grafana Light">Light</button>
+    <button type="button" class="g-btn" data-theme-btn="midnight" id="btnThemeMidnight" title="Grafana Midnight">Midnight</button>
+    <button type="button" class="g-btn" data-theme-btn="ai" id="btnThemeAi" title="AI Neon">AI</button>
+    <button type="button" class="g-btn" id="btnEditLayout" title="Bật/tắt kéo & resize panel">Edit layout</button>
+    <button type="button" class="g-btn" id="btnReset">Reset panels</button>
+    <button type="button" class="g-btn" id="btnTrain" title="Fit heuristic Line Model từ cửa sổ hiện tại">Train model</button>
+    <button type="button" class="g-btn primary" id="btnRefresh">Phân tích</button>
+  </nav>
+
+  <div class="g-dashbar">
+    <h1>MES Speed Lab Pro</h1>
+    <p class="sub">
+      Kế thừa React <code>SpeedLab</code> + Grafana <code>mes-speed-lab</code>, nâng cấp phân tích:
+      tốc độ / ICT · downtime taxonomy · changeover · Line AI profile.
+      Time: <strong>Auto 50 pts @ 1s</strong> (realtime) · 8h / 24h / 7d · Custom from→to.
+      API: <code>/api/speed-lab/query</code>, <code>/waterfall</code>, <code>/speed-history</code>, <code>/status-history</code>.
+    </p>
+  </div>
+
+  <div class="gap-banner">
+    <strong>Pro gaps trước React:</strong>
+    (1) Downtime reason hiện map rule-based từ status (<code>setup→CHANGEOVER</code>, <code>error→MECH_FAIL</code>) — chưa có PLC reason code;
+    (2) Changeover matrix A→B chưa có endpoint riêng (dùng <code>productNotes</code> + status setup);
+    (3) <em>Line Model</em> = fingerprint heuristic localStorage — chưa có ML service / feature store.
+  </div>
+
+  <div class="custom-range-row" id="customRangeRow">
+    <span>From</span>
+    <input type="datetime-local" id="rangeFrom" />
+    <span>To</span>
+    <input type="datetime-local" id="rangeTo" />
+    <button type="button" class="g-btn primary" id="btnApplyRange">Apply range</button>
+    <span class="hint" style="padding:0">Max 31 ngày (giống backend Speed Lab)</span>
+  </div>
+
+  <div class="api-base-row">
+    <span>API base</span>
+    <input id="apiBase" type="text" value="http://100.114.213.115:3001" spellcheck="false" />
+    <span id="dataStatus">source: mock</span>
+  </div>
+
+  <div class="board" id="board"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  "use strict";
+
+  const MODE_KEY = "mes-sl-data-mode";
+  const API_KEY = "mes-sl-api-base";
+  const THEME_KEY = "mes-ct-theme";
+  const MODEL_KEY = "mes-sl-line-models-v1";
+  const DEFAULT_API = "http://100.114.213.115:3001";
+  const Chart = window.Chart;
+  const charts = {};
+  const DTL_THRESHOLD_SEC = 300;
+
+  const RANGE_CFG = {
+    auto: { points: 50, spanMs: 50 * 1000, pollMs: 1000, bucketSec: 1, analysisSpanMs: 8 * 3600e3, title: "Auto · 50 pts @ 1s" },
+    "8h": { spanMs: 8 * 3600e3, pollMs: 15000, bucketSec: 30, title: "Last 8h (shift)" },
+    "24h": { spanMs: 24 * 3600e3, pollMs: 20000, bucketSec: 60, title: "Last 24h" },
+    "7d": { spanMs: 7 * 24 * 3600e3, pollMs: 60000, bucketSec: 300, title: "Last 7 days" },
+    custom: { spanMs: null, pollMs: 30000, bucketSec: 60, title: "Custom absolute" },
+  };
+
+  const DEFAULT_LAYOUT_ITEMS = [
+    { id: "stat_peak", w: 4, h: 4 },
+    { id: "stat_median", w: 4, h: 4 },
+    { id: "stat_zero", w: 4, h: 4 },
+    { id: "stat_stop", w: 4, h: 4 },
+    { id: "stat_setup", w: 4, h: 4 },
+    { id: "stat_anomaly", w: 4, h: 4 },
+    { id: "chart_speed", w: 16, h: 8 },
+    { id: "pareto_dt", w: 8, h: 8 },
+    { id: "gantt_speed", w: 12, h: 5 },
+    { id: "gantt_status", w: 12, h: 5 },
+    { id: "changeover", w: 12, h: 9 },
+    { id: "waterfall", w: 12, h: 9 },
+    { id: "ai_model", w: 12, h: 8 },
+    { id: "stops_table", w: 12, h: 8 },
+  ];
+  const DEFAULT_LAYOUT = MesDemoLayout.packLayoutItems(DEFAULT_LAYOUT_ITEMS);
+
+  const PANEL_META = {
+    stat_peak: { title: "Peak speed", api: "speed-lab.summary.peakSpeed", badge: "ok" },
+    stat_median: { title: "Stable median / ICT", api: "speed-history.summary.stableRunningMedian", badge: "ok" },
+    stat_zero: { title: "Zero-speed %", api: "speed-lab.summary.zeroSpeedPct", badge: "ok" },
+    stat_stop: { title: "Stopped duration", api: "summary.stoppedDurationSec + stopBlocks", badge: "ok" },
+    stat_setup: { title: "Setup / changeover", api: "waterfall.processing.setup_sec | status=setup", badge: "ok" },
+    stat_anomaly: { title: "Line anomaly score", api: "proposed · Line Model vs window", badge: "proposed" },
+    chart_speed: { title: "Speed trend · actual / target / ICT", api: "speed-lab.buckets + speed-history overlays", badge: "ok" },
+    pareto_dt: { title: "Downtime taxonomy (Pareto)", api: "waterfall.breakdown_summary + classify(status)", badge: "ok" },
+    gantt_speed: { title: "State from actual_speed", api: "inferredSegments.fromActualSpeed (run/creep/stop)", badge: "ok" },
+    gantt_status: { title: "State from status-history", api: "GET …/status-history", badge: "ok" },
+    changeover: { title: "Product changeover · ICT by SKU", api: "speed-history.productNotes + setup segments", badge: "ok" },
+    waterfall: { title: "OEE waterfall · DTL / speed loss", api: "GET /api/speed-lab/waterfall", badge: "ok" },
+    ai_model: { title: "Line AI profile · per-machine model", api: "heuristic fingerprint (local) → future ML service", badge: "proposed" },
+    stops_table: { title: "Stop blocks (≥60s zero-speed)", api: "speed-lab.stopBlocks", badge: "ok" },
+  };
+
+  const REASON_LABEL = {
+    CHANGEOVER: "Chuyển đổi SP",
+    MECH_FAIL: "Sự cố cơ khí",
+    WAIT_MAT: "Chờ NVL",
+    MINOR_STOP: "Dừng ngắn",
+    REDUCED_SPEED: "Tốc độ thấp",
+    UNKNOWN: "Khác",
+    RUNNING: "Running",
+    ZERO_SPEED: "Zero-speed stop",
+  };
+
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  const THEME_LABELS = {
+    dark: "Grafana Dark",
+    light: "Grafana Light",
+    midnight: "Grafana Midnight",
+    ai: "AI Neon",
+  };
+  function normalizeTheme(theme) {
+    return THEME_LABELS[theme] ? theme : "dark";
+  }
+  function applyTheme(theme, opts) {
+    const t = normalizeTheme(theme);
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem(THEME_KEY, t);
+    document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+      btn.classList.toggle("theme-active", btn.getAttribute("data-theme-btn") === t);
+    });
+    Chart.defaults.color = cssVar("--g-muted-hex", "#8e8e9a");
+    Chart.defaults.borderColor = cssVar("--g-panel-border", "#2c3235");
+    Object.keys(charts).forEach((k) => { try { charts[k].update("none"); } catch (_) {} });
+    if (opts && opts.toast) showToast("Theme: " + THEME_LABELS[t]);
+  }
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+  Chart.defaults.font.family = 'Inter, "Helvetica Neue", Arial, sans-serif';
+  Chart.defaults.font.size = 11;
+
+  function qs(name) {
+    return new URLSearchParams(location.search).get(name);
+  }
+  function setQsMachine(id) {
+    const u = new URL(location.href);
+    u.searchParams.set("machine_id", id);
+    history.replaceState(null, "", u.toString());
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function getApiBase() {
+    return (document.getElementById("apiBase").value || DEFAULT_API).replace(/\/$/, "");
+  }
+
+  async function fetchJson(path) {
+    const res = await fetch(getApiBase() + path, {
+      headers: { Accept: "application/json" },
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(res.status + " " + path);
+    const json = await res.json();
+    if (json && json.success === false) throw new Error(json.message || "API error");
+    return json;
+  }
+  function unwrap(json) {
+    if (json == null) return json;
+    if (json.data !== undefined) return json.data;
+    return json;
+  }
+  function unwrapList(json) {
+    const d = unwrap(json);
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.items)) return d.items;
+    if (d && Array.isArray(d.machines)) return d.machines;
+    return [];
+  }
+
+  function mulberry32(a) {
+    return function () {
+      let t = (a += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function fmtDur(sec) {
+    if (sec == null || !Number.isFinite(sec)) return "—";
+    const s = Math.max(0, Math.round(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + (s % 60) + "s";
+    return s + "s";
+  }
+
+  function fmtTime(iso) {
+    if (!iso && iso !== 0) return "—";
+    const d = new Date(typeof iso === "number" ? iso : iso);
+    if (typeof timeRange !== "undefined" && timeRange === "auto") {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function classifyStatus(status, durationSec) {
+    const st = String(status || "").toLowerCase();
+    if (st === "running") return { bucket: "OT", reason: "RUNNING" };
+    if (durationSec <= DTL_THRESHOLD_SEC) return { bucket: "SPEED_LOSS", reason: "MINOR_STOP" };
+    if (st === "setup") return { bucket: "DTL", reason: "CHANGEOVER" };
+    if (st === "idle") return { bucket: "DTL", reason: "WAIT_MAT" };
+    if (st === "error" || st === "stopped") return { bucket: "DTL", reason: "MECH_FAIL" };
+    if (st === "warning") return { bucket: "SPEED_LOSS", reason: "REDUCED_SPEED" };
+    return { bucket: "DTL", reason: "UNKNOWN" };
+  }
+
+  function loadModels() {
+    try { return JSON.parse(localStorage.getItem(MODEL_KEY) || "{}") || {}; } catch (_) { return {}; }
+  }
+  function saveModels(map) {
+    localStorage.setItem(MODEL_KEY, JSON.stringify(map));
+  }
+
+  function percentile(arr, p) {
+    if (!arr.length) return null;
+    const a = arr.slice().sort((x, y) => x - y);
+    const i = Math.min(a.length - 1, Math.max(0, Math.floor((p / 100) * (a.length - 1))));
+    return a[i];
+  }
+
+  /** Fit heuristic Line Model from window series */
+  function fitLineModel(machineId, lab, speedHist, statusHist) {
+    const runSpeeds = [];
+    (lab.buckets || []).forEach((b) => {
+      const sp = Number(b.actualSpeed) || 0;
+      if (sp >= 1) runSpeeds.push(sp);
+    });
+    const setupSegs = (statusHist || []).filter((s) => String(s.status).toLowerCase() === "setup");
+    const setupSecs = setupSegs.map((s) => Number(s.durationSeconds) || ((new Date(s.endTime || Date.now()) - new Date(s.startTime)) / 1000));
+    const stopSecs = (lab.stopBlocks || []).map((b) => Number(b.durationSec) || 0);
+    const notes = (speedHist && speedHist.productNotes) || [];
+    const changeovers = [];
+    for (let i = 1; i < notes.length; i++) {
+      const prev = notes[i - 1];
+      const cur = notes[i];
+      const gapSec = (new Date(cur.segmentStart).getTime() - new Date(prev.segmentEnd || prev.segmentStart).getTime()) / 1000;
+      if (gapSec > 0 && gapSec < 4 * 3600) {
+        changeovers.push({
+          from: prev.productName || prev.orderName || "?",
+          to: cur.productName || cur.orderName || "?",
+          durationSec: gapSec,
+        });
+      }
+    }
+    const sum = lab.summary || {};
+    return {
+      machineId,
+      trainedAt: new Date().toISOString(),
+      samples: (lab.meta && lab.meta.bucketCount) || runSpeeds.length,
+      speed: {
+        p10: percentile(runSpeeds, 10),
+        p50: percentile(runSpeeds, 50),
+        p90: percentile(runSpeeds, 90),
+        peak: sum.peakSpeed != null ? Number(sum.peakSpeed) : percentile(runSpeeds, 100),
+      },
+      zeroSpeedPct: sum.zeroSpeedPct != null ? Number(sum.zeroSpeedPct) : null,
+      setup: {
+        count: setupSecs.length,
+        medianSec: percentile(setupSecs, 50),
+        p90Sec: percentile(setupSecs, 90),
+      },
+      stops: {
+        count: stopSecs.length,
+        medianSec: percentile(stopSecs, 50),
+        p90Sec: percentile(stopSecs, 90),
+      },
+      changeovers,
+      ict: speedHist && speedHist.summary ? {
+        stableMedian: speedHist.summary.stableRunningMedian,
+        proposed: speedHist.summary.proposedTargetSpeed,
+      } : null,
+      method: "heuristic-v1",
+    };
+  }
+
+  function scoreAnomaly(model, lab, speedHist) {
+    if (!model || !model.speed) return { score: null, notes: ["Chưa train model cho dây chuyền này."] };
+    const notes = [];
+    let score = 0;
+    const peak = Number(lab.summary && lab.summary.peakSpeed) || 0;
+    const med = speedHist && speedHist.summary ? Number(speedHist.summary.stableRunningMedian) : null;
+    const zero = Number(lab.summary && lab.summary.zeroSpeedPct) || 0;
+
+    if (model.speed.p50 && med != null) {
+      const drift = Math.abs(med - model.speed.p50) / Math.max(1, model.speed.p50);
+      if (drift > 0.12) { score += Math.min(40, drift * 100); notes.push("Stable median lệch band lịch sử (" + (drift * 100).toFixed(0) + "%)."); }
+    }
+    if (model.zeroSpeedPct != null && zero > model.zeroSpeedPct * 1.35 + 2) {
+      score += 25;
+      notes.push("Zero-speed % cao hơn profile (hiện " + zero.toFixed(1) + "% vs model " + Number(model.zeroSpeedPct).toFixed(1) + "%).");
+    }
+    if (model.speed.p10 && peak > 0 && peak < model.speed.p10 * 0.85) {
+      score += 20;
+      notes.push("Peak thấp bất thường so với band chạy.");
+    }
+    if (!notes.length) notes.push("Hành vi trong cửa sổ khớp Line Model (không lệch đáng kể).");
+    return { score: Math.min(100, Math.round(score)), notes };
+  }
+
+  function buildMockLab(machineId, win) {
+    const rng = mulberry32(String(machineId).split("").reduce((s, c) => s + c.charCodeAt(0), 7));
+    const area =
+      machineId.indexOf("D-") === 0 ? "drawing"
+        : machineId.indexOf("S-") === 0 ? "stranding"
+          : machineId.indexOf("A-") === 0 ? "armoring" : "sheathing";
+    const target = area === "drawing" ? 16.5 : area === "stranding" ? 720 : area === "armoring" ? 480 : 500;
+    const start = win.start.getTime();
+    const end = win.end.getTime();
+    const bucketSec = win.bucketSec || 30;
+    const n = Math.min(400, Math.max(40, Math.floor((end - start) / (bucketSec * 1000))));
+    const buckets = [];
+    const rawRows = [];
+    let runAcc = 0;
+    let zero = 0;
+    let peak = 0;
+    let state = "running";
+    let planned = 0;
+    for (let i = 0; i < n; i++) {
+      const t = start + i * bucketSec * 1000;
+      if (rng() < 0.04) state = "stopped";
+      else if (rng() < 0.03) state = "setup";
+      else if (rng() < 0.05) state = "creep";
+      else state = "running";
+      let sp = 0;
+      if (state === "running") sp = target * (0.88 + rng() * 0.14);
+      else if (state === "creep") sp = 0.2 + rng() * 0.6;
+      else if (state === "setup") sp = target * (0.05 + rng() * 0.15);
+      if (sp > peak) peak = sp;
+      if (sp < 0.01) zero++;
+      if (state === "running") runAcc += bucketSec;
+      planned += bucketSec;
+      buckets.push({
+        timestamp: new Date(t).toISOString(),
+        actualSpeed: +sp.toFixed(2),
+        targetSpeed: target,
+        runningTimeSeconds: runAcc,
+        performance: target ? +((sp / target) * 100).toFixed(1) : null,
+      });
+      rawRows.push({
+        timestamp: new Date(t).toISOString(),
+        actualSpeed: +sp.toFixed(2),
+        targetSpeed: target,
+        runningTimeSeconds: runAcc,
+        plannedTimeSeconds: planned,
+        performance: null, availability: null, quality: null, oee: null,
+        productionOrderId: i < n * 0.45 ? "PO-A" : "PO-B",
+      });
+    }
+
+    // Infer segments
+    const fromActualSpeed = [];
+    let cur = null;
+    buckets.forEach((b) => {
+      const sp = b.actualSpeed;
+      const st = sp >= 1 ? "running" : sp > 0 ? "creep" : "stopped";
+      const ms = new Date(b.timestamp).getTime();
+      if (!cur || cur.state !== st) {
+        if (cur) { cur.endMs = ms; fromActualSpeed.push(cur); }
+        cur = { state: st, startMs: ms, endMs: ms + bucketSec * 1000, source: "actual_speed" };
+      } else cur.endMs = ms + bucketSec * 1000;
+    });
+    if (cur) fromActualSpeed.push(cur);
+
+    const stopBlocks = fromActualSpeed
+      .filter((s) => s.state === "stopped" && (s.endMs - s.startMs) / 1000 >= 60)
+      .map((s) => ({
+        startMs: s.startMs, endMs: s.endMs,
+        durationSec: Math.round((s.endMs - s.startMs) / 1000),
+        source: "actual_speed",
+      }));
+
+    const statusHistory = [];
+    let t0 = start;
+    const pattern = [
+      ["running", 2.2], ["setup", 0.45], ["running", 1.8], ["stopped", 0.35],
+      ["running", 1.5], ["idle", 0.25], ["warning", 0.2], ["running", 1.2],
+    ];
+    pattern.forEach(([st, h], i) => {
+      const dur = h * 3600e3 * (0.7 + rng() * 0.5);
+      const a = t0;
+      t0 = Math.min(end, t0 + dur);
+      statusHistory.push({
+        id: "SH-" + i, machineId, status: st, previousStatus: i ? pattern[i - 1][0] : null,
+        startTime: new Date(a).toISOString(),
+        endTime: t0 >= end ? null : new Date(t0).toISOString(),
+        durationSeconds: Math.round((Math.min(t0, end) - a) / 1000),
+        isProductionTime: st === "running",
+      });
+      if (t0 >= end) return;
+    });
+
+    const mid = start + (end - start) * 0.48;
+    const productNotes = [
+      {
+        orderId: "PO-A", orderName: "PO-2026-210", productName: "CV 3×95+50",
+        segmentStart: new Date(start + 600000).toISOString(),
+        segmentEnd: new Date(mid - 900000).toISOString(),
+        stableSpeedMedian: +(target * 0.96).toFixed(1),
+        avgRunningSpeed: +(target * 0.94).toFixed(1),
+        ictMedian: +(target * 0.97).toFixed(1),
+        proposedIct: +(target * 0.98).toFixed(1),
+        pointCount: 120, durationSec: Math.round((mid - start) / 1000) - 1500, status: "completed",
+      },
+      {
+        orderId: "PO-B", orderName: "PO-2026-318", productName: "CXV 3×150",
+        segmentStart: new Date(mid + 600000).toISOString(),
+        segmentEnd: new Date(end - 300000).toISOString(),
+        stableSpeedMedian: +(target * 0.93).toFixed(1),
+        avgRunningSpeed: +(target * 0.91).toFixed(1),
+        ictMedian: +(target * 0.94).toFixed(1),
+        proposedIct: +(target * 0.95).toFixed(1),
+        pointCount: 90, durationSec: Math.round((end - mid) / 1000) - 900, status: "running",
+      },
+    ];
+
+    const setupSec = statusHistory.filter((s) => s.status === "setup").reduce((a, s) => a + (s.durationSeconds || 0), 0);
+    const idleSec = statusHistory.filter((s) => s.status === "idle").reduce((a, s) => a + (s.durationSeconds || 0), 0);
+    const errSec = statusHistory.filter((s) => s.status === "error" || s.status === "stopped").reduce((a, s) => a + (s.durationSeconds || 0), 0);
+    const runSec = statusHistory.filter((s) => s.status === "running").reduce((a, s) => a + (s.durationSeconds || 0), 0);
+    const pot = Math.max(1, (end - start) / 1000);
+
+    const breakdown = [
+      { bucket: "DTL", reason: "CHANGEOVER", status: "setup", seconds: setupSec, count: 1, pct_of_pot: (setupSec / pot) * 100 },
+      { bucket: "DTL", reason: "MECH_FAIL", status: "stopped", seconds: errSec, count: stopBlocks.length || 1, pct_of_pot: (errSec / pot) * 100 },
+      { bucket: "DTL", reason: "WAIT_MAT", status: "idle", seconds: idleSec, count: 1, pct_of_pot: (idleSec / pot) * 100 },
+      { bucket: "SPEED_LOSS", reason: "MINOR_STOP", status: "stopped", seconds: Math.round(pot * 0.03), count: 4, pct_of_pot: 3 },
+      { bucket: "SPEED_LOSS", reason: "REDUCED_SPEED", status: "warning", seconds: Math.round(pot * 0.02), count: 2, pct_of_pot: 2 },
+    ];
+
+    return {
+      area, target,
+      lab: {
+        meta: {
+          machineId, source: "oee_calculations", bucketSec,
+          windowStart: win.start.toISOString(), windowEnd: win.end.toISOString(),
+          dataEnd: win.end.toISOString(), rawRowCount: rawRows.length, bucketCount: buckets.length,
+          timezone: "Asia/Ho_Chi_Minh",
+        },
+        summary: {
+          peakSpeed: +peak.toFixed(2),
+          zeroSpeedPct: +((zero / n) * 100).toFixed(1),
+          stoppedDurationSec: stopBlocks.reduce((a, b) => a + b.durationSec, 0),
+          finalRunningTimeSec: runAcc,
+          plannedTimeSec: planned,
+          stopSegmentCount: stopBlocks.length,
+        },
+        buckets, rawRows,
+        inferredSegments: { fromActualSpeed, fromRunningTime: fromActualSpeed },
+        stopBlocks,
+      },
+      speedHist: {
+        points: buckets.map((b) => ({
+          timestamp: b.timestamp, actualSpeed: b.actualSpeed, targetSpeed: b.targetSpeed,
+          performance: b.performance,
+          phase: b.actualSpeed >= 1 ? "stable_running" : b.actualSpeed > 0 ? "setup" : "stopped",
+        })),
+        summary: {
+          stableRunningMedian: +(target * 0.95).toFixed(1),
+          stableRunningP90: +(target * 1.01).toFixed(1),
+          setupAvgSpeed: +(target * 0.12).toFixed(1),
+          stoppedDurationSec: stopBlocks.reduce((a, b) => a + b.durationSec, 0),
+          proposedTargetSpeed: +(target * 0.97).toFixed(1),
+          currentTargetSpeed: target,
+          deltaVsTargetPct: -3.1,
+        },
+        productNotes,
+        meta: { bucketSec, source: "mock", pointCount: buckets.length, area },
+      },
+      statusHistory,
+      waterfall: {
+        meta: { machineId, timezone: "Asia/Ho_Chi_Minh", methodology: "TPM + status classify", dtl_threshold_sec: DTL_THRESHOLD_SEC },
+        machine: { id: machineId, name: machineId, area },
+        periodStart: win.start.toISOString(),
+        periodEnd: win.end.toISOString(),
+        buckets: {
+          pot_sec: pot, pst_sec: pot, ppt_sec: pot - idleSec * 0.2, dtl_sec: setupSec + errSec + idleSec,
+          ot_sec: runSec, running_sec: runSec, speed_loss_sec: pot * 0.05, net_ot_sec: runSec * 0.96,
+          quality_loss_sec: pot * 0.01, fpt_sec: runSec * 0.95,
+          not_plan_sec: null, not_study_sec: null, speed_loss_plan_sec: pot * 0.04, speed_loss_study_sec: pot * 0.03,
+        },
+        apq: {
+          availability_pct: 82.4, performance_plan_pct: 91.2, performance_study_pct: 94.0,
+          quality_pct: 98.5, oee_plan_pct: 74.1, oee_study_pct: 76.3,
+        },
+        performance: {
+          l_total_m: 4200, ils_plan: target, ils_study: target * 0.97,
+          ils_gap_pct: 3, snapshot_actual_speed: target * 0.94, snapshot_target_speed: target,
+        },
+        compare: { p_proxy_pct: 91.2, p_snapshot_pct: 94, avg_speed_running_m_min: target * 0.94 },
+        processing: { running_sec: runSec, idle_sec: idleSec, setup_sec: setupSec, slot_sec: pot },
+        breakdown_summary: breakdown,
+        data_quality: { l_total_source: "mock", l_total_event_count: 40, has_ils_plan: true, has_ils_study: true, segment_count: statusHistory.length },
+      },
+    };
+  }
+
+  let dataMode = localStorage.getItem(MODE_KEY) || "mock";
+  let machineId = qs("machine_id") || "SH-04";
+  let timeRange = localStorage.getItem("mes-sl-time-range") || "auto";
+  let customFrom = localStorage.getItem("mes-sl-custom-from") || "";
+  let customTo = localStorage.getItem("mes-sl-custom-to") || "";
+  let fleet = [];
+  let lab = null;
+  let speedHist = null;
+  let statusHistory = [];
+  let waterfall = null;
+  let lineModel = null;
+  let anomaly = { score: null, notes: [] };
+  let pollTimer = null;
+  /** Auto RT: last 50 speed samples @ 1s */
+  let rtSeries = [];
+  let rtMachineId = null;
+  let autoAnalysisAt = 0;
+  let autoAnalysisMachine = null;
+  const AUTO_ANALYSIS_TTL_MS = 30000;
+
+  function rangeCfg() { return RANGE_CFG[timeRange] || RANGE_CFG.auto; }
+
+  function resetRtSeries() {
+    rtSeries = [];
+    rtMachineId = machineId;
+  }
+
+  function pushRtSample(actual, target) {
+    if (rtMachineId !== machineId) resetRtSeries();
+    rtSeries.push({
+      t: Date.now(),
+      actual: Number(actual) || 0,
+      target: Number(target) || 0,
+    });
+    const maxPts = (RANGE_CFG.auto && RANGE_CFG.auto.points) || 50;
+    while (rtSeries.length > maxPts) rtSeries.shift();
+  }
+
+  function fmtAxisTs(ts) {
+    const d = new Date(ts);
+    if (timeRange === "auto") {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function toLocalInputValue(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+      "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function parseLocalInput(val) {
+    if (!val) return null;
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function getWindowRange() {
+    const cfg = rangeCfg();
+    const end = new Date();
+    if (timeRange === "custom") {
+      const from = parseLocalInput(customFrom);
+      const to = parseLocalInput(customTo) || end;
+      if (from && to && from < to) {
+        return { start: from, end: to, bucketSec: cfg.bucketSec };
+      }
+      return { start: new Date(end.getTime() - 8 * 3600e3), end, bucketSec: cfg.bucketSec };
+    }
+    // Auto: RT chart = 50s; analysis panels still query 8h backdrop
+    const span = timeRange === "auto"
+      ? (cfg.analysisSpanMs || 8 * 3600e3)
+      : (cfg.spanMs || 8 * 3600e3);
+    return {
+      start: new Date(end.getTime() - span),
+      end,
+      bucketSec: timeRange === "auto" ? 30 : cfg.bucketSec,
+    };
+  }
+
+  function syncTimeRangeUi() {
+    document.querySelectorAll("#timeRange button").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-range") === timeRange);
+    });
+    const row = document.getElementById("customRangeRow");
+    if (row) row.classList.toggle("open", timeRange === "custom");
+    const fromEl = document.getElementById("rangeFrom");
+    const toEl = document.getElementById("rangeTo");
+    if (fromEl && toEl) {
+      if (!customFrom || !customTo) {
+        const end = new Date();
+        const start = new Date(end.getTime() - 8 * 3600e3);
+        if (!customFrom) customFrom = toLocalInputValue(start);
+        if (!customTo) customTo = toLocalInputValue(end);
+      }
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    }
+    const cfg = rangeCfg();
+    const w = getWindowRange();
+    if (timeRange === "auto") {
+      document.getElementById("windowTag").textContent =
+        "window=auto · pts=" + (cfg.points || 50) + " · tick=1s · analysis=8h";
+    } else if (timeRange === "custom") {
+      document.getElementById("windowTag").textContent =
+        "custom · " + fmtTime(w.start) + " → " + fmtTime(w.end);
+    } else {
+      document.getElementById("windowTag").textContent =
+        "window=" + timeRange + " · bucket=" + w.bucketSec + "s";
+    }
+  }
+
+  function destroyCharts() {
+    Object.keys(charts).forEach((k) => {
+      try { charts[k].destroy(); } catch (_) {}
+      delete charts[k];
+    });
+  }
+
+  const board = document.getElementById("board");
+  const layoutApi = MesDemoLayout.create({
+    board: board,
+    layoutKey: "mes-sl-layout-v1",
+    editKey: "mes-sl-edit-layout",
+    defaultLayout: DEFAULT_LAYOUT,
+    panelMeta: PANEL_META,
+    showToast: showToast,
+    onResizeCharts: function (el) {
+      Object.keys(charts).forEach((k) => {
+        const ch = charts[k];
+        if (!ch || !ch.canvas) return;
+        if (el && !el.contains(ch.canvas)) return;
+        try { ch.resize(); } catch (_) {}
+      });
+    },
+  });
+
+  function panelHTML(item, inner) {
+    const meta = PANEL_META[item.id] || {};
+    const badge = meta.badge
+      ? '<span class="panel-badge ' + meta.badge + '">' + meta.badge + "</span>"
+      : "";
+    const proposed = meta.badge === "proposed" ? " proposed" : "";
+    return (
+      layoutApi.panelShellOpen(item, proposed) +
+      layoutApi.panelHeadHtml(item, badge) +
+      '<div class="panel-body" id="body-' + item.id + '">' + inner + "</div>" +
+      layoutApi.panelResizeHtml() +
+      "</section>"
+    );
+  }
+
+  function renderBoardShell() {
+    destroyCharts();
+    layoutApi.cleanupArtifacts();
+    board.innerHTML = layoutApi.layout.map((p) => {
+      let inner = "";
+      if (p.id.startsWith("stat_")) {
+        inner = '<div class="stat"><div class="value" id="' + p.id + '_v">—</div><div class="name" id="' + p.id + '_n"></div></div>';
+      } else if (p.id.indexOf("chart_") === 0) {
+        inner = '<div class="chart-wrap"><canvas id="' + p.id + '_c"></canvas></div>';
+      } else if (p.id === "pareto_dt") {
+        inner = '<div class="bar-gauge" id="paretoHost"></div>';
+      } else if (p.id === "gantt_speed" || p.id === "gantt_status") {
+        inner = '<div id="' + p.id + 'Host"><p class="hint">Loading…</p></div>';
+      } else if (p.id === "changeover") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>From→To / SKU</th><th class="num">ICT</th><th class="num">Proposed</th><th class="num">Dur</th><th>Status</th></tr></thead><tbody id="chgBody"></tbody></table></div>';
+      } else if (p.id === "waterfall") {
+        inner = '<div class="bar-gauge" id="wfHost"></div>';
+      } else if (p.id === "ai_model") {
+        inner = '<div class="ai-grid" id="aiHost"></div>';
+      } else if (p.id === "stops_table") {
+        inner = '<div class="table-scroll"><table class="data-table"><thead><tr><th>Start</th><th>End</th><th class="num">Dur</th><th>Source</th></tr></thead><tbody id="stopBody"></tbody></table></div>';
+      }
+      return panelHTML(p, inner);
+    }).join("");
+    layoutApi.syncDomFromLayout();
+    layoutApi.bindPanelInteractions();
+  }
+
+  function lineChart(key, canvas, labels, datasets, yLabel) {
+    if (!canvas) return;
+    const muted = cssVar("--g-muted-hex", "#8e8e9a");
+    const grid = cssVar("--g-grid", "rgba(44,50,53,0.6)");
+    const sameLen = charts[key] && charts[key].data && charts[key].data.datasets &&
+      charts[key].data.datasets.length === datasets.length;
+    if (charts[key] && charts[key].canvas === canvas && canvas.isConnected && sameLen) {
+      charts[key].data.labels = labels;
+      charts[key].data.datasets.forEach((ds, i) => {
+        if (datasets[i]) ds.data = datasets[i].data;
+      });
+      charts[key].update("none");
+      return;
+    }
+    if (charts[key]) { try { charts[key].destroy(); } catch (_) {} }
+    charts[key] = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: datasets.length > 1, labels: { boxWidth: 10, color: muted } } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8, color: muted, maxRotation: 0 }, grid: { color: grid } },
+          y: { title: yLabel ? { display: true, text: yLabel, color: muted } : undefined, ticks: { color: muted }, grid: { color: grid } },
+        },
+      },
+    });
+  }
+
+  function renderGantt(hostId, segments, kind) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    if (!segments || !segments.length) {
+      host.innerHTML = '<p class="hint">No segments in window</p>';
+      return;
+    }
+    const start = Math.min(...segments.map((s) => s.startMs));
+    const end = Math.max(...segments.map((s) => s.endMs));
+    const span = Math.max(1, end - start);
+    const segs = segments.map((s) => {
+      const pct = ((s.endMs - s.startMs) / span) * 100;
+      const st = s.state || s.status || "idle";
+      return '<div class="gantt-seg ' + st + '" style="width:' + pct + '%" title="' +
+        st + " · " + fmtDur((s.endMs - s.startMs) / 1000) + '"></div>';
+    }).join("");
+    const legend = kind === "speed"
+      ? '<span><i style="background:var(--g-green)"></i>running</span><span><i style="background:var(--g-yellow)"></i>creep</span><span><i style="background:var(--g-red)"></i>stopped</span>'
+      : '<span><i style="background:var(--g-green)"></i>running</span><span><i style="background:var(--g-orange)"></i>setup</span><span><i style="background:var(--g-red)"></i>stop/error</span><span><i style="background:#6e6e76"></i>idle</span>';
+    host.innerHTML =
+      '<div style="font-size:11px;color:var(--g-text-secondary)">' + fmtTime(start) + " → " + fmtTime(end) +
+      " · " + segments.length + " seg</div>" +
+      '<div class="gantt">' + segs + "</div>" +
+      '<div class="gantt-legend">' + legend + "</div>";
+  }
+
+  function setStat(id, valueHtml, name, cls) {
+    const vel = document.getElementById(id + "_v");
+    const nel = document.getElementById(id + "_n");
+    if (!vel) return;
+    vel.className = "value " + (cls || "");
+    vel.innerHTML = valueHtml;
+    if (nel) nel.textContent = name || "";
+  }
+
+  function refreshAll(opts) {
+    if (!lab) return;
+    const soft = opts && opts.soft;
+    const sum = lab.summary || {};
+    const sh = (speedHist && speedHist.summary) || {};
+    const unit = (speedHist && speedHist.meta && speedHist.meta.area === "drawing") ? "m/s" : "m/min";
+    const useAuto = timeRange === "auto" && rtSeries.length > 0;
+
+    // Live peak from RT window when Auto
+    let peakShow = Number(sum.peakSpeed) || 0;
+    if (useAuto) {
+      const rtPeak = Math.max(...rtSeries.map((p) => p.actual));
+      if (rtPeak > peakShow) peakShow = rtPeak;
+    }
+
+    setStat("stat_peak", peakShow.toFixed(1) + '<span class="unit">' + unit + "</span>",
+      useAuto ? "peakSpeed · live window" : "peakSpeed", "blue");
+    setStat("stat_median",
+      (sh.stableRunningMedian != null ? Number(sh.stableRunningMedian).toFixed(1) : "—") +
+      '<span class="unit">' + unit + "</span>",
+      "ICT median · proposed " + (sh.proposedTargetSpeed != null ? Number(sh.proposedTargetSpeed).toFixed(1) : "—"),
+      "green");
+    if (!soft) {
+      setStat("stat_zero", (Number(sum.zeroSpeedPct) || 0).toFixed(1) + '<span class="unit">%</span>', "zeroSpeedPct", Number(sum.zeroSpeedPct) > 15 ? "red" : "orange");
+      setStat("stat_stop", fmtDur(sum.stoppedDurationSec), (sum.stopSegmentCount || 0) + " stop blocks", "red");
+      const setupSec = waterfall && waterfall.processing ? waterfall.processing.setup_sec : null;
+      setStat("stat_setup", fmtDur(setupSec), "setup_sec (waterfall)", "orange");
+      const aScore = anomaly.score;
+      setStat("stat_anomaly",
+        aScore == null ? "—" : String(aScore) + '<span class="unit">/100</span>',
+        aScore == null ? "chưa train" : (aScore < 20 ? "ổn định" : aScore < 50 ? "cần chú ý" : "lệch mạnh"),
+        aScore == null ? "purple" : aScore < 20 ? "green" : aScore < 50 ? "orange" : "red");
+    }
+
+    // Speed chart — Auto uses RT buffer
+    let labels;
+    let actualData;
+    let targetData;
+    if (useAuto) {
+      labels = rtSeries.map((p) => fmtAxisTs(p.t));
+      actualData = rtSeries.map((p) => p.actual);
+      targetData = rtSeries.map((p) => p.target);
+    } else {
+      const buckets = (lab.buckets || []).slice(-200);
+      labels = buckets.map((b) => fmtTime(b.timestamp));
+      actualData = buckets.map((b) => Number(b.actualSpeed) || 0);
+      targetData = buckets.map((b) => Number(b.targetSpeed) || 0);
+    }
+    const ict = sh.proposedTargetSpeed != null ? Number(sh.proposedTargetSpeed) : null;
+    const ds = [
+      { label: "Actual", data: actualData, borderColor: "#5794f2", borderWidth: 1.4, pointRadius: 0, tension: 0.15 },
+      { label: "Target", data: targetData, borderColor: "#ff9830", borderWidth: 1.2, pointRadius: 0, borderDash: [4, 4], tension: 0 },
+    ];
+    if (ict != null) {
+      ds.push({
+        label: "Proposed ICT",
+        data: labels.map(() => ict),
+        borderColor: "#b877d9", borderWidth: 1.2, pointRadius: 0, borderDash: [6, 3], tension: 0,
+      });
+    }
+    lineChart("chart_speed", document.getElementById("chart_speed_c"), labels, ds, unit);
+
+    if (soft) return;
+
+    // Pareto downtime
+    const pareto = document.getElementById("paretoHost");
+    if (pareto) {
+      let rows = (waterfall && waterfall.breakdown_summary) || [];
+      rows = rows.filter((r) => r.reason !== "RUNNING").slice().sort((a, b) => (b.seconds || 0) - (a.seconds || 0));
+      if (!rows.length && lab.stopBlocks) {
+        const total = lab.stopBlocks.reduce((a, b) => a + b.durationSec, 0);
+        rows = [{ reason: "ZERO_SPEED", seconds: total, bucket: "DTL" }];
+      }
+      const max = Math.max(1, ...rows.map((r) => Number(r.seconds) || 0));
+      pareto.innerHTML = rows.map((r) => {
+        const sec = Number(r.seconds) || 0;
+        const cls = r.bucket === "SPEED_LOSS" ? "speed" : r.reason === "CHANGEOVER" ? "chg" : "dtl";
+        return '<div class="bg-row"><div class="lbl" title="' + r.reason + '">' + (REASON_LABEL[r.reason] || r.reason) +
+          '</div><div class="bg-track"><div class="bg-fill ' + cls + '" style="width:' + ((sec / max) * 100).toFixed(1) +
+          '%"></div></div><div class="bg-val">' + fmtDur(sec) + "</div></div>";
+      }).join("") || '<p class="hint">No downtime breakdown</p>';
+    }
+
+    // Gantts
+    const speedSegs = (lab.inferredSegments && lab.inferredSegments.fromActualSpeed) || [];
+    renderGantt("gantt_speedHost", speedSegs, "speed");
+    const stSegs = (statusHistory || []).map((s) => ({
+      status: s.status,
+      startMs: new Date(s.startTime).getTime(),
+      endMs: new Date(s.endTime || Date.now()).getTime(),
+    }));
+    renderGantt("gantt_statusHost", stSegs, "status");
+
+    // Changeover / product notes
+    const chgBody = document.getElementById("chgBody");
+    if (chgBody) {
+      const notes = (speedHist && speedHist.productNotes) || [];
+      const rows = [];
+      notes.forEach((n, i) => {
+        rows.push(
+          "<tr><td><b>" + (n.productName || n.orderName || "—") + "</b><div class=\"mono\">" +
+          (n.orderName || n.orderId || "") + "</div></td>" +
+          '<td class="num">' + (n.ictMedian != null ? Number(n.ictMedian).toFixed(1) : "—") + "</td>" +
+          '<td class="num">' + (n.proposedIct != null ? Number(n.proposedIct).toFixed(1) : "—") + "</td>" +
+          '<td class="num">' + fmtDur(n.durationSec) + "</td>" +
+          "<td>" + (n.status || "—") + "</td></tr>"
+        );
+        if (i > 0) {
+          const prev = notes[i - 1];
+          const gap = (new Date(n.segmentStart).getTime() - new Date(prev.segmentEnd || prev.segmentStart).getTime()) / 1000;
+          if (gap > 60 && gap < 4 * 3600) {
+            rows.push(
+              '<tr style="background:rgba(255,152,48,0.08)"><td class="mono" colspan="1">↺ changeover · ' +
+              (prev.productName || "?") + " → " + (n.productName || "?") + "</td>" +
+              '<td class="num" colspan="2">—</td><td class="num">' + fmtDur(gap) +
+              '</td><td>CHANGEOVER</td></tr>'
+            );
+          }
+        }
+      });
+      chgBody.innerHTML = rows.join("") || '<tr><td colspan="5" class="hint">No productNotes in window</td></tr>';
+    }
+
+    // Waterfall buckets
+    const wfHost = document.getElementById("wfHost");
+    if (wfHost && waterfall) {
+      const b = waterfall.buckets || {};
+      const apq = waterfall.apq || {};
+      const items = [
+        { k: "POT", v: b.pot_sec, cls: "" },
+        { k: "DTL", v: b.dtl_sec, cls: "dtl" },
+        { k: "OT (running)", v: b.ot_sec || b.running_sec, cls: "" },
+        { k: "Speed loss", v: b.speed_loss_sec, cls: "speed" },
+        { k: "A%", v: apq.availability_pct, isPct: true },
+        { k: "P plan%", v: apq.performance_plan_pct, isPct: true },
+        { k: "Q%", v: apq.quality_pct, isPct: true },
+        { k: "OEE plan%", v: apq.oee_plan_pct, isPct: true },
+      ];
+      const maxSec = Math.max(1, ...items.filter((x) => !x.isPct).map((x) => Number(x.v) || 0));
+      wfHost.innerHTML = items.map((it) => {
+        if (it.isPct) {
+          return '<div class="bg-row"><div class="lbl">' + it.k + '</div><div class="bg-track"><div class="bg-fill" style="width:' +
+            Math.min(100, Number(it.v) || 0) + '%"></div></div><div class="bg-val">' +
+            (it.v != null ? Number(it.v).toFixed(1) + "%" : "—") + "</div></div>";
+        }
+        const sec = Number(it.v) || 0;
+        return '<div class="bg-row"><div class="lbl">' + it.k + '</div><div class="bg-track"><div class="bg-fill ' + (it.cls || "") +
+          '" style="width:' + ((sec / maxSec) * 100).toFixed(1) + '%"></div></div><div class="bg-val">' + fmtDur(sec) + "</div></div>";
+      }).join("");
+    } else if (wfHost) {
+      wfHost.innerHTML = '<p class="hint">No waterfall data</p>';
+    }
+
+    // AI model panel
+    const aiHost = document.getElementById("aiHost");
+    if (aiHost) {
+      const m = lineModel;
+      if (!m) {
+        aiHost.innerHTML =
+          '<div class="ai-insight"><strong>Chưa có Line Model.</strong> Bấm <em>Train model</em> để fit fingerprint heuristic từ cửa sổ hiện tại ' +
+          "(speed band · setup · stop · changeover). Lưu localStorage theo machineId — nền tảng cho ML service sau.</div>";
+      } else {
+        aiHost.innerHTML =
+          '<div class="ai-card"><div class="k">Speed band P10–P90</div><div class="v">' +
+          (m.speed.p10 != null ? Number(m.speed.p10).toFixed(1) : "—") + " – " +
+          (m.speed.p90 != null ? Number(m.speed.p90).toFixed(1) : "—") +
+          '</div><div class="s">P50=' + (m.speed.p50 != null ? Number(m.speed.p50).toFixed(1) : "—") +
+          " · samples " + (m.samples || 0) + "</div></div>" +
+          '<div class="ai-card"><div class="k">Setup median / P90</div><div class="v">' +
+          fmtDur(m.setup && m.setup.medianSec) + '</div><div class="s">P90 ' + fmtDur(m.setup && m.setup.p90Sec) +
+          " · n=" + ((m.setup && m.setup.count) || 0) + "</div></div>" +
+          '<div class="ai-card"><div class="k">Stop median / P90</div><div class="v">' +
+          fmtDur(m.stops && m.stops.medianSec) + '</div><div class="s">blocks n=' + ((m.stops && m.stops.count) || 0) + "</div></div>" +
+          '<div class="ai-card"><div class="k">Anomaly vs window</div><div class="v" style="color:' +
+          (anomaly.score == null ? "var(--g-purple)" : anomaly.score < 20 ? "var(--g-green)" : anomaly.score < 50 ? "var(--g-orange)" : "var(--g-red)") +
+          '">' + (anomaly.score == null ? "—" : anomaly.score) + '</div><div class="s">trained ' +
+          fmtTime(m.trainedAt) + " · " + (m.method || "") + "</div></div>" +
+          '<div class="ai-insight"><strong>Insight:</strong> ' + (anomaly.notes || []).join(" ") +
+          (m.changeovers && m.changeovers.length
+            ? " · Changeovers học được: " + m.changeovers.slice(0, 3).map((c) => c.from + "→" + c.to + " (" + fmtDur(c.durationSec) + ")").join("; ")
+            : "") +
+          "</div>";
+      }
+    }
+
+    // Stop blocks table
+    const stopBody = document.getElementById("stopBody");
+    if (stopBody) {
+      const blocks = (lab.stopBlocks || []).slice().sort((a, b) => b.durationSec - a.durationSec).slice(0, 40);
+      stopBody.innerHTML = blocks.map((b) =>
+        '<tr><td class="mono">' + fmtTime(b.startMs) + '</td><td class="mono">' + fmtTime(b.endMs) +
+        '</td><td class="num">' + fmtDur(b.durationSec) + "</td><td>" + (b.source || "—") + "</td></tr>"
+      ).join("") || '<tr><td colspan="4" class="hint">No stop blocks ≥60s</td></tr>';
+    }
+  }
+
+  function fillMachineSelect() {
+    const sel = document.getElementById("machineSelect");
+    const ids = fleet.length ? fleet : [{ id: machineId, name: machineId }];
+    sel.innerHTML = ids.map((m) =>
+      '<option value="' + m.id + '"' + (m.id === machineId ? " selected" : "") + ">" +
+      m.id + (m.name && m.name !== m.id ? " · " + m.name : "") + "</option>"
+    ).join("");
+  }
+
+  function buildMockFleet() {
+    const ids = [];
+    ["D", "S", "A"].forEach((p) => { for (let i = 1; i <= 6; i++) ids.push(p + "-" + String(i).padStart(2, "0")); });
+    for (let i = 1; i <= 8; i++) ids.push("SH-" + String(i).padStart(2, "0"));
+    return ids.map((id) => ({ id, name: id }));
+  }
+
+  async function loadFleetLive() {
+    try {
+      const list = unwrapList(await fetchJson("/api/speed-lab/machines"));
+      if (list.length) {
+        fleet = list.map((m) => ({ id: m.id, name: m.name || m.id, area: m.area }));
+      } else {
+        fleet = unwrapList(await fetchJson("/api/machines")).map((m) => ({ id: m.id, name: m.name, area: m.area }));
+      }
+    } catch (_) {
+      fleet = unwrapList(await fetchJson("/api/machines")).map((m) => ({ id: m.id, name: m.name, area: m.area }));
+    }
+    if (!fleet.find((m) => m.id === machineId) && fleet[0]) machineId = fleet[0].id;
+    fillMachineSelect();
+  }
+
+  async function loadAnalysisLive(win) {
+    const startIso = encodeURIComponent(win.start.toISOString());
+    const endIso = encodeURIComponent(win.end.toISOString());
+    const bucket = win.bucketSec || 30;
+    const mid = encodeURIComponent(machineId);
+
+    const [labRaw, wfRaw, shRaw, stRaw] = await Promise.all([
+      fetchJson("/api/speed-lab/query?machineId=" + mid + "&start=" + startIso + "&end=" + endIso +
+        "&bucketSec=" + bucket + "&includeRaw=1&rawLimit=4000"),
+      fetchJson("/api/speed-lab/waterfall?machineId=" + mid + "&start=" + startIso + "&end=" + endIso).catch(() => null),
+      fetchJson("/api/machines/" + mid + "/speed-history?start=" + startIso + "&end=" + endIso).catch(() => null),
+      fetchJson("/api/machines/" + mid + "/status-history?start=" + startIso + "&end=" + endIso).catch(() =>
+        fetchJson("/api/machines/" + mid + "/status-history?hours=" + Math.ceil((win.end - win.start) / 3600e3)).catch(() => null)
+      ),
+    ]);
+
+    lab = unwrap(labRaw);
+    waterfall = unwrap(wfRaw);
+    speedHist = unwrap(shRaw);
+    statusHistory = unwrapList(stRaw);
+
+    if ((!waterfall || !(waterfall.breakdown_summary || []).length) && statusHistory.length) {
+      const map = {};
+      statusHistory.forEach((s) => {
+        const dur = Number(s.durationSeconds) || ((new Date(s.endTime || Date.now()) - new Date(s.startTime)) / 1000);
+        const c = classifyStatus(s.status, dur);
+        if (c.reason === "RUNNING") return;
+        const k = c.reason;
+        if (!map[k]) map[k] = { bucket: c.bucket, reason: k, status: s.status, seconds: 0, count: 0, pct_of_pot: 0 };
+        map[k].seconds += dur;
+        map[k].count += 1;
+      });
+      waterfall = waterfall || { processing: {}, buckets: {}, apq: {}, breakdown_summary: [] };
+      waterfall.breakdown_summary = Object.values(map);
+      const setup = map.CHANGEOVER ? map.CHANGEOVER.seconds : 0;
+      waterfall.processing = Object.assign({ setup_sec: setup }, waterfall.processing || {});
+    }
+
+    const models = loadModels();
+    lineModel = models[machineId] || null;
+    anomaly = scoreAnomaly(lineModel, lab, speedHist);
+    autoAnalysisAt = Date.now();
+    autoAnalysisMachine = machineId;
+  }
+
+  async function loadLive(opts) {
+    const quiet = opts && opts.quiet;
+    const win = getWindowRange();
+    const mid = encodeURIComponent(machineId);
+    const isAuto = timeRange === "auto";
+    const needFull = !isAuto || !lab || autoAnalysisMachine !== machineId ||
+      (Date.now() - autoAnalysisAt > AUTO_ANALYSIS_TTL_MS);
+
+    if (needFull) {
+      await loadAnalysisLive(win);
+    }
+
+    // RT tick: machine snapshot (fast) — fallback last lab bucket
+    let actual = null;
+    let target = null;
+    try {
+      const m = unwrap(await fetchJson("/api/machines/" + mid));
+      actual = m.lineSpeed != null ? Number(m.lineSpeed) : null;
+      target = m.targetSpeed != null ? Number(m.targetSpeed) : null;
+      if (speedHist && speedHist.meta && speedHist.meta.area === "drawing" && actual != null && actual > 50) {
+        actual = actual / 60;
+        if (target != null && target > 50) target = target / 60;
+      }
+    } catch (_) {}
+    if (actual == null && lab && lab.buckets && lab.buckets.length) {
+      const last = lab.buckets[lab.buckets.length - 1];
+      actual = Number(last.actualSpeed) || 0;
+      target = Number(last.targetSpeed) || 0;
+    }
+    if (isAuto && actual != null) {
+      pushRtSample(actual, target != null ? target : 0);
+    } else if (!isAuto && lab && lab.buckets && lab.buckets.length) {
+      // seed nothing — chart uses buckets
+    }
+
+    document.getElementById("dataStatus").textContent =
+      "source: live · " + machineId + " · " + timeRange +
+      (isAuto ? " · rt=" + rtSeries.length + "pts" : "") + " · " + getApiBase();
+  }
+
+  function loadMock(opts) {
+    const quiet = opts && opts.quiet;
+    const win = getWindowRange();
+    const isAuto = timeRange === "auto";
+    const needFull = !isAuto || !lab || autoAnalysisMachine !== machineId;
+
+    if (needFull) {
+      const mock = buildMockLab(machineId, win);
+      lab = mock.lab;
+      speedHist = mock.speedHist;
+      statusHistory = mock.statusHistory;
+      waterfall = mock.waterfall;
+      const models = loadModels();
+      lineModel = models[machineId] || null;
+      anomaly = scoreAnomaly(lineModel, lab, speedHist);
+      autoAnalysisAt = Date.now();
+      autoAnalysisMachine = machineId;
+      if (isAuto) resetRtSeries();
+    }
+
+    if (isAuto) {
+      const last = lab.buckets && lab.buckets[lab.buckets.length - 1];
+      const base = last ? Number(last.actualSpeed) : 100;
+      const tgt = last ? Number(last.targetSpeed) : 100;
+      const prev = rtSeries.length ? rtSeries[rtSeries.length - 1].actual : base;
+      const next = Math.max(0, prev + (Math.random() - 0.48) * Math.max(1, tgt * 0.02));
+      pushRtSample(next, tgt);
+      // drift last bucket for soft peak
+      if (lab.summary && next > Number(lab.summary.peakSpeed)) lab.summary.peakSpeed = +next.toFixed(2);
+    }
+
+    document.getElementById("dataStatus").textContent =
+      "source: mock Speed Lab Pro · " + machineId +
+      (isAuto ? " · rt=" + rtSeries.length + "pts" : "");
+  }
+
+  async function refreshData(opts) {
+    const quiet = opts && opts.quiet;
+    const soft = quiet && timeRange === "auto" && !!lab;
+    if (dataMode === "live") {
+      try {
+        if (!fleet.length) await loadFleetLive();
+        await loadLive({ quiet: soft });
+        if (!quiet) showToast("Speed Lab live · " + machineId);
+      } catch (err) {
+        console.error(err);
+        showToast("Live failed → Mock: " + (err.message || err));
+        setMode("mock");
+        fleet = buildMockFleet();
+        fillMachineSelect();
+        loadMock({ quiet: false });
+      }
+    } else {
+      if (!soft) {
+        fleet = buildMockFleet();
+        fillMachineSelect();
+      }
+      loadMock({ quiet: soft });
+    }
+    setQsMachine(machineId);
+    refreshAll({ soft: soft });
+  }
+
+  function trainModel() {
+    if (!lab) {
+      showToast("Chưa có data — bấm Phân tích trước");
+      return;
+    }
+    const model = fitLineModel(machineId, lab, speedHist, statusHistory);
+    const models = loadModels();
+    models[machineId] = model;
+    saveModels(models);
+    lineModel = model;
+    anomaly = scoreAnomaly(lineModel, lab, speedHist);
+    refreshAll();
+    showToast("Trained Line Model · " + machineId + " · " + (model.samples || 0) + " buckets");
+  }
+
+  function setMode(mode) {
+    dataMode = mode === "live" ? "live" : "mock";
+    localStorage.setItem(MODE_KEY, dataMode);
+    const live = document.getElementById("modeLive");
+    document.getElementById("btnMock").classList.toggle("active-mode", dataMode === "mock");
+    document.getElementById("btnLive").classList.toggle("active-mode", dataMode === "live");
+    if (dataMode === "live") {
+      live.classList.remove("mock");
+      document.getElementById("modeLabel").textContent = "Live";
+    } else {
+      live.classList.add("mock");
+      document.getElementById("modeLabel").textContent = "Mock";
+    }
+  }
+
+  function restartPoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    // Speed Lab analysis windows — lighter poll than Auto 1s
+    pollTimer = setInterval(() => refreshData({ quiet: true }), rangeCfg().pollMs || 20000);
+  }
+
+  function setTimeRange(range) {
+    timeRange = RANGE_CFG[range] ? range : "auto";
+    localStorage.setItem("mes-sl-time-range", timeRange);
+    if (timeRange === "auto") {
+      resetRtSeries();
+      autoAnalysisAt = 0;
+    }
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
+  }
+
+  // Init
+  (function initApiBase() {
+    let saved = localStorage.getItem(API_KEY);
+    if (!saved || saved === "http://localhost:3001") saved = DEFAULT_API;
+    document.getElementById("apiBase").value = saved;
+  })();
+  document.getElementById("apiBase").addEventListener("change", () => {
+    localStorage.setItem(API_KEY, getApiBase());
+  });
+
+  syncTimeRangeUi();
+  document.querySelectorAll("#timeRange button").forEach((btn) => {
+    btn.addEventListener("click", () => setTimeRange(btn.getAttribute("data-range")));
+  });
+  document.getElementById("btnApplyRange").addEventListener("click", () => {
+    customFrom = document.getElementById("rangeFrom").value;
+    customTo = document.getElementById("rangeTo").value;
+    localStorage.setItem("mes-sl-custom-from", customFrom);
+    localStorage.setItem("mes-sl-custom-to", customTo);
+    timeRange = "custom";
+    localStorage.setItem("mes-sl-time-range", "custom");
+    syncTimeRangeUi();
+    refreshData().then(() => restartPoll());
+    showToast("Applied custom range");
+  });
+
+  document.getElementById("machineSelect").addEventListener("change", (e) => {
+    machineId = e.target.value;
+    resetRtSeries();
+    autoAnalysisAt = 0;
+    autoAnalysisMachine = null;
+    setQsMachine(machineId);
+    refreshData();
+  });
+  document.getElementById("btnMock").addEventListener("click", () => {
+    setMode("mock");
+    resetRtSeries();
+    autoAnalysisAt = 0;
+    refreshData().then(() => restartPoll());
+  });
+  document.getElementById("btnLive").addEventListener("click", () => {
+    setMode("live");
+    resetRtSeries();
+    autoAnalysisAt = 0;
+    refreshData().then(() => restartPoll());
+  });
+  document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn"), { toast: true }));
+  });
+  document.getElementById("btnEditLayout").addEventListener("click", () => {
+    layoutApi.setEditLayout(!board.classList.contains("layout-edit"), { toast: true });
+  });
+  document.getElementById("btnReset").addEventListener("click", () => {
+    layoutApi.resetLayout(DEFAULT_LAYOUT);
+    renderBoardShell();
+    refreshAll();
+    showToast("Layout reset");
+  });
+  document.getElementById("btnRefresh").addEventListener("click", () => refreshData());
+  document.getElementById("btnTrain").addEventListener("click", () => trainModel());
+
+  layoutApi.setEditLayout(localStorage.getItem("mes-sl-edit-layout") === "1");
+  renderBoardShell();
+  setMode(dataMode);
+  refreshData().then(() => restartPoll());
+})();
+  </script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+/* Shared Edit Layout styles for MES HTML demos (with mes-demo-layout.js) */
+.board { position: relative; }
+.panel {
+  position: relative;
+  transition: box-shadow 0.12s ease;
+}
+.panel.dragging-source { opacity: 0.28; pointer-events: none; }
+.panel.resizing { outline: 1px solid var(--g-blue); outline-offset: -1px; z-index: 5; user-select: none; }
+.panel-ghost {
+  background: rgba(87, 148, 242, 0.14);
+  border: 1px dashed var(--g-blue);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 3;
+  box-sizing: border-box;
+}
+.panel-drag-mirror {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0.94;
+  border: 1px solid var(--g-blue);
+  border-radius: 2px;
+  background: var(--g-panel);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.panel-drag-mirror .mirror-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--g-text-secondary);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--g-panel-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-drag-mirror .mirror-body {
+  flex: 1;
+  background:
+    linear-gradient(135deg, rgba(87,148,242,0.08) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(87,148,242,0.08) 25%, transparent 25%);
+  background-size: 16px 16px;
+}
+.panel-size {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--g-text-secondary);
+  opacity: 0;
+  padding: 1px 4px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.panel:hover .panel-size,
+.panel.resizing .panel-size,
+.board.layout-edit .panel-size { opacity: 1; }
+.panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 6;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.panel:hover .panel-resize,
+.panel.resizing .panel-resize,
+.board.layout-edit .panel-resize { opacity: 1; }
+.panel-resize::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--g-blue);
+  border-bottom: 2px solid var(--g-blue);
+  opacity: 0.85;
+}
+body.layout-resizing { cursor: nwse-resize !important; user-select: none !important; }
+body.layout-resizing .panel { pointer-events: none; }
+body.layout-resizing .panel.resizing { pointer-events: auto; }
+body.layout-dragging { cursor: grabbing !important; user-select: none !important; }
+body.layout-dragging .panel { pointer-events: none; }
+body.layout-dragging .panel-ghost { pointer-events: none; }
+.panel-head[data-drag-handle] { cursor: grab; user-select: none; }
+.panel-head[data-drag-handle]:active { cursor: grabbing; }
