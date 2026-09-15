@@ -1,0 +1,58 @@
+{
+  "capturedAt": "2026-09-01T00:34:04.534Z",
+  "apiBase": "http://localhost:3001",
+  "endpoints": {
+    "health": {
+      "url": "http://localhost:3001/health",
+      "p50": 1,
+      "p95": 47,
+      "samples": [
+        1,
+        1,
+        1,
+        2,
+        47
+      ]
+    },
+    "health_ready": {
+      "url": "http://localhost:3001/health/ready",
+      "p50": 1,
+      "p95": 4,
+      "samples": [
+        1,
+        1,
+        1,
+        2,
+        4
+      ]
+    },
+    "kpis_global": {
+      "url": "http://localhost:3001/api/kpis/global",
+      "p50": 1,
+      "p95": 1,
+      "samples": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "machines_list": {
+      "url": "http://localhost:3001/api/machines",
+      "p50": 1,
+      "p95": 2,
+      "samples": [
+        1,
+        1,
+        1,
+        1,
+        2
+      ]
+    }
+  },
+  "factoryReadiness": {
+    "exitCode": 1,
+    "output": "Factory readiness check\nTime: 2026-09-01T00:34:04.699Z\nAPI: http://localhost:3001 | machine: SH-05\n\n── Environment ──\nℹ️  AVAILABILITY_SYNC_INTERVAL=30s — recommend 60 for ≤20 users on chart-heavy shifts\n\n── Database ──\n✅ PostgreSQL connected\n⚠️  Performance indexes: 0/8 (missing: idx_machine_metrics_machine_type_time, idx_production_orders_machine_start, idx_prod_len_events_machine_time, idx_availability_agg_machine_type_window, idx_msh_machine_closed_end_start, idx_alarms_machine_timestamp, idx_oee_calc_ts_brin, uq_msh_one_open_per_machine)\n✅ machine_status_history: at most one OPEN segment per machine\nℹ️  oee_calculations: 16,005,061 total, 0 last 8h\nℹ️  machine_metrics: 179,385 rows\nℹ️  Dense shift sample (SH-05 22-Jun ca sáng): 16,248 OEE rows — good for benchmark\n\n── API ──\n❌ liveness: fetch failed\n❌ readiness (DB): fetch failed\n\nChart / fleet latency (single request):\n❌ speed-history (8h): fetch failed\n❌ speed-lab query (8h): fetch failed\n❌ fleet /machines: fetch failed\n\n── Summary ──\n⚠️  Action needed before expecting smooth charts:\n   • Missing 8 performance index(es): idx_machine_metrics_machine_type_time, idx_production_orders_machine_start, idx_prod_len_events_machine_time, idx_availability_agg_machine_type_window, idx_msh_machine_closed_end_start, idx_alarms_machine_timestamp, idx_oee_calc_ts_brin, uq_msh_one_open_per_machine\n   • /health: fetch failed\n   • /health/ready: fetch failed\n   • speed-history (8h): fetch failed\n   • speed-lab query (8h): fetch failed\n   • fleet /machines: fetch failed\n\n   Fix: powershell -ExecutionPolicy Bypass -File .\\scripts\\factory-post-pull.ps1\n"
+  }
+}
