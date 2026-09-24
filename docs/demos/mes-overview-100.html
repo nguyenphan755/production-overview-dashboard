@@ -262,6 +262,12 @@
     .chip.danger.active { background: rgba(242, 73, 92, 0.2); border-color: var(--g-red); color: var(--g-red); }
     .chip.ok.active { background: rgba(115, 191, 105, 0.2); border-color: var(--g-green); color: var(--g-green); }
 
+    select.workshop-select {
+      background: var(--g-input); border: 1px solid var(--g-panel-border); color: var(--g-text);
+      font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 2px; max-width: 200px;
+      margin-left: 6px;
+    }
+
     .mosaic-scroll { max-height: calc(100% - 34px); overflow: auto; }
     .area-band { margin-bottom: 12px; }
     .area-head {
@@ -430,11 +436,18 @@
       <strong>Overview</strong>
     </div>
     <div class="nav-tabs">
-      <a class="active" href="mes-overview-100.html">Overview</a>
-      <a href="mes-control-tower-100.html">Energy</a>
-      <a href="mes-speed-lab-100.html">Speed Lab</a>
-      <a href="mes-equipment-detail-100.html">Detail</a>
+      <a class="active" href="mes-overview-100.html">Overview V1</a>
+      <a href="mes-overview-100-v2.html">Overview V2</a>
+      <a href="mes-control-tower-100.html">Energy MES</a>
+      <a href="mes-control-tower-100-v2.html">Energy EMS</a>
+      <a href="mes-speed-lab-100.html">Speed Lab V1</a>
+      <a href="mes-speed-lab-100-v2.html">Speed Lab V2</a>
+      <a href="mes-equipment-detail-100.html">Detail V1</a>
+      <a href="mes-equipment-detail-100-v2.html">Detail V2</a>
     </div>
+    <select id="workshopSelect" class="workshop-select" title="Lọc theo xưởng">
+      <option value="all">Tất cả xưởng</option>
+    </select>
     <div class="g-spacer"></div>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
     <button type="button" class="g-btn active-mode" id="btnMock">Mock</button>
@@ -501,11 +514,19 @@
   "use strict";
 
   const MODE_KEY = "mes-ov-data-mode";
+  const WORKSHOP_KEY = "mes-ov-workshop";
   const API_KEY = "mes-ov-api-base";
   const THEME_KEY = "mes-ct-theme";
   const DEFAULT_API = "http://100.114.213.115:3001";
   const Chart = window.Chart;
   const charts = {};
+
+  const DEMO_WORKSHOPS = [
+    { id: "xuong-1", name: "Xưởng 1" },
+    { id: "xuong-2", name: "Xưởng 2" },
+    { id: "xuong-3", name: "Xưởng 3" },
+    { id: "xuong-v", name: "Xưởng V + VI" },
+  ];
 
   const AREAS = [
     { id: "drawing", name: "KÉO", nameEn: "Drawing", prefix: "D", targetSpeed: 1000, count: 28 },
@@ -677,11 +698,14 @@
         const ng = Math.floor(producedLength * (0.002 + rng() * 0.015));
         const productName = PRODUCTS[Math.floor(rng() * PRODUCTS.length)];
         const po = "PO-2026-" + (100 + Math.floor(rng() * 800));
+        const ws = DEMO_WORKSHOPS[(i - 1 + AREAS.indexOf(area)) % DEMO_WORKSHOPS.length];
 
         machines.push({
           id,
           name: area.nameEn + " Line " + pad(i, 2),
           area: area.id,
+          workshop: ws.name,
+          workshopId: ws.id,
           status,
           lineSpeed,
           targetSpeed,
@@ -733,7 +757,56 @@
   let dataMode = localStorage.getItem(MODE_KEY) || "mock";
   let filter = "all";
   let tableFilter = "running";
+  let workshopFilter = localStorage.getItem(WORKSHOP_KEY) || "all";
   let selectedId = null;
+
+  function workshopKey(m) {
+    return m.workshopId || m.workshop || "other";
+  }
+  function workshopName(m) {
+    return m.workshop || "Khác";
+  }
+  function machinesInScope() {
+    const all = fixtures.machines || [];
+    if (workshopFilter === "all") return all;
+    return all.filter((m) => workshopKey(m) === workshopFilter);
+  }
+  function syncWorkshopSelect() {
+    const sel = document.getElementById("workshopSelect");
+    if (!sel) return;
+    const map = new Map();
+    (fixtures.machines || []).forEach((m) => {
+      const k = workshopKey(m);
+      if (!map.has(k)) map.set(k, workshopName(m));
+    });
+    const rows = [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], "vi"));
+    const prev = workshopFilter;
+    sel.innerHTML =
+      '<option value="all">Tất cả xưởng</option>' +
+      rows.map(([k, label]) => {
+        const esc = String(label).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+        return '<option value="' + k.replace(/"/g, "&quot;") + '">' + esc + "</option>";
+      }).join("");
+    if (prev !== "all" && rows.some(([k]) => k === prev)) sel.value = prev;
+    else {
+      sel.value = "all";
+      workshopFilter = "all";
+      localStorage.setItem(WORKSHOP_KEY, "all");
+    }
+  }
+  function bindWorkshopSelect() {
+    const sel = document.getElementById("workshopSelect");
+    if (!sel || sel._workshopBound) return;
+    sel._workshopBound = true;
+    sel.addEventListener("change", () => {
+      workshopFilter = sel.value || "all";
+      localStorage.setItem(WORKSHOP_KEY, workshopFilter);
+      selectedId = null;
+      closeDrawer();
+      refreshAll();
+      showToast(workshopFilter === "all" ? "Tất cả xưởng" : sel.options[sel.selectedIndex].text);
+    });
+  }
 
   function showToast(msg) {
     const el = document.getElementById("toast");
@@ -761,8 +834,18 @@
 
   function normalizeMachine(m) {
     if (!m || typeof m !== "object") return m;
+    let workshop = m.workshop;
+    let workshopId = m.workshopId;
+    if (!workshop) {
+      const h = String(m.id || "").split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+      const ws = DEMO_WORKSHOPS[Math.abs(h) % DEMO_WORKSHOPS.length];
+      workshop = ws.name;
+      workshopId = ws.id;
+    }
     return {
       ...m,
+      workshop,
+      workshopId,
       oee: Number(m.oee) || 0,
       lineSpeed: Number(m.lineSpeed) || 0,
       targetSpeed: Number(m.targetSpeed) || 0,
@@ -955,17 +1038,18 @@
 
   function countByStatus() {
     const c = { running: 0, stopped: 0, setup: 0, idle: 0, error: 0, warning: 0 };
-    fixtures.machines.forEach((m) => { if (c[m.status] != null) c[m.status]++; });
+    machinesInScope().forEach((m) => { if (c[m.status] != null) c[m.status]++; });
     return c;
   }
 
   function renderStats() {
     const c = countByStatus();
     const k = fixtures.kpis || {};
+    const scoped = machinesInScope();
     const oee = (fixtures.analytics && fixtures.analytics.oeeSummary && fixtures.analytics.oeeSummary.oee) != null
       ? fixtures.analytics.oeeSummary.oee
-      : fixtures.machines.length
-        ? fixtures.machines.reduce((s, m) => s + (m.oee || 0), 0) / fixtures.machines.length
+      : scoped.length
+        ? scoped.reduce((s, m) => s + (m.oee || 0), 0) / scoped.length
         : 0;
     const specs = [
       { id: "stat_running", v: String(c.running), name: "Đang sản xuất", cls: "green" },
@@ -983,14 +1067,19 @@
       vel.innerHTML = s.v + (s.unit ? '<span class="unit">' + s.unit + "</span>" : "");
       if (nel) nel.textContent = s.name;
     });
-    document.getElementById("linesTag").textContent = "lines=" + fixtures.machines.length;
+    const total = (fixtures.machines || []).length;
+    const wsSel = document.getElementById("workshopSelect");
+    const wsLabel = wsSel && workshopFilter !== "all" ? wsSel.options[wsSel.selectedIndex].text : "";
+    document.getElementById("linesTag").textContent = workshopFilter === "all"
+      ? "lines=" + total
+      : "lines=" + scoped.length + "/" + total + (wsLabel ? " · " + wsLabel : "");
   }
 
   function renderAreaSummary() {
     const el = document.getElementById("areaSummary");
     if (!el) return;
     el.innerHTML = AREAS.map((a) => {
-      const list = fixtures.machines.filter((m) => m.area === a.id);
+      const list = machinesInScope().filter((m) => m.area === a.id);
       const run = list.filter((m) => m.status === "running");
       const speeds = run.map((m) => speedInfo(m).v);
       const avg = speeds.length ? speeds.reduce((s, v) => s + v, 0) / speeds.length : 0;
@@ -1019,7 +1108,7 @@
     let html = "";
     for (const area of AREAS) {
       if (!areaIds.includes(area.id)) continue;
-      const areaLines = fixtures.machines.filter((m) => m.area === area.id);
+      const areaLines = machinesInScope().filter((m) => m.area === area.id);
       const visible = areaLines.filter(matchesFilter);
       if ((filter === "problems" || filter === "running") && !visible.length) continue;
       const run = areaLines.filter((m) => m.status === "running").length;
@@ -1050,7 +1139,7 @@
   function renderSpeedBars() {
     const el = document.getElementById("speedBars");
     if (!el) return;
-    const top = fixtures.machines
+    const top = machinesInScope()
       .filter((m) => m.status === "running")
       .map((m) => ({ m, sp: speedInfo(m) }))
       .sort((a, b) => b.sp.pct - a.sp.pct)
@@ -1068,7 +1157,7 @@
   function renderProdTable() {
     const body = document.getElementById("prodBody");
     if (!body) return;
-    let list = [...fixtures.machines];
+    let list = [...machinesInScope()];
     if (tableFilter === "running") list = list.filter((m) => m.status === "running");
     if (tableFilter === "problems") list = list.filter(isException);
     list.sort((a, b) => {
@@ -1110,7 +1199,7 @@
     const el = document.getElementById("productMix");
     if (!el) return;
     const map = {};
-    fixtures.machines.filter((m) => m.status === "running").forEach((m) => {
+    machinesInScope().filter((m) => m.status === "running").forEach((m) => {
       const p = m.productName || m.productionOrderProductName || "(không tên)";
       if (!map[p]) map[p] = { name: p, lines: 0, areas: {} };
       map[p].lines++;
@@ -1128,7 +1217,10 @@
     const body = document.getElementById("alertBody");
     if (!body) return;
     const rows = [];
+    const scopeIds = new Set(machinesInScope().map((m) => m.id));
     fixtures.alarms.forEach((a) => {
+      const mid = a.machineId || a.lineId;
+      if (workshopFilter !== "all" && mid && !scopeIds.has(mid)) return;
       rows.push({
         severity: a.severity || "info",
         machineId: a.machineId || a.lineId || "—",
@@ -1136,7 +1228,7 @@
         ts: a.timestamp || a.createdAt || "",
       });
     });
-    fixtures.machines.filter((m) => m.oee != null && m.oee < 70 && m.status === "running").slice(0, 8).forEach((m) => {
+    machinesInScope().filter((m) => m.oee != null && m.oee < 70 && m.status === "running").slice(0, 8).forEach((m) => {
       rows.push({
         severity: "warning",
         machineId: m.id,
@@ -1193,6 +1285,7 @@
   }
 
   function refreshAll() {
+    syncWorkshopSelect();
     renderStats();
     renderAreaSummary();
     renderMosaic();
@@ -1298,6 +1391,7 @@
   });
   setMode(dataMode);
   layoutApi.setEditLayout(localStorage.getItem("mes-ov-edit-layout") === "1");
+  bindWorkshopSelect();
   renderBoard();
   refreshData().then(() => restartPoll());
   setInterval(updateClock, 1000);

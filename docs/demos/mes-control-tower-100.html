@@ -568,10 +568,14 @@
       <strong>Energy · Control Tower</strong>
     </div>
     <div class="nav-tabs">
-      <a href="mes-overview-100.html">Overview</a>
-      <a class="active" href="mes-control-tower-100.html">Energy</a>
-      <a href="mes-speed-lab-100.html">Speed Lab</a>
-      <a href="mes-equipment-detail-100.html">Detail</a>
+      <a href="mes-overview-100.html">Overview V1</a>
+      <a href="mes-overview-100-v2.html">Overview V2</a>
+      <a class="active" href="mes-control-tower-100.html">Energy MES</a>
+      <a href="mes-control-tower-100-v2.html">Energy EMS</a>
+      <a href="mes-speed-lab-100.html">Speed Lab V1</a>
+      <a href="mes-speed-lab-100-v2.html">Speed Lab V2</a>
+      <a href="mes-equipment-detail-100.html">Detail V1</a>
+      <a href="mes-equipment-detail-100-v2.html">Detail V2</a>
     </div>
     <div class="g-spacer"></div>
     <div class="live mock" id="modeLive"><i></i><span id="modeLabel">Mock</span></div>
@@ -666,11 +670,6 @@
   const charts = {};
   /** Demo industrial tariff (VND/kWh) for cost KPI — not from API */
   const DEMO_TARIFF_VND_PER_KWH = 1400;
-  const SANKEY_TOP_PER_AREA = 4;
-  /** Lock which lines appear in Sankey so topology doesn't thrash every poll */
-  const SANKEY_TOPO_TTL_MS = 20000;
-  let sankeyLockedTops = null;
-  let sankeyLockAt = 0;
   let sankeyTopoFp = "";
   let sankeyValueFp = "";
   let sankeyThemeFp = "";
@@ -832,8 +831,8 @@
       badge: "ok",
     },
     energy_flow: {
-      title: "Energy Flow · phân bố tải theo dây chuyền",
-      api: "Sankey ← machines[].power by area → line (Plotly)",
+      title: "Energy Flow · tất cả dây chuyền",
+      api: "Sankey ← machines[].power by area → all lines (Plotly)",
       badge: "ok",
     },
     energy_flow_kpis: {
@@ -2029,26 +2028,9 @@
   }
 
   /**
-   * Sankey Energy Flow: Điện lưới [/ Điện MT] → Năng lượng điện → Khu vực → Dây chuyền
-   * Values = machines[].power (kW). Live = 100% grid; Mock adds thin solar for visual parity with reference.
-   * Topology (which lines) locked ~20s to avoid flicker when ranking jitters.
+   * Sankey Energy Flow: Điện lưới → Năng lượng điện → Khu vực → tất cả dây chuyền (P>0)
+   * Không cắt top-N — hiển thị đầy đủ line trong từng area.
    */
-  function lockedTopIds(byArea) {
-    const now = Date.now();
-    if (!sankeyLockedTops || now - sankeyLockAt > SANKEY_TOPO_TTL_MS) {
-      sankeyLockedTops = {};
-      AREAS.forEach((a) => {
-        sankeyLockedTops[a.id] = [...(byArea[a.id] || [])]
-          .filter((m) => (Number(m.power) || 0) > 0.3)
-          .sort((x, y) => (y.power || 0) - (x.power || 0) || String(x.id).localeCompare(String(y.id)))
-          .slice(0, SANKEY_TOP_PER_AREA)
-          .map((m) => m.id);
-      });
-      sankeyLockAt = now;
-    }
-    return sankeyLockedTops;
-  }
-
   function buildEnergySankey() {
     const labels = [];
     const idx = {};
@@ -2073,7 +2055,7 @@
     }
 
     const machines = fixtures.machines || [];
-    const total = machines.reduce((s, m) => s + (Number(m.power) || 0), 0);
+    const total = machines.reduce((s, m) => s + Math.max(0, Number(m.power) || 0), 0);
     if (total <= 0) {
       return {
         labels: ["Điện lưới", "Năng lượng điện"],
@@ -2096,30 +2078,19 @@
       if (!byArea[aid]) byArea[aid] = [];
       byArea[aid].push(m);
     });
-    const tops = lockedTopIds(byArea);
 
     AREAS.forEach((a) => {
-      const list = byArea[a.id] || [];
-      const byId = {};
-      list.forEach((m) => { byId[m.id] = m; });
-      const areaPower = list.reduce((s, m) => s + (Number(m.power) || 0), 0);
+      const list = (byArea[a.id] || [])
+        .filter((m) => Math.max(0, Number(m.power) || 0) > 0.05)
+        .sort((x, y) => (Number(y.power) || 0) - (Number(x.power) || 0) || String(x.id).localeCompare(String(y.id)));
+      const areaPower = list.reduce((s, m) => s + Math.max(0, Number(m.power) || 0), 0);
       link("Năng lượng điện", a.name, areaPower, "rgba(87,148,242,0.35)");
 
-      const topIds = tops[a.id] || [];
-      const topSet = new Set(topIds);
-      let rest = 0;
       list.forEach((m) => {
-        const p = Number(m.power) || 0;
-        if (!topSet.has(m.id)) rest += p;
-      });
-      topIds.forEach((id) => {
-        const m = byId[id];
-        if (!m) return;
         const short = (m.name || m.id || "").toString().slice(0, 12);
         const lab = m.id + (short && short !== m.id ? " · " + short : "");
-        link(a.name, lab, m.power, "rgba(115,191,105,0.32)");
+        link(a.name, lab, Math.max(0, Number(m.power) || 0), "rgba(115,191,105,0.32)");
       });
-      if (rest > 0.3) link(a.name, "Khác · " + a.name, rest, "rgba(148,163,184,0.28)");
     });
 
     const nodeColor = labels.map((lab) => {
@@ -2127,7 +2098,6 @@
       if (lab === "Điện mặt trời") return "#ff9830";
       if (lab === "Năng lượng điện") return "#5794f2";
       if (AREAS.some((area) => area.name === lab)) return "#73bf69";
-      if (lab.indexOf("Khác") === 0) return "#94a3b8";
       return "#6e9fff";
     });
 
@@ -2167,8 +2137,8 @@
       valueformat: ".1f",
       valuesuffix: " kW",
       node: {
-        pad: 10,
-        thickness: 12,
+        pad: s.labels.length > 80 ? 4 : 10,
+        thickness: s.labels.length > 80 ? 8 : 12,
         line: { color: border, width: 0.5 },
         label: s.labels,
         color: s.nodeColor,
@@ -2186,7 +2156,7 @@
       margin: { l: 2, r: 2, t: 2, b: 2 },
       paper_bgcolor: "rgba(0,0,0,0)",
       plot_bgcolor: "rgba(0,0,0,0)",
-      font: { color: text, size: 10, family: "Inter, Helvetica Neue, Arial, sans-serif" },
+      font: { color: text, size: s.labels.length > 80 ? 8 : 10, family: "Inter, Helvetica Neue, Arial, sans-serif" },
       autosize: true,
     };
     const cfg = { responsive: true, displayModeBar: false, staticPlot: false };

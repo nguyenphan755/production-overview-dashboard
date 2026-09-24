@@ -1,0 +1,331 @@
+{
+  "Xưởng 1": {
+    "count": 118,
+    "timestamp": "2026-09-15T01:35:24.694Z",
+    "machines": {
+      "LT1BD751": { "Energy": 21461.2012, "Power": 27.2754 },
+      "LT1BD752": { "Energy": 14155.8223, "Power": 14.0013 },
+      "LT1BD753": { "Energy": 0, "Power": 0 },
+      "LT1BD754": { "Energy": 0, "Power": 0 },
+      "LT1BD755": { "Energy": 28529.6094, "Power": 18.6397 },
+      "LT1BD756": { "Energy": 6740.9561, "Power": 3.5883 },
+      "LT1CMP01": { "Energy": 74366.1016, "Power": 59.0557 },
+      "LT1CMP02": { "Energy": 62610.9375, "Power": 35.492 },
+      "LT1CMP03": { "Energy": 0, "Power": 0 },
+      "LT1DB01": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 160888.7813 },
+        "Power": { "Active": 118.3705, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT1DB02": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT1DB03": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT1DB04": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 5776553 },
+        "Power": { "Active": 868.9321, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT1DB05": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 248497.5469 },
+        "Power": { "Active": 238.4112, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT1KDDA1": { "Energy": 144596.3594, "Power": 117.581 },
+      "LT1KN081": { "Energy": 98009.625, "Power": 79.054 },
+      "LT1KN082": { "Energy": 129625.0391, "Power": 111.223 },
+      "LT1KN121": { "Energy": 91109.5625, "Power": 18.5408 },
+      "LT1PS01": { "Energy": 0, "Power": 0 },
+      "LT1PS02": { "Energy": 0, "Power": 0 },
+      "LT1XB631": { "Energy": -4092, "Power": -0.9631 },
+      "LT1XB632": { "Energy": 0, "Power": 0 },
+      "LT1XB633": { "Energy": 0, "Power": 0 },
+      "LT1XB634": { "Energy": 2700, "Power": 0.0241 },
+      "LT1XB635": { "Energy": 5411.7739, "Power": 4.7485 },
+      "LT1XB636": { "Energy": 8556.1592, "Power": 7.9257 },
+      "LT1XB637": { "Energy": 10327.7969, "Power": 1.0193 },
+      "LT1XB638": { "Energy": 5255.459, "Power": 6.259 },
+      "LT1XS121": { "Energy": 5853.7319, "Power": 4.3738 }
+    }
+  },
+  "Xưởng 2": {
+    "count": 156,
+    "timestamp": "2026-09-15T01:35:27.154Z",
+    "machines": {
+      "LT2BC701": { "Energy": 0, "Power": 0 },
+      "LT2BC901": { "Energy": 29358.7324, "Power": 2.1489 },
+      "LT2BC902": { "Energy": 31279.3301, "Power": 2.6327 },
+      "LT2BC903": { "Energy": 33581.4688, "Power": 22.7441 },
+      "LT2BD651": { "Energy": 0, "Power": 0 },
+      "LT2BD652": { "Energy": 75759, "Power": 0.9601 },
+      "LT2BD751": { "Energy": 380.923, "Power": -1.2584 },
+      "LT2CMP01": { "Energy": 0, "Power": 0 },
+      "LT2CMP02": { "Energy": 0, "Power": 0 },
+      "LT2DB01": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2DB02": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2DB03": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2DB04": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2DB05": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2DB06": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT2GBMC1": { "Energy": 1691.876, "Power": 1.2846 },
+      "LT2GBMC2": { "Energy": 0, "Power": 0 },
+      "LT2GBMC3": { "Energy": 0, "Power": 0 },
+      "LT2GBMC4": { "Energy": 0, "Power": 0 },
+      "LT2GBMC5": { "Energy": 0, "Power": 0 },
+      "LT2GBMC6": { "Energy": 4751.1831, "Power": 0 },
+      "LT2KDDA1": { "Energy": 17053.2715, "Power": 0.3265 },
+      "LT2KN081": { "Energy": 2810.3679, "Power": 0 },
+      "LT2KTMG1": { "Energy": 0, "Power": 0 },
+      "LT2KTMG2": { "Energy": 34321.1289, "Power": 1.4154 },
+      "LT2KTMG3": { "Energy": 0, "Power": 0 },
+      "LT2KTMG4": { "Energy": 0, "Power": 0 },
+      "LT2KTMG5": { "Energy": 2565.7671, "Power": 0.3571 },
+      "LT2PS01": { "Energy": 0, "Power": 0 },
+      "LT2PS02": { "Energy": 0, "Power": 0 },
+      "LT2XB631": { "Energy": 2258.606, "Power": 0.5502 },
+      "LT2XB632": { "Energy": 0, "Power": 0 },
+      "LT2XB633": { "Energy": 2202.635, "Power": 3.9351 },
+      "LT2XB634": { "Energy": 0, "Power": 0 },
+      "LT2XB651": { "Energy": 3994.1211, "Power": 3.6712 },
+      "LT2XB652": { "Energy": 134.865, "Power": 0.1955 },
+      "LT2XB653": { "Energy": 2931.5359, "Power": 0.4578 },
+      "LT2XB654": { "Energy": 146.075, "Power": -0.5077 },
+      "LT2XC611": { "Energy": 0, "Power": 0 },
+      "LT2XD101": { "Energy": 18877.6934, "Power": 0 },
+      "LT2XD121": { "Energy": 0, "Power": 0 },
+      "LT2XGVN1": { "Energy": 3532.2151, "Power": 0.5074 }
+    }
+  },
+  "Xưởng 3.1": {
+    "count": 118,
+    "timestamp": "2026-09-15T01:35:25.274Z",
+    "machines": {
+      "LT3BC101": { "Energy": 0, "Power": 0 },
+      "LT3BC801": { "Energy": 52960.0898, "Power": 14.0203 },
+      "LT3BC802": { "Energy": 0, "Power": 0 },
+      "LT3BC901": { "Energy": 38674.2109, "Power": 39.8051 },
+      "LT3BD751": { "Energy": 20683.7285, "Power": 19.7434 },
+      "LT3BD752": { "Energy": 0, "Power": 0 },
+      "LT3CMP01": { "Energy": 0, "Power": 0 },
+      "LT3CMP02": { "Energy": 0, "Power": 0 },
+      "LT3CMP03": { "Energy": 0, "Power": 0 },
+      "LT3CMP04": { "Energy": 0, "Power": 0 },
+      "LT3CMP05": { "Energy": 0, "Power": 0 },
+      "LT3DB01": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 129793 },
+        "Power": { "Active": 83.4424, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB02": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB03": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB04": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 304922.1875 },
+        "Power": { "Active": 154.7408, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB05": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 720299.25 },
+        "Power": { "Active": 403.9708, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3GB161": { "Energy": 0, "Power": 0 },
+      "LT3GB221": { "Energy": 2723.178, "Power": 0.7822 },
+      "LT3GBMC1": { "Energy": 0, "Power": 0 },
+      "LT3GBMC2": { "Energy": 0, "Power": 0 },
+      "LT3KTWG1": { "Energy": 142.665, "Power": 0.003 },
+      "LT3KTWG2": { "Energy": 0, "Power": 0 },
+      "LT3KTWG3": { "Energy": 0, "Power": 0 },
+      "LT3KTWG4": { "Energy": 0, "Power": 0 },
+      "LT3KTWG5": { "Energy": 0, "Power": 0 },
+      "LT3PS01": { "Energy": 0, "Power": 0 },
+      "LT3PS02": { "Energy": 0, "Power": 0 },
+      "LT3XB651": { "Energy": 634.65, "Power": 0.5478 },
+      "LT3XB652": { "Energy": 0, "Power": 0 }
+    }
+  },
+  "Xưởng 3.2": {
+    "count": 100,
+    "timestamp": "2026-09-15T01:35:24.459Z",
+    "machines": {
+      "LT3BC151": { "Energy": 32621.4785, "Power": 40.1787 },
+      "LT3BM121": { "Energy": 75369.0938, "Power": 63.2026 },
+      "LT3BM122": { "Energy": 0, "Power": 0 },
+      "LT3XC191": { "Energy": 10080.9854, "Power": 1.6216 },
+      "LT3XC611": { "Energy": 21983.6875, "Power": 16.5915 },
+      "LT3CMP01": { "Energy": 27531.666, "Power": 0.0373 },
+      "LT3CMP02": { "Energy": 359.959, "Power": 0.5446 },
+      "LT3DB01": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 19681.5078 },
+        "Power": { "Active": 11.169, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB02": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 273893.6563 },
+        "Power": { "Active": 131.2867, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB03": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 404711.1875 },
+        "Power": { "Active": 121.2265, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB04": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 1135717.75 },
+        "Power": { "Active": 455.7633, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3DB05": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT3LHVN1": { "Energy": 0, "Power": 0 },
+      "LT3PS01": { "Energy": 0, "Power": 0 },
+      "LT3PS02": { "Energy": 0, "Power": 0 },
+      "LT3PS03": { "Energy": 0, "Power": 0 },
+      "LT3XGBO1": { "Energy": 5131.5762, "Power": 0.6307 },
+      "LT3XGCL1": { "Energy": 4205.2891, "Power": 3.1036 },
+      "LT3XGCL2": { "Energy": 2237.6311, "Power": 0.3887 },
+      "LT3XT611": { "Energy": 6555.8589, "Power": 10.1891 }
+    }
+  },
+  "Xưởng V + VI": {
+    "count": 106,
+    "timestamp": "2026-09-15T01:35:24.955Z",
+    "machines": {
+      "LT5CCRA1": { "Energy": 0, "Power": 0 },
+      "LT5LPG": { "Energy": 0, "Power": 0 },
+      "LT6CMP01": { "Energy": 0, "Power": 0 },
+      "LT6CMP02": { "Energy": 0, "Power": 0 },
+      "LT6CMP03": { "Energy": 119.586, "Power": -0.049 },
+      "LT6CMP04": { "Energy": 684.19, "Power": 1.0272 },
+      "LT6DB01": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT6DB02": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT6DB03": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT6DB04": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT6DB05": {
+        "Current": { "A": 0, "Avg": 0, "B": 0, "C": 0 },
+        "Energy": { "Active": 0 },
+        "Power": { "Active": 0, "PowerFactor": 0 },
+        "THD": { "CurrentA": 0, "CurrentB": 0, "CurrentC": 0 },
+        "Voltage": { "AB": 0, "Avg": 0, "BC": 0, "CA": 0 }
+      },
+      "LT6KALS1": { "Energy": 5278.644, "Power": 2.4233 },
+      "LT6KALS2": { "Energy": 5664.5269, "Power": 7.3464 },
+      "LT6LUHZ1": { "Energy": 0, "Power": 0 },
+      "LT6PS01": { "Energy": 4489.438, "Power": 55.1869 },
+      "LT6PS02": { "Energy": 0, "Power": 0 },
+      "LT6XC421": { "Energy": 9343.1934, "Power": 2.2859 },
+      "LT6XC541": { "Energy": 12547.1367, "Power": 18.6374 },
+      "LT6XO631": { "Energy": 18294.4766, "Power": 19.2679 },
+      "LT6XO632": { "Energy": 354.216, "Power": 0.1898 },
+      "LT6XT301": { "Energy": 3347.6489, "Power": 0 },
+      "LT8BM151": { "Energy": 129922.8906, "Power": 211.7826 },
+      "LT8GB311": { "Energy": 431.693, "Power": 0.3891 }
+    }
+  }
+}
