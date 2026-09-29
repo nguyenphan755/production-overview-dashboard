@@ -364,6 +364,10 @@
   const DEFAULT_API = "http://100.102.253.113:1880/api/machines";
   const NR = window.MesNodeRedMachines;
   const speedBuf = NR.createSpeedBuffer(7200);
+  const statusDeb = NR.createStatusDebouncer({ holdMs: 10000 });
+  function parseLive(json) {
+    return statusDeb.apply(NR.parsePayload(json));
+  }
   let mockPayloadCache = null;
   const Chart = window.Chart;
   const charts = {};
@@ -1386,14 +1390,14 @@
 
   async function loadFleetLive() {
     const json = await NR.fetchMachinesJson(getApiBase());
-    const fx = NR.parsePayload(json);
+    const fx = parseLive(json);
     speedBuf.push(fx.machines);
     fleet = fx.machines.map((m) => ({ id: m.id, name: m.name, area: m.area }));
   }
 
   async function loadAnalysisLive(win) {
     const json = await NR.fetchMachinesJson(getApiBase());
-    const fx = NR.parsePayload(json);
+    const fx = parseLive(json);
     speedBuf.push(fx.machines);
     const mid = machineId;
     const m = fx.machines.find((x) => x.id === mid);
@@ -1421,7 +1425,7 @@
     } else {
       // soft poll: push latest speed into buffer
       const json = await NR.fetchMachinesJson(getApiBase());
-      const fx = NR.parsePayload(json);
+      const fx = parseLive(json);
       speedBuf.push(fx.machines);
       const m = fx.machines.find((x) => x.id === machineId);
       if (m && lab) lab.machine = m;

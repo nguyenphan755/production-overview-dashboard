@@ -476,7 +476,7 @@
         Map <code style="font-family:var(--mono);font-size:11px">Status + Line.ActSpeed</code>
         · area theo mã máy (KN/XB/BD…).
         <strong>Product / PO</strong>: PLC nếu có tag · không thì catalog cố định theo line (giống V1).
-        OEE / power: ước lượng từ tốc độ & motor (contract như Control Tower).
+        OEE: ước lượng từ tốc độ. Power / kWh: meter thật từ <code style="font-family:var(--mono);font-size:11px">/api/energy</code> (ghép theo tag máy).
         <strong>Click line</strong> → Detail V2.
         Energy: <a href="mes-control-tower-100-v2.html" style="color:var(--g-blue)">Energy EMS</a>
         · V1 MES: <a href="mes-overview-100.html" style="color:var(--g-blue)">Overview V1</a>.
@@ -488,7 +488,7 @@
       <span class="tag" id="shiftTag">shift=—</span>
       <span class="tag" id="clockTag">now=—</span>
       <span class="tag" id="rtTag">rt=—</span>
-      <span class="tag warn" id="gapTag">OEE est · power demo/PLC current</span>
+      <span class="tag warn" id="gapTag">OEE est · power = /api/energy meter</span>
     </div>
   </div>
 
@@ -526,6 +526,10 @@
   const charts = {};
   const NR = window.MesNodeRedMachines;
   const speedBuf = NR.createSpeedBuffer(1200);
+  /** Shared with Detail V2 (same localStorage key) — power / meter / length history */
+  const histLive = NR.createMetricHistory({ storageKey: "mes-nr-metric-hist-v2", memPts: 600 });
+  const statusDeb = NR.createStatusDebouncer({ holdMs: 10000 });
+  let mockEnergyCache = null;
 
   const AREAS = [
     { id: "drawing", name: "KÉO", nameEn: "Drawing", prefix: "D", targetSpeed: 1000, count: 28 },
@@ -555,7 +559,7 @@
     stat_running: { title: "Lines Running", api: "Status Line.ON + ActSpeed" },
     stat_stopped: { title: "Stopped", api: "deriveStatus" },
     stat_setup: { title: "Setup / Idle", api: "drives ON / Line.ON speed≈0" },
-    stat_error: { title: "Error / Warning / Offline", api: "Fault · EMG · no data" },
+    stat_error: { title: "Error / Warning / Offline", api: "Fault→error · EMGSTOP→warning · no data" },
     stat_oee: { title: "Est. Plant OEE", api: "demo · ActSpeed/MaxSpeed (not MES)" },
     stat_alarms: { title: "PLC Alarms", api: "Fault / EMGSTOP / offline" },
     area_summary: { title: "Area snapshot · run / speed", api: "group by mid-code → process" },
@@ -749,33 +753,56 @@
     }
   }
 
-  function applyFixtures(fx, sourceLabel) {
+  function applyFixtures(fx, sourceLabel, energyPayload) {
+    if (energyPayload) NR.mergeEnergy(fx, NR.indexEnergyPayload(energyPayload));
+    const now = Date.now();
+    statusDeb.apply(fx, now);
     fixtures = fx;
-    speedBuf.push(fixtures.machines);
-    lastRtAt = Date.now();
+    speedBuf.push(fixtures.machines, now);
+    if (dataMode === "live") histLive.push(fixtures.machines, now);
+    lastRtAt = now;
+    const en = fixtures.meta && fixtures.meta.energy;
     document.getElementById("dataStatus").textContent =
       "source: " + sourceLabel + " · " + fixtures.machines.length + " machines · online=" +
-      (fixtures.kpis.online != null ? fixtures.kpis.online : "—");
+      (fixtures.kpis.online != null ? fixtures.kpis.online : "—") +
+      (en ? " · energy " + en.matched + "/" + en.total + " · Σ " + fixtures.kpis.powerKw + " kW" : " · energy: —");
     document.getElementById("linesTag").textContent = "lines=" + fixtures.machines.length;
   }
 
   async function loadLive() {
     const url = getMachinesApiUrl();
-    const json = await NR.fetchMachinesJson(url);
-    applyFixtures(NR.parsePayload(json), "live " + url);
+    const [mRes, eRes] = await Promise.allSettled([
+      NR.fetchMachinesJson(url),
+      NR.fetchEnergyJson(NR.energyUrlFromMachinesUrl(url)),
+    ]);
+    if (mRes.status !== "fulfilled") throw mRes.reason;
+    if (eRes.status !== "fulfilled") console.warn("energy API", eRes.reason);
+    applyFixtures(NR.parsePayload(mRes.value), "live " + url, eRes.status === "fulfilled" ? eRes.value : null);
   }
 
   async function loadLiveLight() {
     await loadLive();
   }
 
+  async function loadMockEnergy() {
+    if (mockEnergyCache) return mockEnergyCache;
+    try {
+      const res = await fetch("TemplateAPI_nodere", { cache: "no-store" });
+      mockEnergyCache = res.ok ? await res.json() : null;
+    } catch (_) {
+      mockEnergyCache = null;
+    }
+    return mockEnergyCache;
+  }
+
   async function loadMock() {
-    const json = await loadMockTemplate();
-    applyFixtures(NR.parsePayload(json), "mock TemplateAPI_nodered_machines");
+    const [json, energy] = await Promise.all([loadMockTemplate(), loadMockEnergy()]);
+    applyFixtures(NR.parsePayload(json), "mock TemplateAPI_nodered_machines", energy);
   }
 
   function setMode(mode) {
     dataMode = mode === "live" ? "live" : "mock";
+    statusDeb.reset();
     localStorage.setItem(MODE_KEY, dataMode);
     const live = document.getElementById("modeLive");
     const label = document.getElementById("modeLabel");
@@ -1155,8 +1182,13 @@
       encodeURIComponent(m.id) + '">Mở Detail V2 →</a>' +
       '<span class="badge ' + m.status + '">' + m.status + "</span>" +
       '<div class="d-grid">' +
-      '<div class="d-card"><div class="k">power</div><div class="v" style="color:var(--g-blue)">' + Number(m.power || 0).toFixed(1) +
-      ' kW</div><div class="s">current ' + Number(m.current || 0).toFixed(1) + " A · " + (m.powerSource || "—") + "</div></div>" +
+      '<div class="d-card"><div class="k">power</div><div class="v" style="color:var(--g-blue)">' +
+      (m.power != null ? Number(m.power).toFixed(1) + " kW" : "—") +
+      '</div><div class="s">' +
+      (m.powerSource === "nodered.energy"
+        ? "meter " + (m.energyMeterKwh != null ? Math.round(m.energyMeterKwh).toLocaleString("vi-VN") + " kWh" : "—")
+        : m.powerSource === "no-meter" ? "không có meter" : "ước lượng · " + (m.powerSource || "—")) +
+      " · current " + Number(m.current || 0).toFixed(1) + " A</div></div>" +
       '<div class="d-card"><div class="k">lineSpeed</div><div class="v">' + sp.v + " " + sp.unit +
       '</div><div class="s">targetSpeed ' + sp.t + " " + sp.unit + "</div></div>" +
       '<div class="d-card"><div class="k">oee</div><div class="v" style="color:var(--g-green)">' + Number(m.oee || 0).toFixed(1) +

@@ -322,6 +322,9 @@
     .thr-level.ok { color: var(--g-green); background: rgba(115, 191, 105, 0.12); }
     .thr-level.warn { color: var(--g-orange); background: rgba(255, 152, 48, 0.15); }
     .thr-level.alarm { color: var(--g-red); background: rgba(242, 73, 92, 0.15); }
+    .thr-level.learning { color: var(--g-blue); background: rgba(87, 148, 242, 0.15); }
+    .thr-table input:disabled { opacity: 0.6; }
+    .thr-hint-row td { border-bottom: 1px solid var(--g-panel-border); padding-top: 0; font-size: 10px; }
     .zone-card.thr-warn { border-color: rgba(255, 152, 48, 0.65); box-shadow: inset 0 0 0 1px rgba(255, 152, 48, 0.25); }
     .zone-card.thr-alarm { border-color: rgba(242, 73, 92, 0.75); box-shadow: inset 0 0 0 1px rgba(242, 73, 92, 0.3); }
     .panel.proposed { border-color: rgba(184, 119, 217, 0.45); }
@@ -414,6 +417,8 @@
   <div class="api-base-row">
     <span>Machines API</span>
     <input id="apiBase" type="text" value="http://100.102.253.113:1880/api/machines" spellcheck="false" />
+    <span>Energy API</span>
+    <input id="energyApi" type="text" value="http://100.102.253.113:1880/api/energy" spellcheck="false" title="Power kW / Energy kWh theo tag máy — /proxy/energy khi dùng serve-energy-ems.mjs" />
     <span id="dataStatus">source: mock</span>
   </div>
 
@@ -428,10 +433,18 @@
   const API_KEY = "mes-ed-v2-api-base";
   const THEME_KEY = "mes-ct-theme";
   const DEFAULT_API = "http://100.102.253.113:1880/api/machines";
+  const ENERGY_KEY = "mes-ed-v2-energy-url";
   const NR = window.MesNodeRedMachines;
   const speedBuf = NR.createSpeedBuffer(3600);
+  /** Client history: Live persisted 24h (5-min, shared key) · Mock memory-only (không trộn meter giả vào Live) */
+  const histLive = NR.createMetricHistory({ storageKey: "mes-nr-metric-hist-v2", memPts: 3600 });
+  const histMock = NR.createMetricHistory({ memPts: 3600 });
+  const statusDeb = NR.createStatusDebouncer({ holdMs: 10000 });
+  function curHist() { return dataMode === "live" ? histLive : histMock; }
   let fleetPayload = null;
   let mockPayloadCache = null;
+  let mockEnergyCache = null;
+  let energyInfo = null;
   const Chart = window.Chart;
   const charts = {};
 
@@ -471,17 +484,17 @@
     stat_target: { title: "Target Speed", api: "targetSpeed" },
     stat_eff: { title: "Speed Efficiency", api: "lineSpeed / targetSpeed" },
     stat_oee: { title: "Live OEE", api: "oee" },
-    stat_power: { title: "Active Power", api: "power kW" },
+    stat_power: { title: "Active Power", api: "/api/energy · Power kW" },
     stat_temp: { title: "Temperature", api: "temperature °C" },
     apq: { title: "OEE Factors A · P · Q", api: "availability · performance · quality" },
     length: { title: "Production Length", api: "producedLengthOk / targetLength" },
     speed_kpi: { title: "Speed history summary", api: "/speed-history.summary" },
     gantt: { title: "Operational States (shift window)", api: "/status-history" },
     chart_speed: { title: "Speed Trend · actual vs target", api: "speed-history | Auto RT 50@1s" },
-    chart_temp: { title: "Temperature Trend", api: "temperatureTrend | Auto RT" },
-    chart_current: { title: "Motor Current", api: "currentTrend | Auto RT" },
-    chart_power: { title: "Power Trend", api: "powerTrend | Auto RT" },
-    chart_energy: { title: "Energy Meter (kWh)", api: "energyMeterTrend · energyMeterKwh" },
+    chart_temp: { title: "Temperature Trend", api: "PLC temp tags · client buffer | Auto RT" },
+    chart_current: { title: "Motor Current", api: "PLC MotorCurrent · client buffer | Auto RT" },
+    chart_power: { title: "Power Trend", api: "/api/energy Power · client buffer | Auto RT" },
+    chart_energy: { title: "Energy Meter (kWh)", api: "/api/energy Energy (cumulative) · client buffer" },
     zones: { title: "Tba · Multi-zone temperature", api: "multiZoneTemperatures + multiZoneTemperatureTrend (line)" },
     thresholds: {
       title: "Alert Thresholds (demo)",
@@ -489,7 +502,7 @@
       badge: "proposed",
     },
     alarms: { title: "Alarms", api: "machines/:id.alarms + derived thresholds" },
-    energy_buckets: { title: "kWh by bucket (meter)", api: "energyConsumption[]" },
+    energy_buckets: { title: "kWh by bucket (meter)", api: "ΔEnergy meter · ΔLength PLC → kWh/100m" },
     orders: { title: "Production Order History", api: "orderHistory[] · productionOrder" },
   };
 
@@ -508,9 +521,52 @@
       metrics: {
         temperature: { enabled: true, warn: 75, alarm: 82, unit: "°C" },
         current: { enabled: true, warn: 55, alarm: 70, unit: "A" },
-        power: { enabled: true, warn: 70, alarm: 95, unit: "kW" },
+        power: { enabled: true, auto: true, warn: 70, alarm: 95, unit: "kW" },
       },
     };
+  }
+
+  /** Auto power thresholds from the machine's own loaded history (1 sample/min, P ≥ minKw) */
+  const POWER_BASELINE = { windowMs: 24 * 3600e3, minKw: 1, minMinutes: 15, q: 0.9, warnX: 1.15, alarmX: 1.3, cacheMs: 60e3 };
+  const powerBaselineCache = {};
+
+  function powerBaseline(mid) {
+    const now = Date.now();
+    const hit = powerBaselineCache[mid];
+    if (hit && hit.mode === dataMode && now - hit.at < POWER_BASELINE.cacheMs) return hit.v;
+    const perMin = {};
+    curHist().series(mid, now - POWER_BASELINE.windowMs, now).forEach((s) => {
+      if (s.p != null && s.p >= POWER_BASELINE.minKw) perMin[Math.floor(s.t / 60000)] = s.p;
+    });
+    const vals = Object.values(perMin).sort((a, b) => a - b);
+    const ref = vals.length >= POWER_BASELINE.minMinutes ? percentile(vals, POWER_BASELINE.q) : null;
+    const v = { ref, minutes: vals.length };
+    powerBaselineCache[mid] = { at: now, mode: dataMode, v };
+    return v;
+  }
+
+  function applyAutoPower(mid, rules) {
+    const pr = rules.metrics.power;
+    if (!pr || pr.auto === false) return rules;
+    const b = powerBaseline(mid);
+    rules.metrics.power = Object.assign({}, pr, {
+      auto: true,
+      learning: b.ref == null,
+      basis: b,
+      warn: b.ref != null ? +(b.ref * POWER_BASELINE.warnX).toFixed(1) : null,
+      alarm: b.ref != null ? +(b.ref * POWER_BASELINE.alarmX).toFixed(1) : null,
+    });
+    return rules;
+  }
+
+  function autoPowerHint(rule) {
+    if (!rule || !rule.auto) return "";
+    const b = rule.basis || { minutes: 0 };
+    if (rule.learning) {
+      return "Auto: đang học baseline " + b.minutes + "/" + POWER_BASELINE.minMinutes + " phút có tải (P ≥ " + POWER_BASELINE.minKw + " kW)";
+    }
+    return "Auto: P90 24h = " + b.ref.toFixed(1) + " kW (" + b.minutes + " phút có tải) → warn ×" +
+      POWER_BASELINE.warnX + " · alarm ×" + POWER_BASELINE.alarmX;
   }
 
   function loadAllAlertRules() {
@@ -529,13 +585,13 @@
     const all = loadAllAlertRules();
     const base = defaultAlertRules();
     const saved = all[mid];
-    if (!saved) return base;
-    return {
+    if (!saved) return applyAutoPower(mid, base);
+    return applyAutoPower(mid, {
       enabled: saved.enabled !== false,
       holdMs: Number(saved.holdMs) > 0 ? Number(saved.holdMs) : base.holdMs,
       hysteresis: saved.hysteresis != null ? Number(saved.hysteresis) : base.hysteresis,
       metrics: Object.assign({}, base.metrics, saved.metrics || {}),
-    };
+    });
   }
 
   function setAlertRules(mid, rules) {
@@ -566,7 +622,7 @@
     if (!m) return null;
     if (metricKey === "temperature") return m.temperature != null ? Number(m.temperature) : null;
     if (metricKey === "current") return m.current != null ? Number(m.current) : null;
-    if (metricKey === "power") return m.power != null ? Number(m.power) : null;
+    if (metricKey === "power") return m.power != null && m.powerSource === "nodered.energy" ? Number(m.power) : null;
     if (metricKey.indexOf("zone_") === 0) {
       const zk = metricKey.slice(5);
       const z = m.multiZoneTemperatures || {};
@@ -623,6 +679,10 @@
           return;
         }
         const val = readMetricValue(key, detail);
+        if (rule.learning) {
+          st[key] = { level: "ok", candidate: "ok", since: now, fired: "", value: val };
+          return;
+        }
         if (val == null) return;
         const prev = st[key] || { level: "ok", candidate: "ok", since: now, fired: "" };
         const candidate = levelWithHysteresis(val, rule, prev.level, rules.hysteresis);
@@ -678,7 +738,7 @@
     const rules = getAlertRules(machineId);
     if (!rules.enabled) return [];
     const rule = rules.metrics[metricKey];
-    if (!rule || !rule.enabled) return [];
+    if (!rule || !rule.enabled || rule.learning) return [];
     const warn = Number(rule.warn);
     const alarm = Number(rule.alarm);
     const out = [];
@@ -720,16 +780,21 @@
       const r = rules.metrics[key];
       const ev = st[key] || { level: "ok" };
       const label = r.label || key;
+      const autoable = key === "power";
+      const lock = r.auto ? " disabled" : "";
+      const level = r.learning ? "learning" : (ev.level || "ok");
       return (
         "<tr data-metric=\"" + key + "\">" +
         '<td><input type="checkbox" data-f="enabled"' + (r.enabled ? " checked" : "") + " /></td>" +
         '<td class="mono">' + label + "</td>" +
-        '<td><input type="number" data-f="warn" step="0.1" value="' + r.warn + '" /></td>' +
-        '<td><input type="number" data-f="alarm" step="0.1" value="' + r.alarm + '" /></td>' +
+        "<td>" + (autoable ? '<input type="checkbox" data-f="auto"' + (r.auto ? " checked" : "") + " />" : "") + "</td>" +
+        '<td><input type="number" data-f="warn" step="0.1" value="' + (r.warn != null ? r.warn : "") + '"' + lock + " /></td>" +
+        '<td><input type="number" data-f="alarm" step="0.1" value="' + (r.alarm != null ? r.alarm : "") + '"' + lock + " /></td>" +
         "<td>" + (r.unit || "") + "</td>" +
-        '<td><span class="thr-level ' + (ev.level || "ok") + '">' + (ev.level || "ok") + "</span></td>" +
+        '<td><span class="thr-level ' + level + '">' + level + "</span></td>" +
         '<td class="mono">' + (ev.value != null ? Number(ev.value).toFixed(1) : "—") + "</td>" +
-        "</tr>"
+        "</tr>" +
+        (r.auto ? '<tr class="thr-hint-row" data-hint-for="' + key + '"><td></td><td colspan="7" class="hint">' + autoPowerHint(r) + "</td></tr>" : "")
       );
     }).join("");
 
@@ -742,9 +807,21 @@
       '<button type="button" class="g-btn" id="btnThrReset">Reset defaults</button>' +
       "</div>" +
       '<table class="thr-table"><thead><tr>' +
-      "<th>On</th><th>Metric</th><th>Warn ≥</th><th>Alarm ≥</th><th></th><th>Level</th><th>Now</th>" +
+      "<th>On</th><th>Metric</th><th>Auto</th><th>Warn ≥</th><th>Alarm ≥</th><th></th><th>Level</th><th>Now</th>" +
       "</tr></thead><tbody id=\"thrBody\">" + rows + "</tbody></table>" +
       '<p class="hint" style="padding:4px 0 0">Demo only · rules per machine_id trong localStorage. Production: backend evaluate → alarms table.</p>';
+
+    Array.from(host.querySelectorAll('[data-f="auto"]')).forEach((cb) => {
+      cb.onchange = () => {
+        const tr = cb.closest("tr");
+        const def = defaultAlertRules().metrics[tr.getAttribute("data-metric")] || {};
+        ["warn", "alarm"].forEach((f) => {
+          const inp = tr.querySelector('[data-f="' + f + '"]');
+          inp.disabled = cb.checked;
+          if (!cb.checked && !(Number(inp.value) > 0) && def[f] != null) inp.value = def[f];
+        });
+      };
+    });
 
     document.getElementById("btnThrSave").onclick = () => {
       const next = {
@@ -753,16 +830,21 @@
         hysteresis: Number(document.getElementById("thrHyst").value) || 0,
         metrics: {},
       };
-      Array.from(document.querySelectorAll("#thrBody tr")).forEach((tr) => {
+      Array.from(document.querySelectorAll("#thrBody tr[data-metric]")).forEach((tr) => {
         const key = tr.getAttribute("data-metric");
         const prev = rules.metrics[key] || {};
+        const autoEl = tr.querySelector('[data-f="auto"]');
+        const def = defaultAlertRules().metrics[key] || {};
+        const warn = Number(tr.querySelector('[data-f="warn"]').value);
+        const alarm = Number(tr.querySelector('[data-f="alarm"]').value);
         next.metrics[key] = {
           enabled: tr.querySelector('[data-f="enabled"]').checked,
-          warn: Number(tr.querySelector('[data-f="warn"]').value),
-          alarm: Number(tr.querySelector('[data-f="alarm"]').value),
+          warn: warn > 0 || def.warn == null ? warn : def.warn,
+          alarm: alarm > 0 || def.alarm == null ? alarm : def.alarm,
           unit: prev.unit || "",
           label: prev.label,
         };
+        if (autoEl) next.metrics[key].auto = autoEl.checked;
       });
       setAlertRules(machineId, next);
       thrEvalState[machineId] = {};
@@ -1182,6 +1264,7 @@
       temp: m.temperature != null ? Number(m.temperature) : null,
       current: m.current != null ? Number(m.current) : null,
       power: m.power != null ? Number(m.power) : null,
+      energy: m.energyMeterKwh != null ? Number(m.energyMeterKwh) : null,
       zones,
     });
     const maxPts = (RANGE_CFG.auto && RANGE_CFG.auto.points) || 50;
@@ -1325,7 +1408,8 @@
     document.getElementById("hdrName").textContent = m.name || "";
     const st = document.getElementById("hdrStatus");
     st.className = "badge " + (m.status || "idle");
-    st.textContent = m.status || "—";
+    st.textContent = (m.status || "—") + (m.statusHeld ? " *" : "");
+    st.title = m.statusHeld ? "PLC hiện báo " + m.statusRaw + " — chờ ổn định 10s mới đổi" : "";
     document.getElementById("hdrProduct").textContent = m.productName || m.productionOrderProductName || (m.productionOrder && m.productionOrder.productName) || "—";
     const po = m.productionOrderName || m.productionOrderId || (m.productionOrder && m.productionOrder.name) || "—";
     const cust = m.productionOrder && m.productionOrder.customer ? " · " + m.productionOrder.customer : "";
@@ -1354,7 +1438,15 @@
       { id: "stat_target", v: String(sp.t), unit: sp.unit, name: "targetSpeed", cls: "purple" },
       { id: "stat_eff", v: sp.pct.toFixed(0), unit: "%", name: "vs target", cls: sp.pct >= 95 ? "green" : sp.pct >= 85 ? "orange" : "red" },
       { id: "stat_oee", v: Number(m.oee || 0).toFixed(1), unit: "%", name: "live OEE", cls: (m.oee || 0) >= 80 ? "green" : (m.oee || 0) >= 70 ? "orange" : "red" },
-      { id: "stat_power", v: Number(m.power || 0).toFixed(1), unit: "kW", name: "active power", cls: thrCls("power", "orange") },
+      {
+        id: "stat_power",
+        v: m.power != null ? Number(m.power).toFixed(1) : "—",
+        unit: m.power != null ? "kW" : "",
+        name: m.powerSource === "nodered.energy"
+          ? "meter /api/energy" + (m.energyMeterKwh != null ? " · " + Math.round(m.energyMeterKwh).toLocaleString("vi-VN") + " kWh" : "")
+          : m.powerSource === "no-meter" ? "không có meter trong /api/energy" : "ước lượng (không có energy API)",
+        cls: m.powerSource === "nodered.energy" ? (Number(m.power) < 0 ? "red" : thrCls("power", "green")) : "purple",
+      },
       { id: "stat_temp", v: m.temperature != null ? String(Math.round(m.temperature)) : "—", unit: "°C", name: "temperature", cls: thrCls("temperature", "red") },
     ];
     specs.forEach((s) => {
@@ -1501,10 +1593,19 @@
       ].concat(thresholdLineDatasets("power", pt.length)), "kW");
     }
 
-    const et = (detail.energyMeterTrend || []).slice(-60);
     const meterNow = detail.energyMeterKwh != null ? Number(detail.energyMeterKwh).toFixed(1) + " kWh" : "";
-    lineChart("chart_energy", document.getElementById("chart_energy_c"), et.map((p) => fmtTime(p.time || p.timestamp)), [
-      { label: "Meter " + meterNow, data: et.map((p) => Number(p.meterKwh) || 0), borderColor: "#73bf69", borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
+    let eLabels;
+    let eData;
+    if (useAuto && rtSeries.some((p) => p.energy != null)) {
+      eLabels = rtSeries.map((p) => fmtAxisTs(p.t));
+      eData = rtSeries.map((p) => p.energy);
+    } else {
+      const et = (detail.energyMeterTrend || []).slice(-120);
+      eLabels = et.map((p) => fmtTime(p.time || p.timestamp));
+      eData = et.map((p) => p.meterKwh != null ? Number(p.meterKwh) : null);
+    }
+    lineChart("chart_energy", document.getElementById("chart_energy_c"), eLabels, [
+      { label: "Meter " + meterNow, data: eData, borderColor: "#73bf69", borderWidth: 1.5, pointRadius: 0, tension: 0.15, spanGaps: true },
     ], "kWh");
   }
 
@@ -1615,16 +1716,26 @@
     const body = document.getElementById("thrBody");
     if (!body) return;
     const st = thrEvalState[machineId] || {};
-    Array.from(body.querySelectorAll("tr")).forEach((tr) => {
+    const rules = getAlertRules(machineId);
+    Array.from(body.querySelectorAll("tr[data-metric]")).forEach((tr) => {
       const key = tr.getAttribute("data-metric");
       const ev = st[key] || {};
+      const r = rules.metrics[key];
+      const level = r && r.learning ? "learning" : (ev.level || "ok");
       const span = tr.querySelector(".thr-level");
       if (span) {
-        span.className = "thr-level " + (ev.level || "ok");
-        span.textContent = ev.level || "ok";
+        span.className = "thr-level " + level;
+        span.textContent = level;
       }
       const cells = tr.querySelectorAll("td");
-      if (cells[6]) cells[6].textContent = ev.value != null ? Number(ev.value).toFixed(1) : "—";
+      if (cells[7]) cells[7].textContent = ev.value != null ? Number(ev.value).toFixed(1) : "—";
+      const autoEl = tr.querySelector('[data-f="auto"]');
+      if (r && r.auto && autoEl && autoEl.checked) {
+        tr.querySelector('[data-f="warn"]').value = r.warn != null ? r.warn : "";
+        tr.querySelector('[data-f="alarm"]').value = r.alarm != null ? r.alarm : "";
+        const hint = body.querySelector('tr[data-hint-for="' + key + '"] .hint');
+        if (hint) hint.textContent = autoPowerHint(r);
+      }
     });
   }
 
@@ -1701,91 +1812,177 @@
     }
   }
 
+  function thinSeries(arr, max) {
+    if (arr.length <= max) return arr;
+    const step = arr.length / max;
+    const out = [];
+    for (let i = 0; i < max; i++) out.push(arr[Math.floor(i * step)]);
+    out[out.length - 1] = arr[arr.length - 1];
+    return out;
+  }
+
+  function percentile(sorted, q) {
+    if (!sorted.length) return null;
+    const i = Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * q)));
+    return sorted[i];
+  }
+
+  function bucketCountForRange() {
+    return { auto: 15, "15m": 15, "1h": 12, "8h": 16, "24h": 24, custom: 24 }[timeRange] || 12;
+  }
+
   function detailFromMachine(m) {
     if (!m) return null;
-    const series = speedBuf.series(m.id, 8 * 3600e3);
-    const speedHistory = series.map((p) => ({ time: new Date(p.t).toISOString(), speed: p.speed, target: p.target }));
-    const statusHistory = [];
+    const win = getWindowRange();
+    const endMs = win.end.getTime();
+    // Auto = 50s chart window; history panels (gantt, buckets, kWh) use last 15m
+    const startMs = timeRange === "auto" ? endMs - 15 * 60 * 1000 : win.start.getTime();
+    const series = curHist().series(m.id, startMs, endMs);
+    const iso = (t) => new Date(t).toISOString();
+
+    const statusRows = [];
     let cur = null;
-    series.forEach((p) => {
-      if (!cur || cur.status !== p.status) {
-        if (cur) cur.end = new Date(p.t).toISOString();
-        cur = { status: p.status, start: new Date(p.t).toISOString(), end: null };
-        statusHistory.push(cur);
+    series.forEach((s) => {
+      if (!s.st) return;
+      if (!cur || cur.status !== s.st) {
+        if (cur) cur.endTime = iso(s.t);
+        cur = { status: s.st, startTime: iso(s.t), endTime: null };
+        statusRows.push(cur);
       }
     });
-    if (cur) cur.end = new Date().toISOString();
-    const tempTags = (m.tags || []).filter((t) => /Temp|Zone|Melt|Hot\.Water/i.test(t.path) && typeof t.value === "number" && t.value > 0);
-    const multiZoneTemperatures = tempTags.slice(0, 12).map((t) => ({ zone: t.path.split(".").pop(), value: t.value }));
+    if (cur) cur.endTime = iso(endMs);
+
+    const thin = thinSeries(series, 120);
+    const speedPoints = thin.filter((s) => s.sp != null).map((s) => {
+      const sp = speedInfo({ lineSpeed: s.sp, targetSpeed: s.tg, area: m.area });
+      return { timestamp: iso(s.t), actualSpeed: sp.v, targetSpeed: sp.t };
+    });
+    const runSpeeds = series.filter((s) => s.st === "running" && s.sp != null)
+      .map((s) => speedInfo({ lineSpeed: s.sp, targetSpeed: s.tg, area: m.area }).v)
+      .sort((a, b) => a - b);
+    const setupSpeeds = series.filter((s) => s.st === "setup" && s.sp != null)
+      .map((s) => speedInfo({ lineSpeed: s.sp, targetSpeed: s.tg, area: m.area }).v);
+    let stoppedSec = 0;
+    statusRows.forEach((r) => {
+      if (r.status === "stopped" || r.status === "idle" || r.status === "error") {
+        stoppedSec += (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 1000;
+      }
+    });
+
+    const zoneTags = (m.tags || []).filter((t) => /^Temp\.|Temp[A-Z]/.test(t.path) && /Zone|Melt|Die|Head|Neck|Clamp/i.test(t.path) &&
+      typeof t.value === "number" && t.value > 0);
+    const multiZoneTemperatures = {};
+    zoneTags.slice(0, 12).forEach((t) => {
+      multiZoneTemperatures[t.path.replace(/^Temp\.?/i, "")] = Number(t.value);
+    });
     const motorCurrent = (m.tags || []).find((t) => /MotorCurrent|ActCurrent/i.test(t.path) && Number(t.value) > 0);
     const motorTemp = (m.tags || []).find((t) => /MotorTemp|ElectricalCabinet/i.test(t.path) && Number(t.value) > 0);
+
     return {
       ...m,
       temperature: motorTemp ? Number(motorTemp.value) : null,
       current: motorCurrent ? Number(motorCurrent.value) : null,
-      power: m.power,
-      energyMeterKwh: null,
-      speedHistory,
-      statusHistory,
-      temperatureTrend: [],
-      currentTrend: [],
-      powerTrend: [],
-      energyMeterTrend: [],
-      multiZoneTemperatures,
+      statusHistory: statusRows,
+      speedHistory: {
+        points: speedPoints,
+        summary: {
+          stableRunningMedian: runSpeeds.length ? +percentile(runSpeeds, 0.5).toFixed(2) : null,
+          stableRunningP90: runSpeeds.length ? +percentile(runSpeeds, 0.9).toFixed(2) : null,
+          setupAvgSpeed: setupSpeeds.length ? +(setupSpeeds.reduce((a, b) => a + b, 0) / setupSpeeds.length).toFixed(2) : null,
+          stoppedDurationSec: statusRows.length ? stoppedSec : null,
+        },
+      },
+      temperatureTrend: thin.filter((s) => s.tmp != null).map((s) => ({ time: iso(s.t), temp: s.tmp })),
+      currentTrend: thin.filter((s) => s.cur != null).map((s) => ({ time: iso(s.t), current: s.cur })),
+      powerTrend: thin.filter((s) => s.p != null).map((s) => ({ time: iso(s.t), power: s.p })),
+      energyMeterTrend: thin.filter((s) => s.e != null).map((s) => ({ time: iso(s.t), meterKwh: s.e })),
+      multiZoneTemperatures: Object.keys(multiZoneTemperatures).length ? multiZoneTemperatures : null,
       multiZoneTemperatureTrend: [],
-      energyConsumption: [],
+      energyConsumption: NR.energyBuckets(series, startMs, endMs, bucketCountForRange())
+        .map((b) => Object.assign(b, { productName: m.productNameSource === "plc" ? m.productName : null })),
       orderHistory: [],
-      speedSummary: series.length ? {
-        avg: +(series.reduce((sum, p) => sum + p.speed, 0) / series.length).toFixed(2),
-        max: Math.max(...series.map((p) => p.speed)),
-        min: Math.min(...series.map((p) => p.speed)),
-        points: series.length,
-        note: "client buffer from /api/machines poll",
-      } : { avg: m.lineSpeed, max: m.lineSpeed, min: m.lineSpeed, points: 0, note: "waiting for poll buffer" },
     };
   }
 
-  async function loadFleetLive() {
-    const url = getApiBase();
-    fleetPayload = await NR.fetchMachinesJson(url);
-    const fx = NR.parsePayload(fleetPayload);
-    speedBuf.push(fx.machines);
-    fleet = fx.machines.map((m) => ({ id: m.id, name: m.name, area: m.area, status: m.status, workshop: m.workshop }));
-    return fx;
+  function getEnergyUrl() {
+    return NR.normalizeEnergyUrl(document.getElementById("energyApi").value || NR.DEFAULT_ENERGY_URL);
   }
 
-  async function loadDetailLive() {
-    const url = getApiBase();
-    fleetPayload = await NR.fetchMachinesJson(url);
-    const fx = NR.parsePayload(fleetPayload);
-    speedBuf.push(fx.machines);
+  async function loadMockEnergy() {
+    if (mockEnergyCache) return mockEnergyCache;
+    try {
+      const res = await fetch("TemplateAPI_nodere", { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      mockEnergyCache = await res.json();
+    } catch (err) {
+      console.warn(err);
+      mockEnergyCache = {};
+    }
+    return mockEnergyCache;
+  }
+
+  /** Parse PLC payload, merge /api/energy, feed buffers, pick machine */
+  function applyPayloads(machinesPayload, energyPayload) {
+    const fx = NR.parsePayload(machinesPayload);
+    if (energyPayload) {
+      NR.mergeEnergy(fx, NR.indexEnergyPayload(energyPayload));
+      energyInfo = fx.meta.energy;
+    } else {
+      energyInfo = null;
+    }
+    const now = Date.now();
+    statusDeb.apply(fx, now);
+    speedBuf.push(fx.machines, now);
+    curHist().push(fx.machines, now);
     fleet = fx.machines.map((m) => ({ id: m.id, name: m.name, area: m.area, status: m.status, workshop: m.workshop }));
     if (!machineId || !fx.machines.some((m) => m.id === machineId)) {
       machineId = (fx.machines.find((m) => m.status === "running") || fx.machines[0] || {}).id;
     }
     const m = fx.machines.find((x) => x.id === machineId);
     detail = detailFromMachine(m);
+    statusHistory = detail ? detail.statusHistory : [];
+    speedHistory = detail ? detail.speedHistory : null;
+    return fx;
+  }
+
+  async function loadDetailLive() {
+    const [mRes, eRes] = await Promise.allSettled([
+      NR.fetchMachinesJson(getApiBase()),
+      NR.fetchEnergyJson(getEnergyUrl()),
+    ]);
+    if (mRes.status !== "fulfilled") throw mRes.reason;
+    fleetPayload = mRes.value;
+    if (eRes.status !== "fulfilled") {
+      console.warn(eRes.reason);
+      if (!loadDetailLive._warned) showToast("Energy API lỗi → power = ước lượng: " + (eRes.reason && eRes.reason.message));
+      loadDetailLive._warned = true;
+    } else {
+      loadDetailLive._warned = false;
+    }
+    applyPayloads(fleetPayload, eRes.status === "fulfilled" ? eRes.value : null);
     if (!detail) throw new Error("Machine not in /api/machines: " + machineId);
   }
 
-  function loadDetailMock() {
-    return loadMockTemplate().then((payload) => {
-      const fx = NR.parsePayload(payload);
-      speedBuf.push(fx.machines);
-      fleet = fx.machines.map((m) => ({ id: m.id, name: m.name, area: m.area, status: m.status, workshop: m.workshop }));
-      if (!machineId || !fx.machines.some((m) => m.id === machineId)) {
-        machineId = (fx.machines.find((m) => m.status === "running") || fx.machines[0] || {}).id;
-      }
-      const m = fx.machines.find((x) => x.id === machineId);
-      detail = detailFromMachine(m);
-    });
+  async function loadDetailMock() {
+    const [payload, energy] = await Promise.all([loadMockTemplate(), loadMockEnergy()]);
+    applyPayloads(payload, energy);
+  }
+
+  function updateDataStatus() {
+    const el = document.getElementById("dataStatus");
+    if (!el) return;
+    const src = dataMode === "live" ? "live" : "mock";
+    const e = energyInfo
+      ? " · energy " + energyInfo.matched + "/" + energyInfo.total + " máy có meter" +
+        (energyInfo.ts ? " @ " + new Date(energyInfo.ts).toLocaleTimeString("vi-VN") : "")
+      : " · energy: không có (power ước lượng)";
+    el.textContent = "source: " + src + " · " + fleet.length + " máy" + e;
   }
 
   async function refreshData(opts) {
     const quiet = opts && opts.quiet;
     if (dataMode === "live") {
       try {
-        if (!fleet.length) await loadFleetLive();
         await loadDetailLive();
         if (!quiet) showToast("Live detail · " + machineId);
       } catch (err) {
@@ -1798,13 +1995,19 @@
       await loadDetailMock();
       if (!quiet) showToast("Mock TemplateAPI_nodered_machines · " + machineId);
     }
+    if (detail) {
+      lastRtAt = Date.now();
+      if (timeRange === "auto") pushRtSample(detail);
+    }
     fillMachineSelect();
     setQsMachine(machineId);
+    updateDataStatus();
     refreshAll();
   }
 
   function setMode(mode) {
     dataMode = mode === "live" ? "live" : "mock";
+    statusDeb.reset();
     localStorage.setItem(MODE_KEY, dataMode);
     const live = document.getElementById("modeLive");
     document.getElementById("btnMock").classList.toggle("active-mode", dataMode === "mock");
@@ -1841,8 +2044,17 @@
     if (typeof location !== "undefined" && location.port === "5500" && !localStorage.getItem(API_KEY)) saved = "/proxy/machines";
     document.getElementById("apiBase").value = saved;
   })();
+  (function initEnergyUrl() {
+    let saved = localStorage.getItem(ENERGY_KEY);
+    if (!saved) saved = NR.energyUrlFromMachinesUrl(document.getElementById("apiBase").value);
+    document.getElementById("energyApi").value = saved;
+  })();
   document.getElementById("apiBase").addEventListener("change", () => {
     localStorage.setItem(API_KEY, getApiBase());
+  });
+  document.getElementById("energyApi").addEventListener("change", () => {
+    localStorage.setItem(ENERGY_KEY, getEnergyUrl());
+    refreshData();
   });
 
   syncTimeRangeUi();

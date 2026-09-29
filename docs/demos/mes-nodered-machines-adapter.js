@@ -97,7 +97,7 @@
   function anyDriveOn(S) {
     if (!S || typeof S !== "object") return false;
     return Object.keys(S).some((k) => {
-      if (k === "Fault" || k === "EMGSTOP" || k === "Alarm" || k === "Cmd") return false;
+      if (k === "Fault" || k === "EMGSTOP" || k === "EMSTOP" || k === "Alarm" || k === "Cmd") return false;
       if (/\.ON$/i.test(k) || /ON$/i.test(k)) return S[k] === true;
       return false;
     });
@@ -124,16 +124,21 @@
     const lineOn = isLineOn(S);
     const actKnown = hasActSpeedTag(L);
     const act = actKnown ? num(L.ActSpeed, 0) : 0;
-    const hazard = S.Fault === true || S.EMGSTOP === true || S.Alarm === true;
+    const fault = S.Fault === true;
+    const emStop = S.EMGSTOP === true || S.EMSTOP === true;
+    const softAlarm = S.Alarm === true || emStop;
+    const hazard = fault || softAlarm;
     const moving = actKnown && Math.abs(act) > 0.05;
     /**
      * Đang sản xuất: Line.ON + ActSpeed>0 (LT3KDHR1), hoặc Line.ON khi PLC không có ActSpeed (Lò).
      * EMGSTOP/Fault có thể latched sai trong lúc line vẫn chạy — không map thành error/stop đỏ.
+     * Khi dừng: Fault → error; chỉ EMGSTOP (Fault=false) → warning.
      */
     const producing = lineOn && (moving || !actKnown || lineActivityHint(L));
 
     if (producing) return hazard ? "warning" : "running";
-    if (hazard) return "error";
+    if (fault) return "error";
+    if (softAlarm) return "warning";
     if (lineOn && actKnown && Math.abs(act) <= 0.05) return "idle";
     if (lineOn) return "running";
     if (anyDriveOn(S)) return "setup";
@@ -275,7 +280,7 @@
     if (!m.targetLength && m.producedLength > 0) {
       m.targetLength = Math.max(m.producedLength, 4000 + (hashSeed(m.id + "len") % 3000));
     }
-    m.energyMeterKwh = m.energyMeterKwh != null ? m.energyMeterKwh : +(120000 + (hashSeed(m.id + "kwh") % 80000)).toFixed(2);
+    if (m.energyMeterKwh === undefined) m.energyMeterKwh = null;
 
     return m;
   }
@@ -314,12 +319,12 @@
         acknowledged: false,
       });
     }
-    if (S.EMGSTOP === true) {
+    if (S.EMGSTOP === true || S.EMSTOP === true) {
       alarms.push({
         id: id + "-EMG",
         machineId: id,
-        severity: "error",
-        message: "Emergency stop",
+        severity: "warning",
+        message: "Emergency stop (EMGSTOP)",
         timestamp: new Date().toISOString(),
         acknowledged: false,
       });
@@ -507,6 +512,330 @@
     };
   }
 
+  /* ---------- Node-RED GET /api/energy (meters: Power kW, Energy kWh) ---------- */
+
+  const DEFAULT_ENERGY_URL = "http://100.102.253.113:1880/api/energy";
+
+  function normalizeEnergyUrl(input) {
+    let u = String(input || "").trim().replace(/\/$/, "");
+    if (!u) return DEFAULT_ENERGY_URL;
+    if (u === "/proxy/energy" || u.endsWith("/proxy/energy")) return u;
+    if (/\/api\/energy$/i.test(u)) return u;
+    if (/:1880$/i.test(u)) return u + "/api/energy";
+    try {
+      const parsed = new URL(u, typeof location !== "undefined" ? location.href : "http://localhost");
+      if (/:1880$/i.test(parsed.origin) && parsed.pathname === "/") return parsed.origin + "/api/energy";
+    } catch (_) {}
+    return u;
+  }
+
+  /** Same host as machines URL: /proxy/machines → /proxy/energy, …/api/machines → …/api/energy */
+  function energyUrlFromMachinesUrl(machinesUrl) {
+    const u = String(machinesUrl || "").trim().replace(/\/$/, "");
+    if (/\/proxy\/machines$/i.test(u)) return u.replace(/\/proxy\/machines$/i, "/proxy/energy");
+    if (/\/api\/machines$/i.test(u)) return u.replace(/\/api\/machines$/i, "/api/energy");
+    return DEFAULT_ENERGY_URL;
+  }
+
+  async function fetchEnergyJson(url) {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(res.status + " " + url);
+    const text = await res.text();
+    if (/^\s*</.test(text)) throw new Error("Energy URL trả HTML — dùng …:1880/api/energy hoặc /proxy/energy");
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (_) {
+      throw new Error("Invalid JSON from energy API");
+    }
+    if (json && json.success === false) throw new Error((json.error && json.error.message) || json.message || "API error");
+    return json;
+  }
+
+  function readMeterPower(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.Power && typeof raw.Power === "object") return num(raw.Power.Active, null);
+    return num(raw.Power, null);
+  }
+
+  function readMeterEnergy(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.Energy && typeof raw.Energy === "object") return num(raw.Energy.Active, null);
+    return num(raw.Energy, null);
+  }
+
+  /**
+   * { [workshop]: { count, timestamp, machines: { [tag]: {Power, Energy} | DB nested } } }
+   * → byId[tag] (tag trùng giữa xưởng: giữ bản có |Power| lớn hơn, liệt kê ở duplicates)
+   */
+  function indexEnergyPayload(payload) {
+    const byId = Object.create(null);
+    const duplicates = [];
+    let meters = 0;
+    let latestTs = null;
+    if (payload && typeof payload === "object") {
+      Object.keys(payload).forEach((wsName) => {
+        const block = payload[wsName];
+        if (!block || typeof block !== "object" || !block.machines) return;
+        if (block.timestamp && (!latestTs || block.timestamp > latestTs)) latestTs = block.timestamp;
+        Object.keys(block.machines).forEach((tag) => {
+          const raw = block.machines[tag];
+          const entry = {
+            id: tag,
+            workshop: wsName,
+            power: readMeterPower(raw),
+            energyKwh: readMeterEnergy(raw),
+            isDbBoard: !!(raw && raw.Power && typeof raw.Power === "object"),
+            ts: block.timestamp || null,
+          };
+          meters++;
+          const prev = byId[tag];
+          if (prev) {
+            duplicates.push(tag + " (" + prev.workshop + " / " + wsName + ")");
+            if (Math.abs(entry.power || 0) <= Math.abs(prev.power || 0)) return;
+          }
+          byId[tag] = entry;
+        });
+      });
+    }
+    return { byId, duplicates, meters, ts: latestTs };
+  }
+
+  /** Override estimated power / meter on PLC fixtures with real /api/energy values */
+  function mergeEnergy(fx, index) {
+    if (!fx || !fx.machines || !index || !index.byId) return fx;
+    let matched = 0;
+    fx.machines.forEach((m) => {
+      const e = index.byId[m.id];
+      if (e && e.power != null) {
+        matched++;
+        m.power = +Number(e.power).toFixed(2);
+        m.energyMeterKwh = e.energyKwh != null ? +Number(e.energyKwh).toFixed(2) : null;
+        m.powerSource = "nodered.energy";
+        m.energyWorkshop = e.workshop;
+        m.energyTs = e.ts;
+        if (e.power < 0) {
+          const a = {
+            id: m.id + "-NEGPWR",
+            machineId: m.id,
+            severity: "warning",
+            message: "Công suất âm " + e.power.toFixed(2) + " kW (kiểm tra CT / đấu dây meter)",
+            timestamp: new Date().toISOString(),
+            acknowledged: false,
+          };
+          m.alarms = (m.alarms || []).concat([a]);
+          if (fx.alarms) fx.alarms.push(a);
+        }
+      } else {
+        m.power = null;
+        m.energyMeterKwh = null;
+        m.powerSource = "no-meter";
+      }
+    });
+    const powerSumKw = fx.machines.reduce((s, m) => s + Math.max(0, Number(m.power) || 0), 0);
+    if (fx.kpis) {
+      fx.kpis.energy = +(powerSumKw / 1000).toFixed(4);
+      fx.kpis.powerKw = +powerSumKw.toFixed(1);
+      fx.kpis.alarms = (fx.alarms || []).length;
+    }
+    fx.meta = Object.assign({}, fx.meta, {
+      energy: { matched, total: fx.machines.length, meters: index.meters, ts: index.ts, duplicates: index.duplicates },
+    });
+    return fx;
+  }
+
+  /**
+   * Client history (Node-RED has no history endpoint).
+   * Memory: every push (max memPts / id). localStorage: downsampled every persistEveryMs, maxAgeMs window.
+   * Sample: { t, sp, tg, st, p, e, l, tmp, cur }
+   */
+  function createMetricHistory(opts) {
+    const o = opts || {};
+    const storageKey = o.storageKey || null;
+    const persistEveryMs = o.persistEveryMs || 5 * 60 * 1000;
+    const maxAgeMs = o.maxAgeMs || 24 * 3600 * 1000;
+    const memPts = o.memPts || 3600;
+    const mem = Object.create(null);
+    let persisted = Object.create(null);
+    let lastSaveAt = 0;
+
+    if (storageKey) {
+      try {
+        const raw = JSON.parse(localStorage.getItem(storageKey) || "{}") || {};
+        const cut = Date.now() - maxAgeMs;
+        Object.keys(raw).forEach((id) => {
+          const arr = (raw[id] || []).filter((s) => s && s.t >= cut);
+          if (arr.length) {
+            persisted[id] = arr;
+            mem[id] = arr.slice();
+          }
+        });
+      } catch (_) {
+        persisted = Object.create(null);
+      }
+    }
+
+    function sampleOf(m, t) {
+      return {
+        t,
+        sp: m.lineSpeed != null ? Number(m.lineSpeed) : null,
+        tg: m.targetSpeed != null ? Number(m.targetSpeed) : null,
+        st: m.status || null,
+        p: m.power != null && m.powerSource === "nodered.energy" ? Number(m.power) : null,
+        e: m.energyMeterKwh != null ? Number(m.energyMeterKwh) : null,
+        l: m.producedLength != null ? Number(m.producedLength) : null,
+        tmp: m.temperature != null ? Number(m.temperature) : null,
+        cur: m.current != null ? Number(m.current) : null,
+      };
+    }
+
+    function save(now) {
+      if (!storageKey) return;
+      const cut = now - maxAgeMs;
+      Object.keys(persisted).forEach((id) => {
+        persisted[id] = persisted[id].filter((s) => s.t >= cut);
+        if (!persisted[id].length) delete persisted[id];
+      });
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(persisted));
+      } catch (_) {
+        // Quota: keep newest half
+        Object.keys(persisted).forEach((id) => {
+          const a = persisted[id];
+          persisted[id] = a.slice(Math.floor(a.length / 2));
+        });
+        try { localStorage.setItem(storageKey, JSON.stringify(persisted)); } catch (__) {}
+      }
+    }
+
+    return {
+      push(machines, ts) {
+        const t = ts || Date.now();
+        (machines || []).forEach((m) => {
+          if (!m || m.offline) return;
+          const s = sampleOf(m, t);
+          if (!mem[m.id]) mem[m.id] = [];
+          const arr = mem[m.id];
+          arr.push(s);
+          if (arr.length > memPts) arr.splice(0, arr.length - memPts);
+          const p = persisted[m.id] || (persisted[m.id] = []);
+          const last = p[p.length - 1];
+          if (!last || t - last.t >= persistEveryMs) {
+            const r = (v, k) => (v == null ? null : Math.round(v * k) / k);
+            p.push({ t: s.t, sp: r(s.sp, 100), tg: r(s.tg, 100), st: s.st, p: r(s.p, 100), e: r(s.e, 10), l: r(s.l, 1) });
+          }
+        });
+        if (t - lastSaveAt >= Math.min(60000, persistEveryMs)) {
+          lastSaveAt = t;
+          save(t);
+        }
+      },
+      series(id, startMs, endMs) {
+        const arr = mem[id] || [];
+        const a = startMs != null ? startMs : 0;
+        const b = endMs != null ? endMs : Infinity;
+        return arr.filter((s) => s.t >= a && s.t <= b);
+      },
+      clear() {
+        Object.keys(mem).forEach((k) => delete mem[k]);
+        persisted = Object.create(null);
+        if (storageKey) { try { localStorage.removeItem(storageKey); } catch (_) {} }
+      },
+    };
+  }
+
+  /**
+   * kWh / kW / m per bucket from cumulative meter + length samples.
+   * Negative deltas (meter reset / reel change) and deltas across gaps > maxGapMs are ignored.
+   */
+  function energyBuckets(samples, startMs, endMs, bucketCount, maxGapMs) {
+    const gapLimit = maxGapMs || 20 * 60 * 1000;
+    const n = Math.max(1, bucketCount || 12);
+    const span = Math.max(1, endMs - startMs);
+    const size = span / n;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({ a: startMs + i * size, b: startMs + (i + 1) * size, kwh: 0, m: 0, pSum: 0, pN: 0, eN: 0 });
+    }
+    let prev = null;
+    (samples || []).forEach((s) => {
+      if (s.t < startMs || s.t > endMs) { prev = s; return; }
+      const idx = Math.min(n - 1, Math.floor((s.t - startMs) / size));
+      const bk = out[idx];
+      if (s.p != null) { bk.pSum += s.p; bk.pN++; }
+      if (prev && s.t - prev.t <= gapLimit) {
+        if (s.e != null && prev.e != null) {
+          const de = s.e - prev.e;
+          if (de >= 0) { bk.kwh += de; bk.eN++; }
+        }
+        if (s.l != null && prev.l != null) {
+          const dl = s.l - prev.l;
+          if (dl > 0) bk.m += dl;
+        }
+      }
+      prev = s;
+    });
+    return out
+      .filter((bk) => bk.eN > 0 || bk.pN > 0)
+      .map((bk) => ({
+        bucketStart: new Date(bk.a).toISOString(),
+        bucketEnd: new Date(bk.b).toISOString(),
+        energy: +bk.kwh.toFixed(3),
+        powerKw: bk.pN ? +(bk.pSum / bk.pN).toFixed(2) : null,
+        producedLengthM: bk.m > 0 ? +bk.m.toFixed(1) : null,
+        kwhPer100m: bk.m > 0 && bk.eN > 0 ? +((bk.kwh / bk.m) * 100).toFixed(3) : null,
+      }));
+  }
+
+  /**
+   * Status hold filter: a new status is shown only after it stays stable for holdMs
+   * (PLC Fault/Alarm bits can toggle every poll). Raw value kept in m.statusRaw.
+   */
+  function createStatusDebouncer(opts) {
+    const holdMs = (opts && opts.holdMs) != null ? Number(opts.holdMs) : 10000;
+    const state = {};
+    function apply(fx, ts) {
+      const now = ts != null ? Number(ts) : Date.now();
+      const machines = (fx && fx.machines) || [];
+      machines.forEach((m) => {
+        if (!m || !m.id) return;
+        const raw = m.status;
+        m.statusRaw = raw;
+        const s = state[m.id];
+        if (!s || holdMs <= 0) {
+          state[m.id] = { shown: raw, cand: raw, since: now };
+          m.statusHeld = false;
+          return;
+        }
+        if (raw === s.shown) {
+          s.cand = raw;
+          s.since = now;
+        } else if (raw !== s.cand) {
+          s.cand = raw;
+          s.since = now;
+        } else if (now - s.since >= holdMs) {
+          s.shown = raw;
+        }
+        m.status = s.shown;
+        m.statusHeld = m.status !== raw;
+      });
+      if (fx && fx.kpis) {
+        const running = machines.filter((m) => m.status === "running").length;
+        fx.kpis.running = running;
+        fx.kpis.orders = running;
+      }
+      return fx;
+    }
+    function reset() {
+      Object.keys(state).forEach((k) => delete state[k]);
+    }
+    return { apply, reset, holdMs };
+  }
+
   global.MesNodeRedMachines = {
     AREA_META,
     WORKSHOP_BY_PREFIX,
@@ -516,6 +845,15 @@
     normalizeMachinesUrl,
     fetchMachinesJson,
     createSpeedBuffer,
+    DEFAULT_ENERGY_URL,
+    normalizeEnergyUrl,
+    energyUrlFromMachinesUrl,
+    fetchEnergyJson,
+    indexEnergyPayload,
+    mergeEnergy,
+    createMetricHistory,
+    energyBuckets,
+    createStatusDebouncer,
     workshopOf,
     processAreaOf,
     deriveStatus,

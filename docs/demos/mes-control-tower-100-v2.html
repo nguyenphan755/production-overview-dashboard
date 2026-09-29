@@ -1108,7 +1108,6 @@
     return "idle";
   }
   function formatPowerCell(m) {
-    if (m.powerRaw < 0) return m.powerRaw.toFixed(1) + " kW";
     if (m.powerRaw === 0) return "0";
     return m.powerRaw.toFixed(1);
   }
@@ -1325,18 +1324,28 @@
   function parseNodeRedEnergy(payload) {
     syncWorkshopsFromPayload(payload);
     const machines = [];
+    // Node-RED có tag trùng giữa xưởng (vd LT3PS01 ở 3.1 và 3.2, giá trị khác nhau) → id = tag·Xưởng
+    const tagCount = {};
+    Object.keys(payload || {}).forEach((wsName) => {
+      const block = payload[wsName];
+      if (!block || !block.machines) return;
+      Object.keys(block.machines).forEach((tag) => { tagCount[tag] = (tagCount[tag] || 0) + 1; });
+    });
     Object.keys(payload || {}).forEach((wsName) => {
       const block = payload[wsName];
       if (!block || !block.machines) return;
       const wsId = workshopSlug(wsName);
       const wsTs = block.timestamp || new Date().toISOString();
-      Object.entries(block.machines).forEach(([id, raw]) => {
-        const kind = classifyEquipment(id, raw);
+      const wsShort = String(wsName).replace(/^Xưởng\s*/i, "X").replace(/\s+/g, "");
+      Object.entries(block.machines).forEach(([tag, raw]) => {
+        const id = tagCount[tag] > 1 ? tag + "·" + wsShort : tag;
+        const kind = classifyEquipment(tag, raw);
         const powerRaw = readPowerRaw(raw);
         const energy = readEnergyRaw(raw);
         const m = {
           id,
-          name: id,
+          tag,
+          name: tagCount[tag] > 1 ? tag + " (" + wsName + ")" : tag,
           workshop: wsName,
           area: wsId,
           machineKind: kind,
